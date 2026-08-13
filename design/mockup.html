@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JOBBJAKT</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EDE6D6;
+    --ink:#2B241D;
+    --line:#2B241D;
+    --mute:#6B5F4F;
+    --flag:#A8431F;
+    --ok:#4F5D3A;
+    --card-hover:#E2D9C4;
+    --tag-border:#B9AD93;
+    --panel:#F7F2E6;
+    --sidebar:#E7DFCC;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;background:var(--paper);color:var(--ink);
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{display:flex;flex-direction:column;overflow:hidden;}
+  [hidden]{display:none!important;}
+
+  /* ================= MOBILE TABS ================= */
+  .mobile-tabs{display:none;border-bottom:2px solid var(--line);flex-shrink:0;}
+  .mobile-tabs button{
+    flex:1;background:none;border:none;border-right:1px solid var(--line);
+    padding:12px 6px;min-height:46px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+  }
+  .mobile-tabs button:last-child{border-right:none;}
+  .mobile-tabs button[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+  .mobile-tabs button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+
+  .app{display:flex;flex:1;min-height:0;}
+
+
+
+  /* ================= ADDED FEATURES ================= */
+
+  /* deadline queue banner (search workspace) */
+  .deadline-bar{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    background:var(--flag);color:var(--paper);padding:10px 24px;
+    border-bottom:2px solid var(--line);flex-shrink:0;
+  }
+  .deadline-bar .dtext{font-family:'IBM Plex Mono',monospace;font-size:11px;}
+  .deadline-bar .dtext b{color:#F5D9A8;}
+  .deadline-bar button{
+    background:var(--paper);color:var(--ink);border:1px solid var(--paper);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;padding:8px 13px;min-height:34px;cursor:pointer;
+  }
+  .deadline-bar button:hover{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+  /* reuse warning in letter view */
+  .reuse-warn{
+    flex-shrink:0;border-bottom:1px solid var(--line);background:#F0DCD4;
+    padding:9px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--flag);
+  }
+  .reuse-warn b{font-weight:700;}
+  .reuse-warn button{
+    margin-left:auto;background:none;border:1px solid var(--flag);color:var(--flag);
+    padding:6px 10px;min-height:30px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .reuse-warn button:hover{background:var(--flag);color:var(--paper);}
+  .dupe-text{background:#F0DCD4;border-bottom:2px solid var(--flag);}
+
+  /* calibration / stats panel */
+  .stats-strip{
+    flex-shrink:0;border-bottom:2px solid var(--line);background:var(--panel);
+    padding:13px 17px;
+  }
+  .stats-strip .stitle{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--mute);margin-bottom:10px;display:block;
+  }
+  .calib-row{
+    display:flex;align-items:center;gap:9px;margin-bottom:7px;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+  }
+  .calib-row:last-of-type{margin-bottom:0;}
+  .calib-row .band{width:48px;flex-shrink:0;color:var(--mute);}
+  .calib-row .ctrack{flex:1;height:11px;background:var(--tag-border);position:relative;}
+  .calib-row .ctrack::after{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:var(--rate);background:var(--ok);
+  }
+  .calib-row .ctrack.low::after{background:var(--flag);}
+  .calib-row .ctrack.mid::after{background:#B08238;}
+  .calib-row .cnum{width:64px;flex-shrink:0;text-align:right;color:var(--ink);font-weight:600;}
+  .calib-note{
+    margin-top:10px;font-size:10.5px;line-height:1.5;color:var(--mute);
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+    border-left:2px solid var(--flag);padding-left:9px;
+  }
+  .calib-note b{color:var(--ink);}
+
+  /* interview prep block */
+  .prep{
+    border:2px solid var(--ink);background:var(--panel);margin-bottom:11px;
+  }
+  .prep-head{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:9px 14px;background:var(--ink);color:var(--paper);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;cursor:pointer;
+  }
+  .prep-body{padding:14px;display:none;}
+  .prep[open] .prep-body{display:block;}
+  .prep h5{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;text-transform:uppercase;
+    letter-spacing:.06em;color:var(--mute);margin:14px 0 7px;
+  }
+  .prep h5:first-child{margin-top:0;}
+  .prep ul{margin:0 0 0 17px;font-size:12px;line-height:1.65;}
+  .prep li{margin-bottom:6px;}
+  .prep .claimed{
+    border:1px solid var(--flag);padding:9px 11px;margin-top:5px;
+    font-size:11.5px;line-height:1.55;color:var(--ink);
+  }
+  .prep .claimed b{color:var(--flag);font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px;}
+
+  /* follow-up scheduling row */
+  .followup{
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    border:1px dashed var(--line);background:var(--panel);
+    padding:10px 13px;margin-bottom:11px;margin-left:44px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);
+  }
+  .followup b{color:var(--ink);}
+  .followup select{
+    border:1px solid var(--tag-border);background:var(--paper);cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;
+    color:var(--ink);padding:5px 7px;min-height:30px;
+  }
+  .followup .fu-toggle{
+    background:none;border:1px solid var(--line);color:var(--ink);
+    padding:6px 10px;min-height:30px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .followup .fu-toggle[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
+
+  /* export */
+  .export-row{
+    flex-shrink:0;border-top:1px solid var(--line);padding:10px 17px;
+    display:flex;gap:7px;align-items:center;flex-wrap:wrap;background:var(--panel);
+  }
+  .export-row .elabel{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.04em;flex:1;min-width:100px;
+  }
+  .export-row button{
+    background:none;border:1px solid var(--line);color:var(--ink);
+    padding:8px 11px;min-height:34px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .export-row button:hover{background:var(--ink);color:var(--paper);}
+  .export-row button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* alias display in sidebar */
+  .search-item .alias{
+    font-size:8.5px;color:var(--mute);font-family:'IBM Plex Mono',monospace;
+    display:block;margin-top:3px;opacity:.8;
+  }
+
+  @media (max-width:760px){
+    .followup{margin-left:20px;}
+    .deadline-bar{padding:10px 16px;}
+    .deadline-bar button{width:100%;}
+  }
+
+  /* ================= TOP NAV ================= */
+  .topnav{
+    display:flex;align-items:center;gap:0;flex-shrink:0;
+    border-bottom:2px solid var(--line);background:var(--sidebar);
+  }
+  .topnav .brand{
+    padding:0 16px;font-family:'IBM Plex Mono',monospace;
+    font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    border-right:2px solid var(--line);align-self:stretch;display:flex;align-items:center;
+  }
+  .topnav button{
+    background:none;border:none;border-right:1px solid var(--line);
+    padding:12px 18px;min-height:44px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+    display:flex;align-items:center;gap:7px;
+  }
+  .topnav button[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+  .topnav button:hover:not([aria-selected="true"]){background:#DDD3BB;color:var(--ink);}
+  .topnav button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+  .topnav .badge{
+    background:var(--flag);color:var(--paper);
+    padding:1px 5px;font-size:9px;font-weight:700;min-width:16px;text-align:center;
+  }
+  .topnav button[aria-selected="true"] .badge{background:var(--paper);color:var(--ink);}
+
+  /* ================= INBOX ================= */
+  .inbox{display:flex;flex:1;min-height:0;}
+
+  /* left: thread list */
+  .thread-list{
+    width:34%;min-width:290px;flex-shrink:0;
+    border-right:2px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .inbox-head{
+    flex-shrink:0;border-bottom:2px solid var(--line);padding:15px 17px 12px;
+  }
+  .inbox-head .idx{font-size:9.5px;letter-spacing:.08em;color:var(--mute);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;}
+  .inbox-head h2{font-size:14px;font-weight:700;text-transform:uppercase;margin-top:5px;}
+  .inbox-filters{display:flex;gap:5px;margin-top:11px;flex-wrap:wrap;}
+  .inbox-filters button{
+    background:none;border:1px solid var(--tag-border);padding:5px 8px;min-height:30px;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+    text-transform:uppercase;letter-spacing:.03em;color:var(--mute);
+  }
+  .inbox-filters button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .inbox-filters button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  .threads{flex:1;overflow-y:auto;}
+  .thread-item{
+    display:block;width:100%;text-align:left;background:none;border:none;
+    border-bottom:1px solid var(--line);padding:13px 17px;cursor:pointer;color:var(--ink);
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  }
+  .thread-item:hover{background:var(--card-hover);}
+  .thread-item[aria-current="true"]{background:var(--panel);border-left:4px solid var(--flag);padding-left:13px;}
+  .thread-item:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+  .thread-item.unread .ti-title{font-weight:700;}
+  .thread-item.unread .ti-emp::after{
+    content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--flag);margin-left:7px;vertical-align:middle;
+  }
+  .ti-top{display:flex;justify-content:space-between;gap:9px;align-items:baseline;margin-bottom:3px;}
+  .ti-title{font-size:12.5px;font-weight:600;line-height:1.3;}
+  .ti-when{font-size:9.5px;color:var(--mute);font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
+  .ti-emp{font-size:11px;color:var(--mute);margin-bottom:7px;}
+  .ti-foot{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .st{
+    font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 6px;border:1px solid var(--line);font-family:'IBM Plex Mono',monospace;
+  }
+  .st.awaiting{background:none;color:var(--mute);border-color:var(--mute);}
+  .st.replied{background:var(--ok);border-color:var(--ok);color:var(--paper);}
+  .st.interview{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+  .st.rejected{background:none;color:var(--flag);border-color:var(--flag);}
+  .st.ghosted{background:var(--flag);border-color:var(--flag);color:var(--paper);}
+
+  /* likelihood-of-response bar */
+  .odds{margin-top:8px;}
+  .odds-top{
+    display:flex;justify-content:space-between;gap:8px;margin-bottom:4px;
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;
+    text-transform:uppercase;letter-spacing:.04em;color:var(--mute);
+  }
+  .odds-top b{font-weight:700;}
+  .odds-track{height:5px;background:var(--tag-border);position:relative;}
+  .odds-track::after{
+    content:"";position:absolute;left:0;top:0;bottom:0;
+    width:var(--odds);background:var(--ok);
+  }
+  .odds-track.mid::after{background:#B08238;}
+  .odds-track.low::after{background:var(--flag);}
+  .odds.done .odds-track::after{background:var(--mute);}
+
+  /* right: thread detail */
+  .thread-view{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
+  .tv-head{
+    flex-shrink:0;border-bottom:2px solid var(--line);padding:15px 22px 13px;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;
+  }
+  .tv-head .jt{font-size:15px;font-weight:700;text-transform:uppercase;}
+  .tv-head .je{font-size:11px;color:var(--mute);margin-top:4px;}
+  .tv-head .je b{color:var(--ink);font-weight:600;}
+  .tv-actions{display:flex;gap:7px;flex-wrap:wrap;}
+  .ref-btn{
+    background:none;border:1px solid var(--line);padding:8px 12px;min-height:36px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;color:var(--ink);
+    display:flex;align-items:center;gap:6px;
+  }
+  .ref-btn:hover{background:var(--ink);color:var(--paper);}
+  .ref-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+  .ref-btn.gone{border-color:var(--tag-border);color:var(--tag-border);cursor:not-allowed;}
+  .ref-btn.gone:hover{background:none;color:var(--tag-border);}
+
+  /* status strip with odds */
+  .tv-strip{
+    flex-shrink:0;border-bottom:1px solid var(--line);background:var(--panel);
+    padding:11px 22px;display:flex;gap:22px;align-items:center;flex-wrap:wrap;
+  }
+  .strip-item{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.04em;}
+  .strip-item b{display:block;color:var(--ink);font-size:11px;margin-top:3px;}
+  .strip-odds{flex:1;min-width:180px;}
+  .strip-odds .odds{margin-top:0;}
+  .strip-odds .odds-top{font-size:9.5px;}
+  .odds-note{
+    font-size:9.5px;color:var(--mute);margin-top:5px;line-height:1.4;
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  }
+  .odds-note.warn{color:var(--flag);}
+
+  /* thread messages */
+  .tv-scroll{flex:1;overflow-y:auto;padding:18px 22px 26px;}
+  .tmsg{
+    border:1px solid var(--line);margin-bottom:11px;background:var(--panel);
+  }
+  .tmsg.mine{background:var(--paper);margin-left:44px;}
+  .tmsg.theirs{margin-right:44px;}
+  .tmsg-head{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:10px 14px;cursor:pointer;flex-wrap:wrap;
+    border-bottom:1px solid transparent;
+  }
+  .tmsg[open] .tmsg-head{border-bottom-color:var(--tag-border);}
+  .tmsg-head:hover{background:var(--card-hover);}
+  .tmsg-who{font-size:11.5px;font-weight:700;}
+  .tmsg-who .role{
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--mute);
+    border:1px solid var(--tag-border);padding:1px 5px;margin-left:7px;
+  }
+  .tmsg-meta{display:flex;align-items:center;gap:10px;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);}
+  .tmsg-preview{
+    font-size:11px;color:var(--mute);padding:0 14px 10px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .tmsg[open] .tmsg-preview{display:none;}
+  .tmsg-body{padding:14px;font-size:12.5px;line-height:1.7;display:none;}
+  .tmsg[open] .tmsg-body{display:block;}
+  .tmsg-body p{margin-bottom:11px;}
+  .tmsg-body p:last-child{margin-bottom:0;}
+  .caret{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);}
+  .tmsg[open] .caret{transform:rotate(90deg);display:inline-block;}
+  .tmsg-attach{
+    margin-top:12px;padding-top:10px;border-top:1px solid var(--tag-border);
+    display:flex;gap:8px;flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);
+  }
+  .tmsg-attach .f{border:1px solid var(--tag-border);padding:5px 8px;color:var(--ink);}
+
+  /* AI suggested reply */
+  .suggest{
+    border:2px solid var(--ok);background:#E9EDDC;margin-bottom:11px;margin-left:44px;
+  }
+  .suggest-head{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:9px 14px;border-bottom:1px solid var(--ok);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--ok);
+  }
+  .suggest-body{padding:14px;font-size:12.5px;line-height:1.7;}
+  .suggest-acts{
+    padding:11px 14px;border-top:1px solid var(--ok);
+    display:flex;gap:7px;flex-wrap:wrap;
+  }
+  .suggest-acts button{
+    border:1px solid var(--ink);background:none;color:var(--ink);
+    padding:9px 13px;min-height:38px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .suggest-acts button.primary{background:var(--ink);color:var(--paper);}
+  .suggest-acts button.primary:hover{background:var(--flag);border-color:var(--flag);}
+  .suggest-acts button:hover{background:var(--card-hover);}
+  .suggest-acts button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* reply composer */
+  .composer{
+    flex-shrink:0;border-top:2px solid var(--line);padding:12px 22px 16px;background:var(--paper);
+  }
+  .composer-box{display:flex;border:1px solid var(--line);background:var(--panel);}
+  .composer-box:focus-within{outline:2px solid var(--flag);outline-offset:1px;}
+  .composer-box textarea{
+    flex:1;background:none;border:none;outline:none;resize:none;padding:11px 13px;
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;
+    color:var(--ink);min-height:44px;max-height:120px;
+  }
+  .composer-box textarea::placeholder{color:var(--mute);}
+  .composer-send{
+    flex-shrink:0;padding:0 16px;min-height:44px;background:var(--ink);border:none;
+    color:var(--paper);cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  }
+  .composer-send:hover{background:var(--flag);}
+  .composer-note{
+    margin-top:7px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--mute);
+  }
+
+  .empty-thread{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.05em;padding:30px;text-align:center;
+  }
+
+  /* ================= LIBRARY SIDEBAR ================= */
+  .library{
+    width:214px;flex-shrink:0;background:var(--sidebar);
+    border-right:2px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .library-header{padding:16px 15px 12px;border-bottom:2px solid var(--line);flex-shrink:0;}
+  .library-header .idx{font-size:9.5px;letter-spacing:.08em;color:var(--mute);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;}
+  .library-header h2{font-size:13px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.02em;margin-top:5px;}
+  .new-search{
+    display:block;width:100%;margin-top:11px;
+    background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    padding:9px 10px;min-height:38px;cursor:pointer;text-align:left;
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;
+  }
+  .new-search:hover{background:var(--flag);border-color:var(--flag);}
+  .new-search:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  .library-list{flex:1;overflow-y:auto;}
+  .search-item{
+    display:block;width:100%;text-align:left;background:none;border:none;
+    border-bottom:1px solid var(--tag-border);
+    padding:11px 15px;min-height:44px;cursor:pointer;color:var(--ink);
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  }
+  .search-item:hover{background:#DDD3BB;}
+  .search-item[aria-current="true"]{background:var(--paper);border-left:4px solid var(--flag);padding-left:11px;}
+  .search-item:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+  .search-item .name{font-size:12px;font-weight:600;display:block;margin-bottom:4px;line-height:1.3;}
+  .search-item .stats{font-size:9.5px;color:var(--mute);font-family:'IBM Plex Mono',monospace;display:block;}
+  .search-item .stats .count{color:var(--ok);font-weight:600;}
+  .search-item .stats .pending{color:var(--flag);font-weight:600;}
+  .search-item .when{font-size:9px;color:var(--mute);font-family:'IBM Plex Mono',monospace;
+    margin-top:4px;display:block;}
+
+  .profile-link{
+    display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+    background:none;border:none;border-top:2px solid var(--line);
+    padding:12px 15px;min-height:52px;cursor:pointer;color:var(--ink);flex-shrink:0;
+    font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  }
+  .profile-link:hover{background:#DDD3BB;}
+  .profile-link:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+  .profile-link .avatar{width:28px;height:28px;flex-shrink:0;background:var(--ink);color:var(--paper);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;}
+  .profile-link .who-name{font-size:12px;font-weight:600;display:block;}
+  .profile-link .cv-state{font-size:9px;color:var(--ok);font-weight:600;font-family:'IBM Plex Mono',monospace;}
+
+  /* ================= CHAT (shared shell) ================= */
+  .chat{
+    width:30%;min-width:290px;flex-shrink:0;
+    border-right:2px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .chat-header{padding:15px 17px 12px;border-bottom:2px solid var(--line);flex-shrink:0;}
+  .chat-header .idx{font-size:9.5px;letter-spacing:.08em;color:var(--mute);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;}
+  .chat-header h1{font-size:13.5px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.02em;margin-top:5px;}
+  .chat-body{flex:1;overflow-y:auto;padding:15px 17px;display:flex;flex-direction:column;gap:11px;}
+
+  .msg{font-size:12.5px;line-height:1.55;max-width:86%;padding:9px 12px;}
+  .msg .who{font-size:9px;font-weight:700;letter-spacing:.08em;display:block;
+    margin-bottom:5px;opacity:.75;font-family:'IBM Plex Mono',monospace;}
+  .msg.user{align-self:flex-end;background:var(--ink);color:var(--paper);
+    border:1px solid var(--ink);border-radius:14px 14px 3px 14px;}
+  .msg.user .who{color:var(--paper);}
+  .msg.ai{align-self:flex-start;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:14px 14px 14px 3px;}
+  .msg.ai .who{color:var(--mute);}
+  .sys-note{align-self:center;text-align:center;max-width:92%;font-size:10px;
+    color:var(--mute);font-family:'IBM Plex Mono',monospace;}
+  .sys-note::before{content:"// ";}
+
+  .chip-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+  .chip{font-size:10px;padding:3px 6px;border:1px solid var(--line);color:var(--ink);
+    background:var(--paper);font-family:'IBM Plex Mono',monospace;}
+  .chip.neg{border-color:var(--flag);color:var(--flag);}
+  .chip.pos{border-color:var(--ok);color:var(--ok);}
+
+  .quick{flex-shrink:0;padding:9px 17px;border-top:1px solid var(--tag-border);
+    display:flex;gap:5px;flex-wrap:wrap;}
+  .quick button{background:none;border:1px solid var(--tag-border);padding:6px 9px;
+    min-height:32px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.03em;}
+  .quick button:hover{border-color:var(--ink);color:var(--ink);background:var(--card-hover);}
+  .quick button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  .chat-input{flex-shrink:0;border-top:2px solid var(--line);padding:11px 17px 15px;}
+  .chat-input-box{display:flex;border:1px solid var(--line);}
+  .chat-input-box:focus-within{outline:2px solid var(--flag);outline-offset:1px;}
+  .chat-input-box textarea{flex:1;background:none;border:none;outline:none;resize:none;
+    padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);}
+  .chat-input-box textarea::placeholder{color:var(--mute);}
+  .send-btn{flex-shrink:0;width:46px;min-height:44px;background:var(--ink);border:none;
+    color:var(--paper);font-size:16px;font-weight:700;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;}
+  .send-btn:hover{background:var(--flag);}
+  .send-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* ================= RIGHT PANE ================= */
+  .stage{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
+
+  /* ---- list header + autoscan ---- */
+  .list-header{flex-shrink:0;border-bottom:2px solid var(--line);padding:18px 24px 14px;
+    display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;}
+  .list-header h2{font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;}
+  .list-header .sub{font-size:10.5px;color:var(--mute);margin-top:5px;font-family:'IBM Plex Mono',monospace;}
+  .list-header .sub b{color:var(--ink);}
+  .header-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .autoscan{display:flex;align-items:center;gap:7px;border:1px solid var(--line);
+    padding:6px 9px;min-height:34px;background:var(--paper);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);}
+  .autoscan .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex-shrink:0;}
+  .autoscan.paused .dot{background:var(--tag-border);}
+  .autoscan select{border:none;background:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:600;color:var(--ink);text-transform:uppercase;}
+  .autoscan .toggle{background:none;border:none;border-left:1px solid var(--tag-border);
+    padding:2px 0 2px 7px;margin-left:1px;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:700;color:var(--ink);cursor:pointer;text-transform:uppercase;}
+  .sort{font-size:10px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;
+    border:1px solid var(--line);padding:6px 9px;min-height:34px;display:flex;align-items:center;
+    font-family:'IBM Plex Mono',monospace;}
+  .sort b{color:var(--ink);margin-left:4px;}
+
+  .new-results{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex-wrap:wrap;background:var(--ink);color:var(--paper);padding:10px 24px;
+    border-bottom:2px solid var(--line);flex-shrink:0;}
+  .new-results .msg-text{font-family:'IBM Plex Mono',monospace;font-size:11px;}
+  .new-results .msg-text b{color:#D9C48A;}
+  .new-results button{background:var(--paper);color:var(--ink);border:1px solid var(--paper);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;padding:8px 13px;min-height:34px;cursor:pointer;}
+  .new-results button:hover{background:var(--flag);color:var(--paper);border-color:var(--flag);}
+
+  .col-labels{display:grid;grid-template-columns:60px 1fr 210px 104px;
+    border-bottom:1px solid var(--line);padding:8px 24px;font-size:9px;letter-spacing:.08em;
+    color:var(--mute);text-transform:uppercase;flex-shrink:0;font-family:'IBM Plex Mono',monospace;}
+
+  .list-scroll{flex:1;overflow-y:auto;}
+  .card{display:grid;grid-template-columns:60px 1fr 210px 104px;
+    border-bottom:1px solid var(--line);padding:15px 24px;cursor:pointer;}
+  .card:hover{background:var(--card-hover);}
+  .card.is-new{background:#F2EAD6;}
+  .card.is-new:hover{background:var(--card-hover);}
+
+  .score-col{display:flex;flex-direction:column;justify-content:center;}
+  .score-num{font-size:25px;font-weight:700;line-height:1;color:var(--mute);
+    font-family:'IBM Plex Mono',monospace;}
+  .score-num.strong{color:var(--ok);}
+  .score-num.flagged{color:var(--flag);}
+  .score-bar{width:38px;height:4px;background:var(--tag-border);margin-top:7px;position:relative;}
+  .score-bar::after{content:"";position:absolute;left:0;top:0;bottom:0;width:var(--pct);background:var(--mute);}
+  .score-bar.strong::after{background:var(--ok);}
+  .score-bar.flagged::after{background:var(--flag);}
+
+  .main-col{min-width:0;padding-right:14px;}
+  .title-row{display:flex;align-items:baseline;gap:9px;margin-bottom:4px;flex-wrap:wrap;}
+  .job-title{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.01em;}
+  .status{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 6px;border:1px solid var(--line);background:var(--ink);color:var(--paper);
+    flex-shrink:0;font-family:'IBM Plex Mono',monospace;}
+  .status.fresh{background:var(--ok);border-color:var(--ok);}
+  .status.drafted{background:var(--flag);border-color:var(--flag);}
+  .status.sent{background:none;color:var(--mute);border-color:var(--mute);}
+  .employer{font-size:11px;color:var(--mute);margin-bottom:9px;}
+  .employer span{color:var(--ink);}
+  .tag-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px;}
+  .tag{font-size:9.5px;border:1px solid var(--tag-border);padding:2px 6px;color:var(--mute);
+    font-family:'IBM Plex Mono',monospace;}
+  .reasoning{font-size:10.5px;line-height:1.55;color:var(--mute);}
+  .reasoning b{color:var(--ink);font-weight:600;}
+  .reasoning .flag-text{color:var(--flag);}
+
+  .meta-col{font-size:10px;color:var(--mute);display:flex;flex-direction:column;gap:5px;
+    justify-content:center;border-left:1px solid var(--tag-border);padding-left:14px;
+    font-family:'IBM Plex Mono',monospace;}
+  .meta-col .row{display:flex;justify-content:space-between;gap:8px;}
+  .meta-col .row b{color:var(--ink);font-weight:600;text-align:right;}
+  .meta-col .expiry.soon,.meta-col .expiry.soon b{color:var(--flag);}
+
+  .action-col{display:flex;align-items:center;justify-content:flex-end;}
+  .open-btn{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    border:1px solid var(--line);background:var(--ink);color:var(--paper);
+    padding:10px 13px;min-height:38px;cursor:pointer;font-family:'IBM Plex Mono',monospace;}
+  .open-btn:hover{background:var(--flag);border-color:var(--flag);}
+  .open-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* ================= BREADCRUMB (letter view) ================= */
+  .crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    border-bottom:2px solid var(--line);padding:10px 24px;flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;}
+  .crumb .back{background:none;border:1px solid var(--line);padding:7px 11px;min-height:34px;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--ink);}
+  .crumb .back:hover{background:var(--ink);color:var(--paper);}
+  .crumb .path{color:var(--mute);}
+  .crumb .path b{color:var(--ink);font-weight:600;}
+  .crumb .steps{margin-left:auto;display:flex;}
+  .crumb .step{padding:6px 10px;min-height:32px;display:flex;align-items:center;
+    border:1px solid var(--tag-border);border-right:none;font-size:9px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--mute);background:var(--paper);}
+  .crumb .step:last-child{border-right:1px solid var(--tag-border);}
+  .crumb .step.done{background:var(--ok);border-color:var(--ok);color:var(--paper);}
+  .crumb .step.active{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+
+  /* ---- ad detail ---- */
+  .draft-head{flex-shrink:0;border-bottom:2px solid var(--line);padding:15px 24px 12px;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+  .draft-head .jt{font-size:15.5px;font-weight:700;text-transform:uppercase;}
+  .draft-head .je{font-size:11px;color:var(--mute);margin-top:4px;}
+  .draft-head .je b{color:var(--ink);font-weight:600;}
+  .score-badge{display:flex;align-items:center;gap:7px;border:1px solid var(--ok);
+    padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    color:var(--ok);text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
+  .score-badge .n{font-size:15px;}
+
+  /* split: letter | ad side by side */
+  .split{display:flex;flex:1;min-height:0;}
+  .split-pane{display:flex;flex-direction:column;min-width:0;min-height:0;}
+  .split-pane.letter-pane{flex:1 1 58%;}
+  .split-pane.ad-pane{flex:1 1 42%;border-left:2px solid var(--line);background:var(--panel);}
+  .pane-head{
+    flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:8px 18px;min-height:38px;
+    border-bottom:1px solid var(--line);background:var(--sidebar);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--ink);
+  }
+  .pane-head .collapse{
+    background:none;border:1px solid var(--tag-border);cursor:pointer;
+    padding:4px 8px;min-height:26px;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;color:var(--mute);
+  }
+  .pane-head .collapse:hover{border-color:var(--ink);color:var(--ink);}
+  .pane-head .collapse:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+  .ad-pane[data-collapsed="true"]{flex:0 0 42px;}
+  .ad-pane[data-collapsed="true"] .pane-head{
+    writing-mode:vertical-rl;min-height:0;height:100%;padding:14px 8px;
+    justify-content:flex-start;gap:14px;border-bottom:none;
+  }
+  .ad-pane[data-collapsed="true"] .pane-scroll{display:none;}
+  .pane-scroll{flex:1;overflow-y:auto;padding:18px;}
+
+  /* jump-to-source pulse */
+  .hl-match,.hl-flag{scroll-margin-top:20px;}
+  .hl-match.pulse,.hl-flag.pulse{outline:2px solid var(--ink);outline-offset:2px;}
+
+  .toolbar{flex-shrink:0;border-bottom:1px solid var(--line);padding:8px 24px;
+    display:flex;gap:9px;align-items:center;flex-wrap:wrap;background:var(--panel);}
+  .tool{display:flex;align-items:center;gap:6px;border:1px solid var(--tag-border);
+    padding:5px 8px;min-height:32px;background:var(--paper);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.03em;}
+  .tool select{border:none;background:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:600;color:var(--ink);text-transform:uppercase;}
+  .tool button{background:none;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:700;color:var(--ink);text-transform:uppercase;padding:0;}
+  .tool button:disabled{color:var(--tag-border);cursor:default;}
+  .wc{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);}
+  .wc b{color:var(--ink);}
+
+  .draft-scroll{flex:1;overflow-y:auto;padding:20px 24px 28px;}
+  .sheet{max-width:640px;border:1px solid var(--line);background:var(--panel);padding:24px 26px;}
+  .subject-line{border-bottom:1px solid var(--tag-border);padding-bottom:11px;margin-bottom:17px;
+    display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .subject-line .lbl{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;}
+  .subject-line .val{font-size:13px;font-weight:600;flex:1;min-width:170px;}
+  .letter{font-size:13px;line-height:1.75;}
+  .letter p{margin-bottom:13px;}
+  .letter p:last-child{margin-bottom:0;}
+  .changed{background:#E4E9CF;border-bottom:2px solid var(--ok);padding:1px 0;}
+  .from-cv{border-bottom:1px dotted var(--mute);cursor:help;}
+  .src{cursor:pointer;}
+  .src:hover{background:#E4E9CF;}
+
+  .attach{margin-top:18px;padding-top:13px;border-top:1px solid var(--tag-border);
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);}
+  .attach .file{display:flex;align-items:center;gap:6px;border:1px solid var(--tag-border);
+    padding:6px 9px;color:var(--ink);}
+  .attach .file .x{width:24px;height:24px;flex-shrink:0;border:1px solid var(--line);
+    background:var(--paper);display:flex;align-items:center;justify-content:center;
+    font-size:7.5px;font-weight:700;}
+
+  /* ---- ad text pane ---- */
+  .adtext{max-width:660px;font-size:13px;line-height:1.7;}
+  .adtext h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    font-family:'IBM Plex Mono',monospace;color:var(--mute);margin:18px 0 8px;}
+  .adtext h4:first-child{margin-top:0;}
+  .adtext p{margin-bottom:12px;}
+  .adtext ul{margin:0 0 12px 18px;}
+  .adtext li{margin-bottom:5px;}
+  .hl-match{background:#E4E9CF;border-bottom:2px solid var(--ok);}
+  .hl-flag{background:#F0DCD4;border-bottom:2px solid var(--flag);}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;
+    border-bottom:1px solid var(--tag-border);font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);}
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .legend i{width:14px;height:10px;display:block;}
+
+  /* ================= SEND GATE ================= */
+  .gate{flex-shrink:0;border-top:2px solid var(--line);padding:13px 24px;
+    display:flex;align-items:center;gap:13px;flex-wrap:wrap;background:var(--paper);}
+  .gate .recip{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);
+    flex:1;min-width:170px;}
+  .gate .recip b{color:var(--ink);display:block;margin-top:3px;font-size:11px;}
+  .gate .warn{display:flex;align-items:center;gap:6px;border:1px solid var(--flag);
+    color:var(--flag);padding:7px 10px;font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .gate .acts{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn{padding:11px 16px;min-height:42px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    border:1px solid var(--line);background:none;color:var(--ink);}
+  .btn:hover{background:var(--card-hover);}
+  .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .btn.primary:hover{background:var(--flag);border-color:var(--flag);}
+  .btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* ================= CONFIRM MODAL ================= */
+  .overlay{position:fixed;inset:0;background:rgba(43,36,29,.62);z-index:60;
+    display:flex;align-items:center;justify-content:center;padding:20px;}
+  .modal{background:var(--paper);border:2px solid var(--line);max-width:480px;width:100%;
+    max-height:90vh;overflow-y:auto;}
+  .modal-head{border-bottom:2px solid var(--line);padding:16px 20px;}
+  .modal-head .idx{font-size:9.5px;letter-spacing:.08em;color:var(--mute);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;}
+  .modal-head h3{font-size:15px;font-weight:700;text-transform:uppercase;margin-top:5px;}
+  .modal-body{padding:18px 20px;}
+  .confirm-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--tag-border);font-family:'IBM Plex Mono',monospace;font-size:10.5px;}
+  .confirm-row:last-of-type{border-bottom:none;}
+  .confirm-row .k{color:var(--mute);text-transform:uppercase;letter-spacing:.04em;}
+  .confirm-row .v{color:var(--ink);font-weight:600;text-align:right;}
+  .modal-warn{margin-top:14px;border:1px solid var(--flag);color:var(--flag);padding:10px 12px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.5;}
+  .modal-foot{border-top:2px solid var(--line);padding:14px 20px;display:flex;gap:9px;flex-wrap:wrap;}
+  .modal-foot .btn{flex:1;}
+
+  /* ================= PROFILE ================= */
+  .profile-view{flex:1;overflow-y:auto;background:var(--paper);}
+  .profile-inner{max-width:720px;padding:24px 24px 50px;}
+  .profile-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+    border-bottom:2px solid var(--line);padding-bottom:14px;margin-bottom:22px;}
+  .profile-top h2{font-size:19px;font-weight:700;text-transform:uppercase;}
+  .profile-top .idx{font-size:9.5px;letter-spacing:.08em;color:var(--mute);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:5px;}
+  .field-group{margin-bottom:24px;}
+  .field-group > .label{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--mute);font-family:'IBM Plex Mono',monospace;display:block;margin-bottom:9px;}
+  .field-group .hint{font-size:11px;color:var(--mute);line-height:1.5;margin-top:8px;}
+  .cv-file{display:flex;align-items:center;gap:13px;border:1px solid var(--line);
+    background:var(--panel);padding:13px 15px;flex-wrap:wrap;}
+  .cv-file .ficon{width:32px;height:40px;flex-shrink:0;border:1px solid var(--line);
+    background:var(--paper);display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;}
+  .cv-file .meta{flex:1;min-width:130px;}
+  .cv-file .fname{font-size:12.5px;font-weight:600;display:block;margin-bottom:3px;}
+  .cv-file .fsub{font-size:10px;color:var(--mute);font-family:'IBM Plex Mono',monospace;}
+  .cv-file .acts{display:flex;gap:7px;}
+  .cv-file .acts button{background:none;border:1px solid var(--line);padding:8px 11px;
+    min-height:36px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+    font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink);}
+  .cv-file .acts button:hover{background:var(--ink);color:var(--paper);}
+  .cv-file .acts button.danger:hover{background:var(--flag);border-color:var(--flag);color:var(--paper);}
+  .parsed{border:1px solid var(--tag-border);padding:13px 15px;margin-top:11px;background:var(--panel);}
+  .parsed .ptitle{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);
+    font-family:'IBM Plex Mono',monospace;margin-bottom:10px;display:block;}
+  .parsed .prow{margin-bottom:10px;}
+  .parsed .prow:last-child{margin-bottom:0;}
+  .parsed .plabel{font-size:10px;color:var(--mute);font-family:'IBM Plex Mono',monospace;
+    display:block;margin-bottom:5px;}
+  .parsed .pvals{display:flex;flex-wrap:wrap;gap:5px;}
+  .dropzone{border:2px dashed var(--line);padding:22px 18px;text-align:center;background:var(--panel);}
+  .dropzone .big{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;display:block;}
+  .dropzone .small{font-size:10.5px;color:var(--mute);}
+  .dropzone button{margin-top:13px;background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    padding:10px 15px;min-height:40px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+  .dropzone button:hover{background:var(--flag);border-color:var(--flag);}
+  .txt-input,.txt-area{width:100%;border:1px solid var(--line);background:var(--panel);
+    padding:10px 12px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;
+    color:var(--ink);outline:none;}
+  .txt-area{resize:vertical;min-height:84px;line-height:1.55;}
+  .txt-input:focus,.txt-area:focus{outline:2px solid var(--flag);outline-offset:1px;}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .save-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    border-top:2px solid var(--line);padding-top:16px;}
+  .save-bar .save{background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    padding:12px 18px;min-height:42px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+  .save-bar .save:hover{background:var(--flag);border-color:var(--flag);}
+  .save-bar .note{font-size:10px;color:var(--mute);font-family:'IBM Plex Mono',monospace;}
+  .close-profile{background:none;border:1px solid var(--line);padding:9px 13px;min-height:38px;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--ink);flex-shrink:0;}
+  .close-profile:hover{background:var(--ink);color:var(--paper);}
+
+  ::-webkit-scrollbar{width:10px;}
+  ::-webkit-scrollbar-track{background:var(--paper);}
+  ::-webkit-scrollbar-thumb{background:var(--tag-border);}
+
+  /* ================= RESPONSIVE ================= */
+  @media (max-width:1180px){
+    .library{width:180px;}
+    .col-labels,.card{grid-template-columns:54px 1fr 180px 96px;padding-left:18px;padding-right:18px;}
+    .list-header,.crumb,.draft-head,.toolbar,.gate,.new-results{padding-left:18px;padding-right:18px;}
+  }
+  @media (max-width:1000px){
+    .library{display:none;}
+    .thread-list{width:38%;min-width:250px;}
+    .col-labels,.card{grid-template-columns:52px 1fr 168px;}
+    .col-labels .lbl-action{display:none;}
+    .action-col{grid-column:2 / -1;justify-content:flex-start;margin-top:9px;}
+  }
+  @media (max-width:1100px){
+    .split{flex-direction:column;}
+    .split-pane.letter-pane,.split-pane.ad-pane{flex:none;}
+    .split-pane.ad-pane{border-left:none;border-top:2px solid var(--line);max-height:42%;}
+    .ad-pane[data-collapsed="true"]{flex:none;max-height:none;}
+    .ad-pane[data-collapsed="true"] .pane-head{writing-mode:horizontal-tb;height:auto;
+      padding:8px 18px;min-height:38px;border-bottom:1px solid var(--line);
+      justify-content:space-between;gap:10px;}
+  }
+  @media (max-width:880px){
+    .col-labels,.card{grid-template-columns:52px 1fr;}
+    .col-labels .lbl-meta{display:none;}
+    .main-col{padding-right:0;}
+    .meta-col{grid-column:2 / -1;border-left:none;padding-left:0;padding-top:9px;margin-top:9px;
+      border-top:1px solid var(--tag-border);display:grid;grid-template-columns:repeat(2,1fr);gap:5px 18px;}
+    .crumb .steps{width:100%;margin-left:0;}
+    .crumb .step{flex:1;justify-content:center;}
+  }
+  @media (max-width:760px){
+    .mobile-back{display:flex!important;}
+    .app,.inbox{flex-direction:column;}
+    .mobile-tabs{display:flex;}
+    .topnav .brand{display:none;}
+    .topnav button{flex:1;justify-content:center;padding:12px 8px;}
+    .thread-list,.thread-view{width:100%;min-width:0;flex:1;min-height:0;border-right:none;}
+    .thread-list[hidden],.thread-view[hidden]{display:none;}
+    .tmsg.mine{margin-left:20px;}
+    .tmsg.theirs{margin-right:20px;}
+    .suggest{margin-left:20px;}
+    .tv-head,.tv-strip,.tv-scroll,.composer{padding-left:16px;padding-right:16px;}
+    .library{display:flex;width:100%;min-width:0;flex:1;min-height:0;border-right:none;}
+    .chat,.stage{width:100%;min-width:0;flex:1;min-height:0;border-right:none;}
+    .list-header{flex-direction:column;align-items:flex-start;gap:10px;}
+    .header-controls{width:100%;flex-direction:column;align-items:stretch;}
+    .autoscan,.sort{justify-content:space-between;}
+    .gate{flex-direction:column;align-items:stretch;}
+    .gate .acts{width:100%;}
+    .gate .acts .btn{flex:1;}
+    .wc{margin-left:0;width:100%;}
+    .two-col{grid-template-columns:1fr;}
+    .profile-inner{padding:18px 16px 44px;}
+    .draft-scroll{padding:16px;}
+    .sheet{padding:18px 16px;}
+    .msg{max-width:90%;}
+  }
+  @media (max-width:420px){
+    .col-labels,.card{grid-template-columns:44px 1fr;padding-left:13px;padding-right:13px;}
+    .score-num{font-size:21px;}
+    .meta-col{grid-template-columns:1fr;}
+    .open-btn{width:100%;}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+</style>
+</head>
+<body>
+
+<div class="topnav" role="tablist">
+  <span class="brand">Jobbjakt</span>
+  <button role="tab" aria-selected="true" data-workspace="search">Sökning</button>
+  <button role="tab" aria-selected="false" data-workspace="inbox">Inkorg <span class="badge">2</span></button>
+</div>
+
+<div class="mobile-tabs" id="mobileTabs" role="tablist">
+  <button role="tab" aria-selected="false" data-target="library">Sök</button>
+  <button role="tab" aria-selected="true" data-target="chat">Chatt</button>
+  <button role="tab" aria-selected="false" data-target="stage">Resultat</button>
+</div>
+
+<div class="app" id="workspace-search">
+
+  <!-- ============ LIBRARY ============ -->
+  <div class="library" id="panel-library">
+    <div class="library-header">
+      <div class="idx">00 / Sökningar</div>
+      <h2>Bibliotek</h2>
+      <button class="new-search">+ Ny sökning</button>
+    </div>
+    <div class="library-list" role="list">
+      <button class="search-item" role="listitem" aria-current="true" data-search="frontend">
+        <span class="name">Frontend / fullstack Stockholm</span>
+        <span class="alias">din+frontend@gmail.com</span>
+        <span class="stats"><span class="count">6 matchningar</span> · <span class="pending">1 utkast</span></span>
+        <span class="when">Skannad 12:04 · var 1 tim</span>
+      </button>
+      <button class="search-item" role="listitem" data-search="hotell">
+        <span class="name">Hotellreceptionist deltid</span>
+        <span class="alias">din+hotell@gmail.com</span>
+        <span class="stats"><span class="count">3 matchningar</span> · 2 skickade</span>
+        <span class="when">Skannad 11:30 · var 6 tim</span>
+      </button>
+      <button class="search-item" role="listitem" data-search="lia">
+        <span class="name">LIA-plats dec–apr</span>
+        <span class="alias">din+lia@gmail.com</span>
+        <span class="stats"><span class="count">11 matchningar</span> · <span class="pending">4 utkast</span></span>
+        <span class="when">Skannad 09:15 · var 1 dygn</span>
+      </button>
+      <button class="search-item" role="listitem" data-search="backend">
+        <span class="name">Backend .NET Linköping</span>
+        <span class="alias">din+backend@gmail.com</span>
+        <span class="stats"><span class="count">2 matchningar</span></span>
+        <span class="when">Skannad 08:00 · var 1 dygn</span>
+      </button>
+    </div>
+    <button class="profile-link" id="openProfile">
+      <span class="avatar">IG</span>
+      <span>
+        <span class="who-name">Anna G.</span>
+        <span class="cv-state">CV uppladdat</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- ============ CHAT ============ -->
+  <div class="chat" id="panel-chat">
+    <div class="chat-header">
+      <div class="idx" id="chatIdx">01 / Copilot</div>
+      <h1 id="chatTitle">Vad letar du efter?</h1>
+    </div>
+
+    <!-- search-criteria conversation -->
+    <div class="chat-body" id="chatSearch">
+      <div class="msg user">
+        <span class="who">DU</span>
+        Junior/mid frontend- eller fullstackroller i Stockholm. Inget krav på 5+ års erfarenhet, gärna React. Inte intresserad av tunga .NET-legacy-grejer. Hybrid är okej.
+      </div>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        Filter satta via JobSearch API:
+        <div class="chip-row">
+          <span class="chip">OCCUPATION-FIELD: IT</span>
+          <span class="chip">MUNICIPALITY: STOCKHOLM</span>
+          <span class="chip">EXPERIENCE-REQUIRED: NO</span>
+          <span class="chip">REMOTE: HYBRID/YES</span>
+        </div>
+      </div>
+      <div class="sys-note">32 annonser hämtade — korsreferens mot din profil</div>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        6 av 32 matchar bra. Resten föll pga "5+ år" i brödtext eller tungt .NET-fokus.
+      </div>
+      <div class="msg user">
+        <span class="who">DU</span>
+        Bra, men jag är okej med lite .NET, bara inte COBOL-nivå legacy.
+      </div>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        Kriterium uppdaterat. Flaggar bara vid uttryckligt "legacy-system" eller "mainframe".
+        <div class="chip-row">
+          <span class="chip neg">LEGACY/MAINFRAME → FLAGGA</span>
+          <span class="chip pos">MODERN .NET → OK</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- letter-revision conversation -->
+    <div class="chat-body" id="chatLetter" hidden>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        Utkast klart. Jag lyfte fram din React-erfarenhet från skolprojekten och kopplade caféjobbet till kundkontakt, eftersom annonsen nämner tvärfunktionellt arbete.
+      </div>
+      <div class="msg user">
+        <span class="who">DU</span>
+        Korta ner andra stycket, det låter för mycket som ett CV.
+      </div>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        Kortat från 5 till 2 meningar — behöll projektet, tog bort teknikuppräkningen som redan står i CV:t.
+      </div>
+      <div class="sys-note">Version 3 · ändringar markerade i brevet</div>
+      <div class="msg user">
+        <span class="who">DU</span>
+        Nämn att jag kan börja direkt efter LIA i april.
+      </div>
+      <div class="msg ai">
+        <span class="who">COPILOT</span>
+        Tillagt i sista stycket. Formulerat som tillgänglighet snarare än förbehåll.
+      </div>
+    </div>
+
+    <div class="quick" id="quickRow" hidden>
+      <button>Kortare</button>
+      <button>Mindre formellt</button>
+      <button>Mer konkret</button>
+      <button>Skriv om helt</button>
+    </div>
+
+    <div class="chat-input">
+      <div class="chat-input-box">
+        <textarea rows="1" id="chatInput" placeholder="Justera kriterier…"></textarea>
+        <button class="send-btn">→</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STAGE (list / letter / profile) ============ -->
+  <div class="stage" id="panel-stage">
+
+    <!-- ---------- VIEW: MATCH LIST ---------- -->
+    <div class="stage-view" id="viewList" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+      <div class="list-header">
+        <div>
+          <h2>Matchningar</h2>
+          <div class="sub"><b>6</b> av 32 annonser — <span id="scanStatus">senast skannad 12:04</span></div>
+        </div>
+        <div class="header-controls">
+          <div class="autoscan" id="autoscan">
+            <span class="dot"></span>
+            <label for="scanInterval">Auto-skanning</label>
+            <select id="scanInterval" aria-label="Intervall">
+              <option>15 min</option>
+              <option selected>1 tim</option>
+              <option>6 tim</option>
+              <option>1 dygn</option>
+            </select>
+            <button class="toggle" id="scanToggle" aria-pressed="true">På</button>
+          </div>
+          <div class="sort">Sortering: <b>Matchpoäng</b></div>
+        </div>
+      </div>
+
+      <div class="deadline-bar" id="deadlineBar">
+        <span class="dtext">⏱ <b>2 utkast</b> gäller annonser som går ut inom 48 timmar</span>
+        <button id="showExpiring">Visa dessa →</button>
+      </div>
+
+      <div class="new-results" id="newResults">
+        <span class="msg-text">Auto-skanning hittade <b>3 nya annonser</b> — 1 med matchpoäng över 80</span>
+        <button id="showNew">Visa nya →</button>
+      </div>
+
+      <div class="col-labels">
+        <div>Poäng</div><div>Annons</div>
+        <div class="lbl-meta">Detaljer</div>
+        <div class="lbl-action" style="text-align:right">Åtgärd</div>
+      </div>
+
+      <div class="list-scroll" id="listScroll"></div>
+    </div>
+
+    <!-- ---------- VIEW: LETTER ---------- -->
+    <div class="stage-view" id="viewLetter" hidden style="flex-direction:column;flex:1;min-height:0;">
+      <div class="crumb">
+        <button class="back" id="backToList">← Tillbaka</button>
+        <span class="path">Frontend / fullstack Stockholm <b id="crumbJob">/ —</b></span>
+        <span class="steps">
+          <span class="step done">Matchad</span>
+          <span class="step done">Utkast</span>
+          <span class="step active">Granska</span>
+          <span class="step">Skickad</span>
+        </span>
+      </div>
+
+      <div class="draft-head">
+        <div>
+          <div class="jt" id="letterJob">—</div>
+          <div class="je" id="letterEmp">—</div>
+        </div>
+        <div class="score-badge"><span class="n" id="letterScore">—</span> Matchning</div>
+      </div>
+
+      <div class="split">
+
+        <!-- LEFT: the letter -->
+        <div class="split-pane letter-pane">
+          <div class="reuse-warn" id="reuseWarn">
+            <span>⚠ <b>Stycke 2</b> är 84% identiskt med brevet till Polarflow AB (5 aug)</span>
+            <button id="rewriteDupe">Skriv om stycket</button>
+          </div>
+          <div class="pane-head">
+            <span>Personligt brev · v3</span>
+            <span class="wc" style="margin:0"><b>218</b> ord</span>
+          </div>
+
+          <div class="toolbar">
+            <div class="tool">Version
+              <select aria-label="Version"><option>v3 (senaste)</option><option>v2</option><option>v1</option></select>
+            </div>
+            <div class="tool"><button disabled>← Ångra</button><button>Gör om →</button></div>
+            <div class="tool">Ton
+              <select aria-label="Ton"><option selected>Rak</option><option>Formell</option><option>Varm</option></select>
+            </div>
+            <div class="tool">Språk
+              <select aria-label="Språk"><option selected>Svenska</option><option>Engelska</option></select>
+            </div>
+          </div>
+
+          <div class="pane-scroll">
+            <div class="sheet">
+              <div class="subject-line">
+                <span class="lbl">Ämne</span>
+                <span class="val" id="letterSubject">—</span>
+              </div>
+              <div class="letter">
+                <p>Hej,</p>
+                <p>Jag söker rollen som frontendutvecklare hos Neonpixel. Jag läser just nu <span class="from-cv" title="Från ditt CV">fullstack JavaScript på Yrkeshögskolan</span> och har byggt flera projekt i <span class="from-cv src" data-src="src-react" title="Svarar mot krav i annonsen — klicka för att se">React och TypeScript</span> — bland annat en bokningstjänst där jag hade hand om hela gränssnittet.</p>
+                <p><span class="changed src dupe-text" data-src="src-team" title="Svarar mot krav i annonsen — klicka för att se">Innan studierna arbetade jag inom vård och café. Det har gett mig vana vid högt tempo och att förklara saker begripligt för andra — något jag märker är användbart i tvärfunktionella team.</span></p>
+                <p><span class="src" data-src="src-flat">Att ni nämner att ni jobbar nära design och inte har långa beslutsvägar är en stor del av varför jag söker.</span> Jag trivs bäst när jag kan se vad jag byggt hamna hos användare snabbt.</p>
+                <p><span class="changed src" data-src="src-hybrid">Jag har LIA fram till april och kan börja på heltid direkt därefter — eller tidigare på deltid om det passar er bättre.</span></p>
+                <p>Hör gärna av er om ni vill se kod eller prata vidare.</p>
+                <p>Vänliga hälsningar,<br>Anna Andersson</p>
+              </div>
+              <div class="attach">
+                Bilagor:
+                <span class="file"><span class="x">PDF</span> cv.pdf</span>
+                <span class="file"><span class="x">PDF</span> betyg.pdf</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: the ad it's answering -->
+        <div class="split-pane ad-pane" id="adPane" data-collapsed="false">
+          <div class="pane-head">
+            <span>Annonstext</span>
+            <button class="collapse" id="collapseAd" aria-expanded="true">Dölj ›</button>
+          </div>
+          <div class="pane-scroll">
+            <div class="adtext">
+              <div class="legend">
+                <span><i style="background:#E4E9CF;border-bottom:2px solid var(--ok)"></i> Matchar</span>
+                <span><i style="background:#F0DCD4;border-bottom:2px solid var(--flag)"></i> Flaggat</span>
+              </div>
+              <h4>Om rollen</h4>
+              <p>Neonpixel söker en frontendutvecklare till vårt produktteam i Stockholm. Du arbetar nära design och backend i ett <span class="hl-match" id="src-team">tvärfunktionellt team</span> med <span class="hl-match" id="src-flat">korta beslutsvägar</span>.</p>
+              <h4>Vi söker dig som</h4>
+              <ul>
+                <li>Har erfarenhet av <span class="hl-match" id="src-react">React och TypeScript</span></li>
+                <li>Är bekväm med modern byggkedja (<span class="hl-match">Vite</span>, ESLint)</li>
+                <li><span class="hl-match">Inget krav på antal års erfarenhet</span> — vi tittar på vad du byggt</li>
+                <li>Kan kommunicera på svenska eller engelska</li>
+              </ul>
+              <h4>Vi erbjuder</h4>
+              <p><span class="hl-match" id="src-hybrid">Hybridarbete</span>, tillsvidareanställning och ett team på nio personer. <span class="hl-flag">Tjänsten tillsätts löpande</span> — ansök senast 14 aug.</p>
+              <h4>Ansökan</h4>
+              <p>Skicka CV och personligt brev till jobb@neonpixel.se.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="gate">
+        <div class="recip">Skickas via Gmail till <b id="gateEmail">—</b></div>
+        <div class="warn">⚠ Inget skickas utan din bekräftelse</div>
+        <div class="acts">
+          <button class="btn">Spara utkast</button>
+          <button class="btn">Redigera i text</button>
+          <button class="btn primary" id="openConfirm">Granska &amp; skicka →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- VIEW: PROFILE ---------- -->
+    <div class="stage-view profile-view" id="viewProfile" hidden>
+      <div class="profile-inner">
+        <div class="profile-top">
+          <div>
+            <div class="idx">Profil</div>
+            <h2>Din profil &amp; CV</h2>
+          </div>
+          <button class="close-profile" id="closeProfile">✕ Stäng</button>
+        </div>
+
+        <div class="field-group">
+          <span class="label">Bas-CV</span>
+          <div class="cv-file">
+            <span class="ficon">PDF</span>
+            <span class="meta">
+              <span class="fname">cv.pdf</span>
+              <span class="fsub">248 KB · uppladdad 4 aug 2026 · tolkad</span>
+            </span>
+            <span class="acts">
+              <button>Ersätt</button><button>Visa</button><button class="danger">Ta bort</button>
+            </span>
+          </div>
+          <div class="parsed">
+            <span class="ptitle">Tolkat ur ditt CV — används för matchning</span>
+            <div class="prow">
+              <span class="plabel">Teknik</span>
+              <span class="pvals">
+                <span class="tag">JAVASCRIPT</span><span class="tag">REACT</span><span class="tag">NODE</span>
+                <span class="tag">C#</span><span class="tag">.NET</span><span class="tag">SQL</span><span class="tag">GIT</span>
+              </span>
+            </div>
+            <div class="prow">
+              <span class="plabel">Erfarenhet</span>
+              <span class="pvals">
+                <span class="tag">VÅRD &amp; OMSORG</span><span class="tag">CAFÉ / SERVICE</span><span class="tag">YRKESHÖGSKOLAN</span>
+              </span>
+            </div>
+            <div class="prow">
+              <span class="plabel">Språk</span>
+              <span class="pvals"><span class="tag">SVENSKA</span><span class="tag">ENGELSKA</span></span>
+            </div>
+          </div>
+          <p class="hint">Tolkningen körs om när du laddar upp ett nytt CV. Stämmer något inte? Justera i fritextfältet nedan — det väger tyngre.</p>
+        </div>
+
+        <div class="field-group">
+          <span class="label">Lägg till fler filer</span>
+          <div class="dropzone">
+            <span class="big">Släpp filer här</span>
+            <span class="small">PDF, DOCX eller TXT · max 10 MB</span><br>
+            <button>Välj fil</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <span class="label">Kontaktuppgifter</span>
+          <div class="two-col">
+            <input class="txt-input" type="text" value="Anna Andersson" aria-label="Namn">
+            <input class="txt-input" type="email" placeholder="din@epost.se" aria-label="E-post">
+            <input class="txt-input" type="tel" placeholder="070-000 00 00" aria-label="Telefon">
+            <input class="txt-input" type="text" value="Stockholm" aria-label="Ort">
+          </div>
+          <p class="hint">Används i mejlen som skickas via Gmail — inte i matchningen.</p>
+        </div>
+
+        <div class="field-group">
+          <span class="label">Om dig — i egna ord</span>
+          <textarea class="txt-area" aria-label="Om dig">Fullstack-student på Yrkeshögskolan med bakgrund i .NET-systemutveckling. Söker främst frontend- eller fullstackroller, gärna React. Tidigare erfarenhet från vård och café — van vid högt tempo och kundkontakt.</textarea>
+          <p class="hint">Läses vid varje matchning och används som grund i personliga brev.</p>
+        </div>
+
+        <div class="field-group">
+          <span class="label">Ton i personliga brev</span>
+          <textarea class="txt-area" style="min-height:62px" aria-label="Ton">Rakt på sak, inga floskler. Nämn konkreta projekt istället för adjektiv. Undvik "passionerad" och "driven".</textarea>
+        </div>
+
+        <div class="save-bar">
+          <button class="save">Spara profil</button>
+          <span class="note">Senast sparad 12:02</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ============ INBOX WORKSPACE ============ -->
+<div class="inbox" id="workspace-inbox" hidden>
+
+  <div class="thread-list" id="threadList">
+    <div class="inbox-head">
+      <div class="idx">03 / Ansökningar</div>
+      <h2>Inkorg</h2>
+      <div class="inbox-filters">
+        <button aria-pressed="true" data-filter="all">Alla</button>
+        <button aria-pressed="false" data-filter="unread">Olästa</button>
+        <button aria-pressed="false" data-filter="awaiting">Väntar svar</button>
+        <button aria-pressed="false" data-filter="ghosted">Ghostade</button>
+      </div>
+    </div>
+    <div class="stats-strip">
+      <span class="stitle">Träffsäkerhet · 24 ansökningar</span>
+      <div class="calib-row">
+        <span class="band">80–100</span>
+        <span class="ctrack" style="--rate:34%"></span>
+        <span class="cnum">34% svar</span>
+      </div>
+      <div class="calib-row">
+        <span class="band">60–79</span>
+        <span class="ctrack mid" style="--rate:41%"></span>
+        <span class="cnum">41% svar</span>
+      </div>
+      <div class="calib-row">
+        <span class="band">0–59</span>
+        <span class="ctrack low" style="--rate:11%"></span>
+        <span class="cnum">11% svar</span>
+      </div>
+      <div class="calib-note">
+        Dina <b>60–79-matchningar</b> får oftare svar än 80+. Poängen kan vara för hård mot roller där du saknar en enskild teknik — säg till i chatten om du vill att jag viktar ner det.
+      </div>
+    </div>
+
+    <div class="threads" id="threads"></div>
+
+    <div class="export-row">
+      <span class="elabel">Exportera underlag</span>
+      <button>A-kassa (PDF)</button>
+      <button>CSV</button>
+    </div>
+  </div>
+
+  <div class="thread-view" id="threadView">
+    <div class="empty-thread">Välj en ansökan till vänster</div>
+  </div>
+
+</div>
+
+<!-- ============ CONFIRM MODAL ============ -->
+<div class="overlay" id="confirmOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+    <div class="modal-head">
+      <div class="idx">Sista steget</div>
+      <h3 id="cfTitle">Bekräfta utskick</h3>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-row"><span class="k">Till</span><span class="v" id="cfEmail">—</span></div>
+      <div class="confirm-row"><span class="k">Tjänst</span><span class="v" id="cfJob">—</span></div>
+      <div class="confirm-row"><span class="k">Ämne</span><span class="v" id="cfSubject">—</span></div>
+      <div class="confirm-row"><span class="k">Bilagor</span><span class="v">2 filer</span></div>
+      <div class="confirm-row"><span class="k">Avsändare</span><span class="v">din@gmail.com</span></div>
+      <div class="modal-warn">Mejlet skickas från ditt eget Gmail-konto i ditt namn. Det går inte att ångra efter utskick.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelSend">Avbryt</button>
+      <button class="btn primary" id="doSend">Skicka nu</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- data ----------
+  var JOBS = [
+    {id:'j1',score:96,title:'Frontendutvecklare — React',emp:'Neonpixel AB',loc:'Stockholm',
+     status:'fresh',statusLabel:'Ny sedan skanning',isNew:true,
+     tags:['REACT','TYPESCRIPT','VITE','JUNIOR–MID'],
+     reason:'<b>Matchar:</b> React-fokus, inget erfarenhetskrav, hybridarbete, Stockholm.',
+     pub:'3 AUG',exp:'2 DAGAR',expSoon:true,place:'HYBRID',type:'TILLSVIDARE',
+     email:'jobb@neonpixel.se'},
+    {id:'j2',score:84,title:'Fullstackutvecklare (.NET/React)',emp:'Kärnbank Systems',loc:'Stockholm',
+     status:'drafted',statusLabel:'Utkast',isNew:false,
+     tags:['.NET 8','REACT','AZURE'],
+     reason:'<b>Matchar:</b> modern .NET (ej legacy), React frontend. <span class="flag-text">Flagga:</span> kontor 4 dagar/vecka.',
+     pub:'29 JUL',exp:'11 DAGAR',expSoon:false,place:'KONTOR',type:'TILLSVIDARE',
+     email:'rekrytering@karnbank.se'},
+    {id:'j3',score:79,title:'Junior Systemutvecklare',emp:'Polarflow AB',loc:'Solna',
+     status:'',statusLabel:'Ny',isNew:false,
+     tags:['JAVASCRIPT','NODE','SQL','JUNIOR'],
+     reason:'<b>Matchar:</b> uttalat juniorvänlig, Stockholmsregionen, hybrid.',
+     pub:'5 AUG',exp:'18 DAGAR',expSoon:false,place:'HYBRID',type:'TILLSVIDARE',
+     email:'jobb@polarflow.se'},
+    {id:'j4',score:61,title:'Backendutvecklare C#/.NET',emp:'Fjärrvärme Digital',loc:'Stockholm',
+     status:'',statusLabel:'Ny',isNew:false,
+     tags:['.NET FRAMEWORK','SQL SERVER','INGEN FRONTEND'],
+     reason:'<b>Matchar:</b> din .NET-bakgrund. <span class="flag-text">Flagga:</span> nämner "äldre kärnsystem", ingen frontend-del.',
+     pub:'1 AUG',exp:'9 DAGAR',expSoon:false,place:'KONTOR',type:'TILLSVIDARE',
+     email:'hr@fjarrvarmedigital.se'},
+    {id:'j5',score:57,title:'Webbutvecklare',emp:'Butiksdata Sverige',loc:'Kista',
+     status:'sent',statusLabel:'Skickad',isNew:false,
+     tags:['PHP','JQUERY','WORDPRESS'],
+     reason:'<b>Matchar:</b> Stockholmsregion, inget erfarenhetskrav. <span class="flag-text">Flagga:</span> äldre stack, inte React.',
+     pub:'22 JUL',exp:'23 DAGAR',expSoon:false,place:'KONTOR',type:'DELTID',
+     email:'jobb@butiksdata.se'},
+    {id:'j6',score:38,title:'Systemutvecklare, mainframe COBOL',emp:'Riksdata Legacy AB',loc:'Solna',
+     status:'',statusLabel:'Ny',isNew:false,
+     tags:['COBOL','MAINFRAME','10+ ÅR'],
+     reason:'<b>Matchar:</b> Stockholmsregion. <span class="flag-text">Flagga:</span> uttrycklig mainframe/COBOL-legacy — matchar din undantagsregel.',
+     pub:'30 JUL',exp:'14 DAGAR',expSoon:false,place:'KONTOR',type:'TILLSVIDARE',
+     email:'jobb@riksdata.se'}
+  ];
+
+  var $ = function(id){ return document.getElementById(id); };
+  var mq = window.matchMedia('(max-width:760px)');
+
+  // ---------- render list ----------
+  function scoreClass(s){ return s>=75 ? 'strong' : (s<45 ? 'flagged' : ''); }
+  function renderList(){
+    $('listScroll').innerHTML = JOBS.map(function(j){
+      return '<div class="card'+(j.isNew?' is-new':'')+'" data-job="'+j.id+'">'
+        + '<div class="score-col"><div class="score-num '+scoreClass(j.score)+'">'+j.score+'</div>'
+        + '<div class="score-bar '+scoreClass(j.score)+'" style="--pct:'+j.score+'%"></div></div>'
+        + '<div class="main-col"><div class="title-row"><div class="job-title">'+j.title+'</div>'
+        + '<div class="status '+j.status+'">'+j.statusLabel+'</div></div>'
+        + '<div class="employer">'+j.emp+' — <span>'+j.loc+'</span></div>'
+        + '<div class="tag-row">'+j.tags.map(function(t){return '<span class="tag">'+t+'</span>';}).join('')+'</div>'
+        + '<div class="reasoning">'+j.reason+'</div></div>'
+        + '<div class="meta-col">'
+        + '<div class="row"><span>Publicerad</span><b>'+j.pub+'</b></div>'
+        + '<div class="row expiry'+(j.expSoon?' soon':'')+'"><span>Går ut</span><b>'+j.exp+'</b></div>'
+        + '<div class="row"><span>Plats</span><b>'+j.place+'</b></div>'
+        + '<div class="row"><span>Anställning</span><b>'+j.type+'</b></div></div>'
+        + '<div class="action-col"><button class="open-btn">'
+        + (j.status==='sent' ? 'Visa →' : 'Skriv brev →') + '</button></div>'
+        + '</div>';
+    }).join('');
+  }
+  renderList();
+
+  // ---------- view switching ----------
+  var views = { list:$('viewList'), letter:$('viewLetter'), profile:$('viewProfile') };
+  function showView(name){
+    Object.keys(views).forEach(function(k){
+      views[k].hidden = (k !== name);
+      if (k === name && k !== 'profile') views[k].style.display = 'flex';
+    });
+    // chat pane follows the stage
+    var isLetter = (name === 'letter');
+    $('chatSearch').hidden = isLetter;
+    $('chatLetter').hidden = !isLetter;
+    $('quickRow').hidden = !isLetter;
+    $('chatIdx').textContent = isLetter ? '02 / Revidering' : '01 / Copilot';
+    $('chatTitle').textContent = isLetter ? 'Ändra brevet' : 'Vad letar du efter?';
+    $('chatInput').placeholder = isLetter ? 'Beskriv en ändring…' : 'Justera kriterier…';
+    $('panel-chat').hidden = (name === 'profile') && !mq.matches;
+  }
+
+  function openJob(id){
+    var j = JOBS.filter(function(x){ return x.id===id; })[0];
+    if (!j) return;
+    $('crumbJob').textContent = '/ ' + j.title;
+    $('letterJob').textContent = j.title;
+    $('letterEmp').innerHTML = j.emp + ' — <b>' + j.loc + '</b> · ansök senast <b>' + j.exp + '</b> kvar';
+    $('letterScore').textContent = j.score;
+    $('letterSubject').textContent = 'Ansökan: ' + j.title;
+    $('gateEmail').textContent = j.email;
+    $('cfEmail').textContent = j.email;
+    $('cfJob').textContent = j.title;
+    $('cfSubject').textContent = 'Ansökan: ' + j.title;
+    showView('letter');
+    if (mq.matches) showPanel('stage');
+  }
+
+  $('listScroll').addEventListener('click', function(e){
+    var card = e.target.closest('.card');
+    if (card) openJob(card.dataset.job);
+  });
+  $('backToList').addEventListener('click', function(){ showView('list'); });
+
+  // profile
+  $('openProfile').addEventListener('click', function(){
+    showView('profile');
+    if (mq.matches) showPanel('stage');
+  });
+  $('closeProfile').addEventListener('click', function(){ showView('list'); });
+
+  // collapse / expand the ad pane
+  var adPane = $('adPane'), collapseBtn = $('collapseAd');
+  collapseBtn.addEventListener('click', function(){
+    var collapsed = adPane.dataset.collapsed === 'true';
+    adPane.dataset.collapsed = collapsed ? 'false' : 'true';
+    collapseBtn.textContent = collapsed ? 'Dölj ›' : '‹ Visa annons';
+    collapseBtn.setAttribute('aria-expanded', collapsed);
+  });
+
+  // click a claim in the letter -> jump to the line in the ad it answers
+  document.addEventListener('click', function(e){
+    var src = e.target.closest('.src');
+    if (!src || !src.dataset.src) return;
+    if (adPane.dataset.collapsed === 'true') collapseBtn.click();
+    var target = document.getElementById(src.dataset.src);
+    if (!target) return;
+    document.querySelectorAll('.pulse').forEach(function(p){ p.classList.remove('pulse'); });
+    target.classList.add('pulse');
+    target.scrollIntoView({block:'center', behavior:'smooth'});
+    setTimeout(function(){ target.classList.remove('pulse'); }, 1800);
+  });
+
+  // ---------- confirm modal ----------
+  $('openConfirm').addEventListener('click', function(){ $('confirmOverlay').hidden = false; });
+  $('cancelSend').addEventListener('click', function(){ $('confirmOverlay').hidden = true; });
+  $('doSend').addEventListener('click', function(){
+    $('confirmOverlay').hidden = true;
+    document.querySelectorAll('.crumb .step').forEach(function(s){
+      s.classList.remove('active'); s.classList.add('done');
+    });
+    alert('Demo: mejlet hade skickats via Gmail nu.');
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !$('confirmOverlay').hidden) $('confirmOverlay').hidden = true;
+  });
+
+  // ---------- autoscan ----------
+  var scanOn = true;
+  function renderScan(){
+    $('autoscan').classList.toggle('paused', !scanOn);
+    $('scanToggle').textContent = scanOn ? 'På' : 'Av';
+    $('scanToggle').setAttribute('aria-pressed', scanOn);
+    $('scanInterval').disabled = !scanOn;
+    $('scanStatus').textContent = scanOn
+      ? 'senast skannad 12:04 · nästa om ' + $('scanInterval').value
+      : 'auto-skanning pausad';
+  }
+  $('scanToggle').addEventListener('click', function(){ scanOn = !scanOn; renderScan(); });
+  $('scanInterval').addEventListener('change', renderScan);
+  renderScan();
+  $('showNew').addEventListener('click', function(){ $('newResults').hidden = true; });
+  $('showExpiring').addEventListener('click', function(){ $('deadlineBar').hidden = true; });
+  $('rewriteDupe').addEventListener('click', function(){ $('reuseWarn').hidden = true; });
+
+  // ---------- library selection ----------
+  var items = document.querySelectorAll('.search-item');
+  items.forEach(function(item){
+    item.addEventListener('click', function(){
+      items.forEach(function(i){ i.setAttribute('aria-current','false'); });
+      item.setAttribute('aria-current','true');
+      showView('list');
+      if (mq.matches) showPanel('chat');
+    });
+  });
+
+
+  // ================= INBOX =================
+  var THREADS = [
+    {
+      id:'t1', jobId:'j2', unread:true,
+      title:'Fullstackutvecklare (.NET/React)', emp:'Kärnbank Systems',
+      contact:'Anna Lindqvist', email:'rekrytering@karnbank.se',
+      status:'interview', statusLabel:'Intervju',
+      sent:'4 aug', deadline:'23 aug', daysPast:0, odds:88, oddsLabel:'Hög',
+      searchName:'Frontend / fullstack Stockholm', searchAlive:true,
+      when:'12 min sedan',
+      msgs:[
+        {me:true, who:'Du', role:'Ansökan', when:'4 aug 09:12',
+         preview:'Jag söker rollen som fullstackutvecklare hos Kärnbank…',
+         body:'<p>Hej,</p><p>Jag söker rollen som fullstackutvecklare hos Kärnbank. Jag läser fullstack JavaScript på Yrkeshögskolan och har bakgrund i .NET-systemutveckling.</p><p>Vänliga hälsningar,<br>Anna</p>',
+         attach:['cv.pdf','betyg.pdf']},
+        {me:false, who:'Anna Lindqvist', role:'Kärnbank', when:'Idag 11:48', open:true,
+         preview:'Tack för din ansökan! Vi skulle gärna vilja träffa dig…',
+         body:'<p>Hej Anna,</p><p>Tack för din ansökan — vi tyckte din kombination av .NET-bakgrund och React-studier var intressant.</p><p>Vi skulle gärna vilja träffa dig för ett första samtal. Har du möjlighet någon gång nästa vecka? Tisdag eller torsdag eftermiddag fungerar bäst för oss.</p><p>Vänliga hälsningar,<br>Anna Lindqvist<br>Rekrytering, Kärnbank Systems</p>'}
+      ],
+      prep:{
+        questions:[
+          'Berätta om bokningstjänsten — vad byggde du själv?',
+          'Hur ser du på att gå från .NET till React i praktiken?',
+          'Vi kör Azure DevOps — har du jobbat med CI/CD tidigare?',
+          'Hur hanterar du att komma in i en befintlig kodbas?'
+        ],
+        claimed:'Du skrev att du "byggt flera projekt i React och TypeScript" och nämnde bokningstjänsten där du hade hand om hela gränssnittet. Var beredd att visa kod eller gå igenom arkitekturen.',
+        gaps:[
+          'Annonsen nämner Azure — det står inte i ditt CV',
+          'De söker någon som kan jobba 4 dagar på kontor'
+        ]
+      },
+      suggestion:'<p>Hej Anna,</p><p>Vad roligt att höra — tack!</p><p>Torsdag eftermiddag fungerar bra för mig, förslagsvis kl 14. Tisdag går också om det passar er bättre.</p><p>Ser fram emot att prata mer.</p><p>Vänliga hälsningar,<br>Anna</p>'
+    },
+    {
+      id:'t2', jobId:'j5', unread:true,
+      title:'Webbutvecklare', emp:'Butiksdata Sverige',
+      contact:'jobb@butiksdata.se', email:'jobb@butiksdata.se',
+      status:'rejected', statusLabel:'Avslag',
+      sent:'23 jul', deadline:'14 aug', daysPast:0, odds:0, oddsLabel:'Avslutad',
+      searchName:'Frontend / fullstack Stockholm', searchAlive:true,
+      when:'2 dagar sedan',
+      msgs:[
+        {me:true, who:'Du', role:'Ansökan', when:'23 jul 14:02',
+         preview:'Jag söker rollen som webbutvecklare…',
+         body:'<p>Hej,</p><p>Jag söker rollen som webbutvecklare hos Butiksdata.</p><p>Vänliga hälsningar,<br>Anna</p>',
+         attach:['cv.pdf']},
+        {me:false, who:'Butiksdata Sverige', role:'Svar', when:'10 aug 16:31', open:true,
+         preview:'Tack för ditt intresse. Vi har valt att gå vidare med andra kandidater…',
+         body:'<p>Hej,</p><p>Tack för ditt intresse för tjänsten. Vi har valt att gå vidare med andra kandidater som bättre matchar den erfarenhet vi söker just nu.</p><p>Lycka till framöver!</p>'}
+      ],
+      suggestion:null
+    },
+    {
+      id:'t3', jobId:'j1', unread:false,
+      title:'Frontendutvecklare — React', emp:'Neonpixel AB',
+      contact:'jobb@neonpixel.se', email:'jobb@neonpixel.se',
+      status:'awaiting', statusLabel:'Väntar svar',
+      sent:'5 aug', deadline:'14 aug', daysPast:0, odds:72, oddsLabel:'God',
+      searchName:'Frontend / fullstack Stockholm', searchAlive:true, followUp:{on:false, days:10, due:'24 aug'},
+      when:'7 dagar sedan',
+      msgs:[
+        {me:true, who:'Du', role:'Ansökan', when:'5 aug 10:20', open:true,
+         preview:'Jag söker rollen som frontendutvecklare hos Neonpixel…',
+         body:'<p>Hej,</p><p>Jag söker rollen som frontendutvecklare hos Neonpixel. Jag läser fullstack JavaScript på Yrkeshögskolan och har byggt flera projekt i React och TypeScript.</p><p>Vänliga hälsningar,<br>Anna</p>',
+         attach:['cv.pdf','betyg.pdf']}
+      ],
+      suggestion:null
+    },
+    {
+      id:'t4', jobId:null, unread:false,
+      title:'Hotellreceptionist, deltid', emp:'Hotell Norrmalm',
+      contact:'hr@hotellnorrmalm.se', email:'hr@hotellnorrmalm.se',
+      status:'ghosted', statusLabel:'Troligen ghostad',
+      sent:'12 jul', deadline:'20 jul', daysPast:23, odds:8, oddsLabel:'Mycket låg',
+      searchName:'Hotellreceptionist deltid', searchAlive:true, followUp:{on:true, days:10, due:'i morgon'},
+      when:'31 dagar sedan',
+      msgs:[
+        {me:true, who:'Du', role:'Ansökan', when:'12 jul 08:45', open:true,
+         preview:'Jag söker tjänsten som hotellreceptionist på deltid…',
+         body:'<p>Hej,</p><p>Jag söker tjänsten som hotellreceptionist på deltid. Jag har tidigare erfarenhet från café och vård, och är van vid kundkontakt i högt tempo.</p><p>Vänliga hälsningar,<br>Anna</p>',
+         attach:['cv.pdf']}
+      ],
+      suggestion:'<p>Hej,</p><p>Jag skickade in en ansökan till tjänsten som hotellreceptionist den 12 juli och ville bara höra om ni hunnit titta på den.</p><p>Jag är fortsatt intresserad och finns tillgänglig för ett samtal när det passar.</p><p>Vänliga hälsningar,<br>Anna</p>'
+    },
+    {
+      id:'t5', jobId:null, unread:false,
+      title:'Systemutvecklare, praktik', emp:'Nordtek Solutions',
+      contact:'lia@nordtek.se', email:'lia@nordtek.se',
+      status:'ghosted', statusLabel:'Troligen ghostad',
+      sent:'28 jun', deadline:'5 jul', daysPast:38, odds:3, oddsLabel:'Mycket låg',
+      searchName:'LIA-plats dec–apr', searchAlive:false,
+      when:'45 dagar sedan',
+      msgs:[
+        {me:true, who:'Du', role:'Ansökan', when:'28 jun 19:03', open:true,
+         preview:'Jag söker LIA-plats för perioden december till april…',
+         body:'<p>Hej,</p><p>Jag söker LIA-plats för perioden december 2026 till april 2027 och skulle gärna göra den hos er.</p><p>Vänliga hälsningar,<br>Anna</p>',
+         attach:['cv.pdf']}
+      ],
+      suggestion:null
+    }
+  ];
+
+  var activeThread = null;
+  var inboxFilter = 'all';
+
+  function oddsClass(o){ return o >= 60 ? '' : (o >= 25 ? 'mid' : 'low'); }
+
+  function renderThreads(){
+    var list = THREADS.filter(function(t){
+      if (inboxFilter === 'unread')   return t.unread;
+      if (inboxFilter === 'awaiting') return t.status === 'awaiting';
+      if (inboxFilter === 'ghosted')  return t.status === 'ghosted';
+      return true;
+    });
+    $('threads').innerHTML = list.map(function(t){
+      var done = (t.status === 'rejected');
+      return '<button class="thread-item'+(t.unread?' unread':'')+'" data-thread="'+t.id+'"'
+        + (activeThread===t.id?' aria-current="true"':'')+'>'
+        + '<span class="ti-top"><span class="ti-title">'+t.title+'</span>'
+        + '<span class="ti-when">'+t.when+'</span></span>'
+        + '<span class="ti-emp">'+t.emp+'</span>'
+        + '<span class="ti-foot"><span class="st '+t.status+'">'+t.statusLabel+'</span></span>'
+        + '<span class="odds'+(done?' done':'')+'">'
+        + '<span class="odds-top"><span>Svarschans</span><b>'+(done?'—':t.oddsLabel)+'</b></span>'
+        + '<span class="odds-track '+oddsClass(t.odds)+'" style="--odds:'+(done?100:t.odds)+'%"></span>'
+        + '</span></button>';
+    }).join('') || '<div class="empty-thread">Inga ansökningar matchar filtret</div>';
+  }
+
+  function oddsNote(t){
+    if (t.status === 'rejected') return {text:'Ansökan avslutad — arbetsgivaren har svarat.', warn:false};
+    if (t.status === 'interview') return {text:'Arbetsgivaren har svarat och väntar på dig.', warn:false};
+    if (t.daysPast > 30) return {text:t.daysPast+' dagar sedan sista ansökningsdag. Tjänsten är sannolikt tillsatt — du blir troligen inte kontaktad.', warn:true};
+    if (t.daysPast > 14) return {text:t.daysPast+' dagar sedan sista ansökningsdag. Svarschansen sjunker snabbt efter två veckor.', warn:true};
+    if (t.daysPast > 0) return {text:t.daysPast+' dagar sedan sista ansökningsdag. Många arbetsgivare svarar först efter deadline.', warn:false};
+    return {text:'Ansökningstiden pågår till '+t.deadline+'. De flesta svarar efter sista ansökningsdag.', warn:false};
+  }
+
+  function renderThread(id){
+    var t = THREADS.filter(function(x){ return x.id===id; })[0];
+    if (!t) return;
+    t.unread = false;
+    activeThread = id;
+    var note = oddsNote(t);
+    var done = (t.status === 'rejected');
+
+    var msgs = t.msgs.map(function(m){
+      return '<div class="tmsg '+(m.me?'mine':'theirs')+'"'+(m.open?' open':'')+'>'
+        + '<div class="tmsg-head"><span class="tmsg-who">'+m.who
+        + '<span class="role">'+m.role+'</span></span>'
+        + '<span class="tmsg-meta">'+m.when+' <span class="caret">›</span></span></div>'
+        + '<div class="tmsg-preview">'+m.preview+'</div>'
+        + '<div class="tmsg-body">'+m.body
+        + (m.attach ? '<div class="tmsg-attach">Bilagor: '
+            + m.attach.map(function(f){return '<span class="f">'+f+'</span>';}).join('')
+            + '</div>' : '')
+        + '</div></div>';
+    }).join('');
+
+    var prep = t.prep ? '<div class="prep" open>'
+      + '<div class="prep-head"><span>◆ Inför intervjun</span><span>genererat 11:49</span></div>'
+      + '<div class="prep-body">'
+      + '<h5>Troliga frågor</h5><ul>'
+      + t.prep.questions.map(function(q){ return '<li>'+q+'</li>'; }).join('')
+      + '</ul>'
+      + '<h5>Vad du påstod i brevet</h5>'
+      + '<div class="claimed"><b>Var beredd att backa upp</b>'+t.prep.claimed+'</div>'
+      + '<h5>Luckor värda att förbereda</h5><ul>'
+      + t.prep.gaps.map(function(g){ return '<li>'+g+'</li>'; }).join('')
+      + '</ul></div></div>' : '';
+
+    var followup = t.followUp ? '<div class="followup">'
+      + 'Uppföljning: skicka utkast <select>'
+      + '<option'+(t.followUp.days===7?' selected':'')+'>7 dagar</option>'
+      + '<option'+(t.followUp.days===10?' selected':'')+'>10 dagar</option>'
+      + '<option'+(t.followUp.days===14?' selected':'')+'>14 dagar</option>'
+      + '</select> efter deadline · <b>'+t.followUp.due+'</b>'
+      + '<button class="fu-toggle" aria-pressed="'+t.followUp.on+'">'
+      + (t.followUp.on?'På':'Av')+'</button>'
+      + '</div>' : '';
+
+    var suggest = t.suggestion ? '<div class="suggest">'
+      + '<div class="suggest-head"><span>◆ Föreslaget svar</span><span>genererat 11:49</span></div>'
+      + '<div class="suggest-body">'+t.suggestion+'</div>'
+      + '<div class="suggest-acts">'
+      + '<button class="primary">Granska &amp; skicka →</button>'
+      + '<button>Ändra i chatt</button>'
+      + '<button>Släng</button>'
+      + '</div></div>' : '';
+
+    $('threadView').innerHTML =
+      '<div class="tv-head">'
+      + '<div><div class="jt">'+t.title+'</div>'
+      + '<div class="je">'+t.emp+' — <b>'+t.contact+'</b> · ansökt <b>'+t.sent+'</b></div></div>'
+      + '<div class="tv-actions">'
+      + '<button class="ref-btn mobile-back" id="backToThreads" style="display:none">← Inkorg</button>'
+      + (t.searchAlive
+          ? '<button class="ref-btn" data-search="'+t.searchName+'">↩ Hitta liknande jobb</button>'
+          : '<button class="ref-btn gone" disabled title="Sökningen är borttagen">↩ Sökning borttagen</button>')
+      + '</div></div>'
+
+      + '<div class="tv-strip">'
+      + '<div class="strip-item">Status<b>'+t.statusLabel+'</b></div>'
+      + '<div class="strip-item">Sista ansökningsdag<b>'+t.deadline+'</b></div>'
+      + '<div class="strip-item strip-odds">'
+      + '<div class="odds'+(done?' done':'')+'">'
+      + '<div class="odds-top"><span>Sannolikhet för svar</span><b>'+(done?'—':t.oddsLabel+' · '+t.odds+'%')+'</b></div>'
+      + '<div class="odds-track '+oddsClass(t.odds)+'" style="--odds:'+(done?100:t.odds)+'%"></div>'
+      + '</div>'
+      + '<div class="odds-note'+(note.warn?' warn':'')+'">'+note.text+'</div>'
+      + '</div></div>'
+
+      + '<div class="tv-scroll">'+msgs+prep+followup+suggest+'</div>'
+
+      + '<div class="composer">'
+      + '<div class="composer-box">'
+      + '<textarea rows="1" placeholder="Skriv ett svar…"></textarea>'
+      + '<button class="composer-send">Skicka</button>'
+      + '</div>'
+      + '<div class="composer-note">Skickas från din@gmail.com · svar hamnar i samma tråd</div>'
+      + '</div>';
+
+    renderThreads();
+  }
+
+  // thread list clicks
+  $('threads').addEventListener('click', function(e){
+    var item = e.target.closest('.thread-item');
+    if (!item) return;
+    renderThread(item.dataset.thread);
+    if (mq.matches){ $('threadList').hidden = true; $('threadView').hidden = false; }
+  });
+
+  // expand/collapse messages
+  $('threadView').addEventListener('click', function(e){
+    var head = e.target.closest('.tmsg-head');
+    if (head){
+      var m = head.parentElement;
+      if (m.hasAttribute('open')) m.removeAttribute('open'); else m.setAttribute('open','');
+      return;
+    }
+    // reference button -> jump back to the AI conversation that found this job
+    if (e.target.closest('#backToThreads')){
+      $('threadList').hidden = false; $('threadView').hidden = true; return;
+    }
+    var prepHead = e.target.closest('.prep-head');
+    if (prepHead){
+      var p = prepHead.parentElement;
+      if (p.hasAttribute('open')) p.removeAttribute('open'); else p.setAttribute('open','');
+      return;
+    }
+    var fu = e.target.closest('.fu-toggle');
+    if (fu){
+      var on = fu.getAttribute('aria-pressed') === 'true';
+      fu.setAttribute('aria-pressed', !on);
+      fu.textContent = on ? 'Av' : 'På';
+      return;
+    }
+    var ref = e.target.closest('.ref-btn:not(.gone)');
+    if (ref && !ref.id){
+      var name = ref.dataset.search;
+      document.querySelectorAll('.search-item').forEach(function(i){
+        var match = i.querySelector('.name').textContent.trim() === name;
+        i.setAttribute('aria-current', match);
+      });
+      setWorkspace('search');
+      showView('list');
+      if (mq.matches) showPanel('chat');
+    }
+  });
+
+  // filters
+  document.querySelectorAll('.inbox-filters button').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.inbox-filters button').forEach(function(x){
+        x.setAttribute('aria-pressed', x === b);
+      });
+      inboxFilter = b.dataset.filter;
+      renderThreads();
+    });
+  });
+
+  // ================= WORKSPACE SWITCH =================
+  function setWorkspace(which){
+    document.querySelectorAll('.topnav button').forEach(function(b){
+      b.setAttribute('aria-selected', b.dataset.workspace === which);
+    });
+    $('workspace-search').hidden = (which !== 'search');
+    $('workspace-inbox').hidden = (which !== 'inbox');
+    $('mobileTabs').hidden = (which !== 'search') || !mq.matches;
+    if (which === 'inbox' && mq.matches){
+      $('threadList').hidden = false; $('threadView').hidden = true;
+    }
+  }
+  document.querySelectorAll('.topnav button').forEach(function(b){
+    b.addEventListener('click', function(){ setWorkspace(b.dataset.workspace); });
+  });
+
+  renderThreads();
+  renderThread('t1');
+
+
+  // ---------- mobile panels ----------
+  var tabs = document.querySelectorAll('.mobile-tabs button');
+  var panels = { library:$('panel-library'), chat:$('panel-chat'), stage:$('panel-stage') };
+  function showPanel(which){
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', t.dataset.target === which); });
+    Object.keys(panels).forEach(function(k){ panels[k].hidden = (k !== which); });
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ showPanel(t.dataset.target); }); });
+  function sync(){
+    var ws = document.querySelector('.topnav [aria-selected="true"]').dataset.workspace;
+    if (mq.matches){
+      $('mobileTabs').hidden = (ws !== 'search');
+      if (ws === 'search'){
+        showPanel(document.querySelector('.mobile-tabs [aria-selected="true"]').dataset.target);
+      }
+      if (ws === 'inbox' && !$('threadView').hidden){ $('threadList').hidden = true; }
+    } else {
+      $('mobileTabs').hidden = true;
+      Object.keys(panels).forEach(function(k){ panels[k].hidden = false; });
+      $('threadList').hidden = false; $('threadView').hidden = false;
+    }
+  }
+  mq.addEventListener('change', sync);
+  showView('list');
+  sync();
+})();
+</script>
+</body>
+</html>

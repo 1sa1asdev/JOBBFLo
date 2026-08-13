@@ -1,0 +1,66 @@
+// ------------------------------------------------------------
+// The long-running worker (Railway/Fly/Render — NOT Vercel):
+//   - IMAP IDLE loop (push, reconnect wrapper)
+//   - one global JobStream poll on a timer (never per search)
+//   - scoring queue: scores searches whose scan_interval elapsed
+//   - follow-up checker (drafts only, never sends)
+// Postgres is the only channel to the UI.
+// ------------------------------------------------------------
+import 'dotenv/config';
+import { pool } from './src/db.js';
+import { pollJobStream } from './src/fetchJobs.js';
+import { scoreSearch } from './src/score.js';
+import { checkFollowups } from './src/followups.js';
+import { runImapLoop } from './src/imap.js';
+
+const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
+const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
+const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
+
+async function pollTick() {
+  try {
+    await pollJobStream();
+  } catch (err) {
+    console.error('poll:', err.message);
+  }
+}
+
+async function scoreTick() {
+  try {
+    const { rows: due } = await pool.query(
+      `SELECT id, name FROM searches
+       WHERE deleted_at IS NULL AND scan_enabled
+         AND (last_scanned_at IS NULL OR last_scanned_at + scan_interval < now())`
+    );
+    for (const s of due) {
+      await scoreSearch(s.id).catch((e) => console.error(`score ${s.name}:`, e.message));
+    }
+  } catch (err) {
+    console.error('scoreTick:', err.message);
+  }
+}
+
+async function followupTick() {
+  try {
+    await checkFollowups();
+  } catch (err) {
+    console.error('followups:', err.message);
+  }
+}
+
+const abort = new AbortController();
+process.on('SIGINT', () => abort.abort());
+process.on('SIGTERM', () => abort.abort());
+
+console.log('jobbjakt worker starting');
+pollTick();
+scoreTick();
+followupTick();
+setInterval(pollTick, POLL_EVERY);
+setInterval(scoreTick, SCORE_EVERY);
+setInterval(followupTick, FOLLOWUP_EVERY);
+
+runImapLoop({ signal: abort.signal }).then(() => {
+  console.log('worker stopped');
+  process.exit(0);
+});

@@ -1,0 +1,124 @@
+import 'dotenv/config';
+import nodemailer from 'nodemailer';
+import { pool } from './db.js';
+
+// ------------------------------------------------------------
+// Outgoing mail. The ONLY function that sends anything, and it
+// is only ever called from the user-initiated send endpoint —
+// there is no scheduled or automatic path into this file.
+// ------------------------------------------------------------
+
+function transport() {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) throw new Error('GMAIL_USER / GMAIL_APP_PASSWORD saknas i .env');
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user, pass },
+  });
+}
+
+// plus-alias: din+frontend@gmail.com — Gmail delivers it to the same
+// inbox but lets replies be traced back to the search that sent them.
+function aliasFrom(alias) {
+  const user = process.env.GMAIL_USER;
+  if (!alias) return user;
+  return alias.includes('@') ? alias : user.replace('@', `+${alias}@`);
+}
+
+// ------------------------------------------------------------
+// sendApplication: send the approved letter for an application.
+// Stores messageId on the row — reply matching depends on it.
+// ------------------------------------------------------------
+export async function sendApplication(applicationId, { to } = {}) {
+  const { rows: [app] } = await pool.query(
+    `SELECT a.*, ads.title, ads.employer, ads.apply_email, s.email_alias
+     FROM applications a
+     JOIN ads ON ads.id = a.ad_id
+     LEFT JOIN searches s ON s.id = a.origin_search_id
+     WHERE a.id = $1`, [applicationId]
+  );
+  if (!app) throw new Error(`no application ${applicationId}`);
+  if (app.status !== 'drafted') throw new Error('already sent');
+
+  const recipient = to || app.apply_email;
+  if (!recipient) throw new Error('annonsen saknar ansöknings-mejl — sök via länken istället');
+
+  const from = aliasFrom(app.email_alias);
+  const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
+
+  const info = await transport().sendMail({
+    from: `"${profile?.name || ''}" <${from}>`,
+    to: recipient,
+    subject: app.subject,
+    text: app.letter_text,
+  });
+
+  await pool.query(
+    `UPDATE applications SET
+       status = 'sent', message_id = $2, sent_to = $3, sent_from = $4,
+       sent_at = now(), updated_at = now()
+     WHERE id = $1`,
+    [applicationId, info.messageId, recipient, from]
+  );
+
+  await pool.query(
+    `INSERT INTO email_messages (application_id, direction, message_id, from_addr, to_addr, subject, body_text, sent_at)
+     VALUES ($1, 'outbound', $2, $3, $4, $5, $6, now())`,
+    [applicationId, info.messageId, from, recipient, app.subject, app.letter_text]
+  );
+
+  return { messageId: info.messageId, to: recipient, from };
+}
+
+// ------------------------------------------------------------
+// sendReply: user-approved reply in an existing thread.
+// Threads correctly via In-Reply-To/References.
+// ------------------------------------------------------------
+export async function sendReply(applicationId, body, { suggestedReplyId = null } = {}) {
+  const { rows: [app] } = await pool.query(
+    `SELECT * FROM applications WHERE id = $1`, [applicationId]
+  );
+  if (!app) throw new Error(`no application ${applicationId}`);
+
+  const { rows: [lastIn] } = await pool.query(
+    `SELECT * FROM email_messages
+     WHERE application_id = $1 AND direction = 'inbound'
+     ORDER BY sent_at DESC LIMIT 1`, [applicationId]
+  );
+
+  const to = lastIn?.from_addr || app.sent_to;
+  if (!to) throw new Error('ingen mottagare i tråden');
+
+  const from = app.sent_from || process.env.GMAIL_USER;
+  const refs = [
+    ...(lastIn?.references_ids || []),
+    ...(lastIn?.message_id ? [lastIn.message_id] : []),
+  ];
+  const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
+
+  const info = await transport().sendMail({
+    from: `"${profile?.name || ''}" <${from}>`,
+    to,
+    subject: lastIn?.subject?.startsWith('Re:') ? lastIn.subject : `Re: ${lastIn?.subject || app.subject}`,
+    text: body,
+    inReplyTo: lastIn?.message_id,
+    references: refs,
+  });
+
+  await pool.query(
+    `INSERT INTO email_messages (application_id, direction, message_id, in_reply_to, references_ids,
+       from_addr, to_addr, subject, body_text, sent_at)
+     VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, now())`,
+    [applicationId, info.messageId, lastIn?.message_id || null, refs, from, to,
+     lastIn?.subject || app.subject, body]
+  );
+
+  if (suggestedReplyId) {
+    await pool.query(`UPDATE suggested_replies SET dismissed = true WHERE id = $1`, [suggestedReplyId]);
+  }
+
+  return { messageId: info.messageId, to };
+}

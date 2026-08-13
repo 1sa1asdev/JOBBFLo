@@ -1,0 +1,229 @@
+import { pool } from './db.js';
+import { anthropic, MODEL_SMART, jsonOf } from './llm.js';
+
+// ------------------------------------------------------------
+// LAYER 1 — natural language -> structured API filters.
+// Cheap server-side narrowing. Runs once per search, not per ad.
+// ------------------------------------------------------------
+const FILTER_SYSTEM = `Du översätter en jobbsökandes egna ord till filter för Arbetsförmedlingens JobSearch API.
+
+Tillgängliga filter:
+- q (fritext)
+- occupation-field (t.ex. "Data/IT")
+- municipality, region
+- employment-type
+- experience-required: true|false
+- remote: true|false
+- published-after (ISO-datum)
+
+Svara ENDAST med JSON, ingen förklaring, inga kodstaket:
+{"filters": {...}, "unmapped": ["kriterier som inte går att uttrycka som filter"]}
+
+Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.`;
+
+export async function parseCriteria(criteriaText) {
+  const res = await anthropic.messages.create({
+    model: MODEL_SMART,
+    max_tokens: 1000,
+    system: FILTER_SYSTEM,
+    messages: [{ role: 'user', content: criteriaText }],
+  });
+
+  return jsonOf(res);
+}
+
+// ------------------------------------------------------------
+// LAYER 2 — cross-reference the FULL ad text against the CV
+// and the user's stated criteria. This is the part that catches
+// what the taxonomy fields can't express.
+//
+// Returns quoted spans so the UI can highlight the ad and link
+// letter claims back to the requirement they answer.
+// ------------------------------------------------------------
+const SCORE_SYSTEM = `Du bedömer hur väl en jobbannons matchar en specifik kandidat.
+
+Du får: kandidatens CV, kandidatens egna ord om vad hen söker, kandidatens projekt, och hela annonstexten.
+
+Bedöm mot BÅDE CV:t och kandidatens uttalade kriterier. Kriterierna väger tyngre än CV:t när de krockar — kandidaten vet vad hen vill ha.
+
+Citat i "matched" och "flags" MÅSTE vara ordagranna utdrag ur annonstexten, max 15 ord, så att de kan markeras i gränssnittet. Hitta aldrig på citat.
+
+Svara ENDAST med JSON, inga kodstaket:
+{
+  "score": 0-100,
+  "summary": "en mening om varför, på svenska",
+  "matched": [{"quote": "ordagrant ur annonsen", "why": "kort"}],
+  "flags":   [{"quote": "ordagrant ur annonsen", "why": "kort", "tag": "kort etikett, t.ex. 'Docker' eller '5+ år'"}],
+  "lead_project": "projektnamn som passar bäst att lyfta i brevet, eller null"
+}
+
+"flags" ska fånga allt som talar EMOT matchningen: teknik kandidaten saknar, erfarenhetskrav, språkkrav, pendling. Etiketten ("tag") aggregeras senare till en kompetensglapp-rapport — håll den kort och konsekvent.
+
+Poängsättning:
+90-100 = nästan perfekt, sök direkt
+70-89  = god match, värd att söka
+50-69  = möjlig, med reservationer
+0-49   = svag match`;
+
+export async function scoreAd({ ad, profile, projects, criteriaText }) {
+  const projectList = projects
+    .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
+    .join('\n');
+
+  const input = `## KANDIDATENS CV
+${profile.cv_text}
+
+## OM KANDIDATEN, I EGNA ORD
+${profile.about_text || '(inget angivet)'}
+
+## KANDIDATENS PROJEKT
+${projectList || '(inga)'}
+
+## VAD KANDIDATEN SÖKER
+${criteriaText}
+
+## ANNONS
+Titel: ${ad.title}
+Arbetsgivare: ${ad.employer} (${ad.employer_type})
+Ort: ${ad.municipality || '—'}
+Sista ansökningsdag: ${ad.deadline || '—'}
+${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
+
+${ad.description}`;
+
+  const res = await anthropic.messages.create({
+    model: MODEL_SMART,
+    max_tokens: 2000,
+    system: SCORE_SYSTEM,
+    messages: [{ role: 'user', content: input }],
+  });
+
+  return jsonOf(res);
+}
+
+// ------------------------------------------------------------
+// score every unscored ad for a search.
+// ads are global; match_results are per-search — so an ad
+// already scored for search A still gets scored for search B.
+// ------------------------------------------------------------
+export async function scoreSearch(searchId, { limit = 20 } = {}) {
+  const { rows: [search] } = await pool.query(
+    `SELECT s.*, p.cv_text, p.about_text
+     FROM searches s JOIN profile p ON p.id = s.profile_id
+     WHERE s.id = $1`, [searchId]
+  );
+  if (!search) throw new Error(`no search ${searchId}`);
+
+  const { rows: projects } = await pool.query(
+    `SELECT id, name, summary, tech FROM projects
+     WHERE profile_id = $1 AND is_active`, [search.profile_id]
+  );
+
+  // unscored, not expired, not suppressed
+  const { rows: ads } = await pool.query(
+    `SELECT a.* FROM ads a
+     LEFT JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1
+     LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint
+     WHERE m.id IS NULL
+       AND a.removed_at IS NULL
+       AND na.fingerprint IS NULL
+       AND (a.deadline IS NULL OR a.deadline >= current_date)
+     ORDER BY a.published_at DESC NULLS LAST
+     LIMIT $2`, [searchId, limit]
+  );
+
+  console.log(`scoring ${ads.length} ads for "${search.name}"`);
+  const results = [];
+
+  for (const ad of ads) {
+    try {
+      const r = await scoreAd({
+        ad,
+        profile: { cv_text: search.cv_text, about_text: search.about_text },
+        projects,
+        criteriaText: search.criteria_text,
+      });
+
+      const leadProject = projects.find((p) => p.name === r.lead_project);
+
+      await pool.query(
+        `INSERT INTO match_results (search_id, ad_id, score, summary, matched, flags, lead_project_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (search_id, ad_id) DO UPDATE SET
+           score = EXCLUDED.score, summary = EXCLUDED.summary,
+           matched = EXCLUDED.matched, flags = EXCLUDED.flags,
+           lead_project_id = EXCLUDED.lead_project_id, scored_at = now()`,
+        [searchId, ad.id, r.score, r.summary,
+         JSON.stringify(r.matched), JSON.stringify(r.flags),
+         leadProject?.id || null]
+      );
+
+      results.push({ ad, ...r });
+      console.log(`  ${String(r.score).padStart(3)} · ${ad.title} — ${ad.employer}`);
+    } catch (err) {
+      console.error(`  !! ${ad.title}: ${err.message}`);
+    }
+  }
+
+  await pool.query(`UPDATE searches SET last_scanned_at = now() WHERE id = $1`, [searchId]);
+  return results;
+}
+
+// ------------------------------------------------------------
+// skills gap: the byproduct that makes this more than an
+// application tool. Aggregates flag tags across every scored ad.
+// ------------------------------------------------------------
+export async function skillsGap(profileId, { minMentions = 3 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT
+       f->>'tag' AS tag,
+       count(*) AS mentions,
+       round(avg(m.score)) AS avg_score
+     FROM match_results m
+     JOIN searches s ON s.id = m.search_id AND s.profile_id = $1
+     CROSS JOIN LATERAL jsonb_array_elements(m.flags) f
+     WHERE f->>'tag' IS NOT NULL
+     GROUP BY f->>'tag'
+     HAVING count(*) >= $2
+     ORDER BY count(*) DESC`,
+    [profileId, minMentions]
+  );
+  return rows;
+}
+
+// ------------------------------------------------------------
+// calibration: were the scores actually right?
+// gated on sample size — percentages off 3 applications mislead.
+// ------------------------------------------------------------
+export async function calibration(profileId, { minSample = 20 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT
+       CASE WHEN m.score >= 80 THEN '80-100'
+            WHEN m.score >= 60 THEN '60-79'
+            ELSE '0-59' END AS band,
+       count(*) AS applications,
+       count(*) FILTER (WHERE app.status IN ('replied','interview')) AS responses
+     FROM applications app
+     JOIN ads a ON a.id = app.ad_id
+     JOIN match_results m ON m.ad_id = a.id AND m.search_id = app.origin_search_id
+     JOIN searches s ON s.id = m.search_id AND s.profile_id = $1
+     WHERE app.status <> 'drafted'
+     GROUP BY band ORDER BY band DESC`,
+    [profileId]
+  );
+
+  const total = rows.reduce((n, r) => n + Number(r.applications), 0);
+  if (total < minSample) {
+    return { ready: false, total, needed: minSample };
+  }
+  return {
+    ready: true,
+    total,
+    bands: rows.map((r) => ({
+      band: r.band,
+      applications: Number(r.applications),
+      responses: Number(r.responses),
+      rate: Math.round((Number(r.responses) / Number(r.applications)) * 100),
+    })),
+  };
+}
