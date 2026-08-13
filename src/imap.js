@@ -17,11 +17,14 @@ import { classifyReply, draftReply, generateInterviewPrep } from './classify.js'
 const MAILBOX = 'INBOX';
 
 function client() {
+  const user = process.env.GMAIL_USER?.trim();
+  // strip Google's display spaces from the app password (see mailer.js)
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
   return new ImapFlow({
     host: 'imap.gmail.com',
     port: 993,
     secure: true,
-    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    auth: { user, pass },
     logger: false,
   });
 }

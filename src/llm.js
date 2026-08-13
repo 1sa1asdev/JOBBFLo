@@ -46,6 +46,16 @@ export function llmAvailable() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The free tier has a per-DAY account quota. That error is
+// account-wide, so rotating models can't help — trying is pure
+// waste (the worker would hammer 5 models × 2 rounds per ad).
+// Trip a breaker and fail fast until it resets.
+let quotaBlockedUntil = 0;
+const isDailyQuota = (msg) => /free-models-per-day|per-day|daily limit/i.test(msg);
+export function quotaBlocked() {
+  return quotaBlockedUntil > Date.now();
+}
+
 async function callOpenRouter(model, { system, messages, maxTokens }) {
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -92,6 +102,11 @@ async function completeOpenRouter({ tier, system, messages, maxTokens, validate 
     ? chain('OPENROUTER_MODEL_FAST', DEFAULT_FAST)
     : chain('OPENROUTER_MODEL_SMART', DEFAULT_SMART);
 
+  if (quotaBlocked()) {
+    const mins = Math.ceil((quotaBlockedUntil - Date.now()) / 60000);
+    throw new Error(`OpenRouter: dagskvoten för gratismodeller är slut (försök igen om ~${mins} min, eller lägg till credits på openrouter.ai)`);
+  }
+
   const problems = [];
   // two passes: try every model, then back off and try again.
   // `validate` runs here so a model that won't produce the shape
@@ -104,6 +119,10 @@ async function completeOpenRouter({ tier, system, messages, maxTokens, validate 
         const text = await callOpenRouter(model, { system, messages, maxTokens });
         return validate ? validate(text) : text;
       } catch (err) {
+        if (isDailyQuota(err.message)) {
+          quotaBlockedUntil = Date.now() + 30 * 60 * 1000; // re-probe in 30 min
+          throw new Error('OpenRouter: dagskvoten för gratismodeller är slut — lägg till credits på openrouter.ai, sätt ANTHROPIC_API_KEY, eller vänta tills kvoten återställs');
+        }
         problems.push(`${model}: ${err.message.slice(0, 80)}`);
         if (err.status && !err.transient && err.status !== 404) throw err; // real API error
       }

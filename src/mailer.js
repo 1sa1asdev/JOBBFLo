@@ -8,9 +8,16 @@ import { pool } from './db.js';
 // there is no scheduled or automatic path into this file.
 // ------------------------------------------------------------
 
+export function gmailAuth() {
+  const user = process.env.GMAIL_USER?.trim();
+  // Google shows app passwords as "abcd efgh ijkl mnop" — the spaces
+  // are display formatting only and must not be sent.
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
+  return { user, pass };
+}
+
 function transport() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+  const { user, pass } = gmailAuth();
   if (!user || !pass) throw new Error('GMAIL_USER / GMAIL_APP_PASSWORD saknas i .env');
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
