@@ -910,3 +910,24 @@
 .tmsg.is-open .tmsg-preview{display:none;}
 .tmsg.is-open .tmsg-body{display:block;}
 .tmsg.is-open .caret{transform:rotate(90deg);display:inline-block;}
+
+/* ================= LOGIN ================= */
+.login-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;}
+.login-card{width:100%;max-width:400px;border:2px solid var(--line);background:var(--panel);}
+.login-head{border-bottom:2px solid var(--line);padding:18px 22px;}
+.login-head .brand-line{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--mute);display:block;margin-bottom:6px;}
+.login-head h1{font-size:17px;font-weight:700;text-transform:uppercase;}
+.login-tabs{display:flex;border-bottom:1px solid var(--line);}
+.login-tabs button{flex:1;background:none;border:none;border-right:1px solid var(--line);
+  padding:11px;min-height:42px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
+.login-tabs button:last-child{border-right:none;}
+.login-tabs button[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+.login-fields{padding:18px 22px 6px;}
+.login-fields label{display:block;margin-bottom:14px;}
+.login-fields label span{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--mute);display:block;margin-bottom:6px;}
+.login-card .err-note{margin:0 22px 14px!important;}
+.login-submit{display:block;width:calc(100% - 44px);margin:0 22px 18px;}
+.login-hint{font-size:10.5px;color:var(--mute);line-height:1.5;padding:0 22px 18px;}

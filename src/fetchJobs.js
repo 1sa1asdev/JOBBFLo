@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { resolveFilters } from './taxonomy.js';
 
 const JOBSTREAM = 'https://jobstream.api.jobtechdev.se/stream';
 const JOBSEARCH = 'https://jobsearch.api.jobtechdev.se/search';
@@ -190,7 +191,11 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
 // JobSearch: used for the FIRST fill of a new search (backfill),
 // since JobStream only gives you changes going forward.
 // ------------------------------------------------------------
-export async function backfillSearch(filters = {}, limit = 100) {
+export async function backfillSearch(rawFilters = {}, limit = 100) {
+  // names -> taxonomy concept IDs. Skipping this silently returns
+  // zero hits (the API doesn't error on an unknown name).
+  const filters = await resolveFilters(rawFilters);
+
   const params = new URLSearchParams({ limit: String(Math.min(limit, 100)) });
 
   if (filters.q) params.set('q', filters.q);

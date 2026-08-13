@@ -1,25 +1,51 @@
 import { NextResponse } from 'next/server';
 
-// Single-user app that can send mail from your Gmail — never expose it
-// unauthenticated. Set APP_PASSWORD in the deployment environment and the
-// whole site (UI + API) goes behind HTTP Basic Auth. Unset locally = no gate.
-export function middleware(req) {
-  const pass = process.env.APP_PASSWORD;
-  if (!pass) return NextResponse.next();
+// ------------------------------------------------------------
+// Session gate. Runs on the edge runtime, so the cookie is
+// verified with Web Crypto here (no Postgres, no node:crypto) —
+// the token format "uid.exp.hmac" is produced by src/auth.js.
+// Pages redirect to /login; API calls get a 401.
+// ------------------------------------------------------------
 
-  const auth = req.headers.get('authorization') || '';
-  const [scheme, encoded] = auth.split(' ');
-  if (scheme === 'Basic' && encoded) {
-    try {
-      const decoded = atob(encoded);
-      const pwd = decoded.slice(decoded.indexOf(':') + 1);
-      if (pwd === pass) return NextResponse.next();
-    } catch { /* fall through to 401 */ }
+const PUBLIC = [/^\/login$/, /^\/api\/auth\//];
+
+async function verify(token, secret) {
+  if (!token) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const [uid, exp, sig] = parts;
+  if (Number(exp) < Date.now()) return false;
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${uid}.${exp}`));
+  const expected = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (sig.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
+}
+
+export async function middleware(req) {
+  // LOCAL-ONLY MODE: accounts are opt-in. Without AUTH_SECRET the
+  // whole gate is off — set it (deployment) and login is required.
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return NextResponse.next();
+
+  const { pathname } = req.nextUrl;
+  if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next();
+
+  const token = req.cookies.get('jj_session')?.value;
+  if (await verify(token, secret)) return NextResponse.next();
+
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'inte inloggad' }, { status: 401 });
   }
-  return new NextResponse('Inloggning krävs', {
-    status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="jobbjakt"' },
-  });
+  const url = req.nextUrl.clone();
+  url.pathname = '/login';
+  url.search = '';
+  return NextResponse.redirect(url);
 }
 
 export const config = {

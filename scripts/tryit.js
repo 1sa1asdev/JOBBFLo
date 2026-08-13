@@ -10,16 +10,15 @@
 // ------------------------------------------------------------
 import 'dotenv/config';
 import { pool } from '../src/db.js';
-import { parseCriteria } from '../src/score.js';
-import { backfillSearch } from '../src/fetchJobs.js';
-import { scoreSearch } from '../src/score.js';
+import { llmAvailable } from '../src/llm.js';
+import { parseCriteria, scanSearch } from '../src/score.js';
 
 const CRITERIA =
   process.argv.slice(2).join(' ') ||
   'Junior/mid frontend- eller fullstackroller i Stockholm. Inget krav på 5+ års erfarenhet, gärna React. Inte intresserad av tunga .NET-legacy-grejer. Hybrid är okej.';
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('ANTHROPIC_API_KEY saknas i .env — scoring kräver den.');
+if (!llmAvailable()) {
+  console.error('AI-nyckel saknas i .env — sätt OPENROUTER_API_KEY (gratis konto på openrouter.ai) eller ANTHROPIC_API_KEY.');
   process.exit(1);
 }
 
@@ -53,12 +52,10 @@ if (search) {
   ));
 }
 
-// backfill from JobSearch (JobStream only streams changes going forward)
-await backfillSearch(filters, 50);
-
-// layer 2: score against CV + criteria
+// layer 1 backfill from JobSearch, then layer 2 scoring of exactly
+// those ads (JobStream only streams changes going forward)
 console.log('');
-const results = await scoreSearch(search.id, { limit: 15 });
+const results = await scanSearch(search.id, { limit: 15, fetchLimit: 50 });
 
 console.log(`\n${'—'.repeat(60)}`);
 for (const r of results.sort((a, b) => b.score - a.score)) {

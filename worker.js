@@ -9,7 +9,7 @@
 import 'dotenv/config';
 import { pool } from './src/db.js';
 import { pollJobStream } from './src/fetchJobs.js';
-import { scoreSearch } from './src/score.js';
+import { scanSearch } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
 import { runImapLoop } from './src/imap.js';
 
@@ -33,7 +33,7 @@ async function scoreTick() {
          AND (last_scanned_at IS NULL OR last_scanned_at + scan_interval < now())`
     );
     for (const s of due) {
-      await scoreSearch(s.id).catch((e) => console.error(`score ${s.name}:`, e.message));
+      await scanSearch(s.id).catch((e) => console.error(`scan ${s.name}:`, e.message));
     }
   } catch (err) {
     console.error('scoreTick:', err.message);
@@ -52,7 +52,7 @@ const abort = new AbortController();
 process.on('SIGINT', () => abort.abort());
 process.on('SIGTERM', () => abort.abort());
 
-console.log('jobbjakt worker starting');
+console.log('jobbflo worker starting');
 pollTick();
 scoreTick();
 followupTick();

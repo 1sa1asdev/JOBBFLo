@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { anthropic, MODEL_FAST, MODEL_SMART, jsonOf, textOf } from './llm.js';
+import { llmJson, llmText } from './llm.js';
 
 // ------------------------------------------------------------
 // Inbound reply handling: classify fast (Haiku, ~1s, so the
@@ -17,13 +17,12 @@ Svara ENDAST med JSON, inga kodstaket:
 - "replied": allt annat (bekräftelse, följdfråga, begäran om komplettering).`;
 
 export async function classifyReply(emailBody, { subject = '' } = {}) {
-  const res = await anthropic.messages.create({
-    model: MODEL_FAST,
-    max_tokens: 300,
+  return llmJson({
+    tier: 'fast',
+    maxTokens: 300,
     system: CLASSIFY_SYSTEM,
     messages: [{ role: 'user', content: `Ämne: ${subject}\n\n${emailBody}` }],
   });
-  return jsonOf(res);
 }
 
 const REPLY_SYSTEM = `Du skriver utkast till svar på mejl från arbetsgivare, för en jobbsökande, på svenska.
@@ -48,9 +47,9 @@ export async function draftReply(applicationId, inboundEmailId) {
   const { rows: [profile] } = await pool.query(`SELECT name, about_text, tone_text FROM profile LIMIT 1`);
   if (!email || !app) return null;
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 1000,
+  const raw = await llmText({
+    tier: 'smart',
+    maxTokens: 1000,
     system: REPLY_SYSTEM,
     messages: [{
       role: 'user',
@@ -68,8 +67,8 @@ ${email.body_text}`,
     }],
   });
 
-  const body = textOf(res).trim();
-  if (!body || body === 'INGET_SVAR') return null;
+  const body = raw.trim();
+  if (!body || body.includes('INGET_SVAR')) return null;
 
   const { rows: [suggestion] } = await pool.query(
     `INSERT INTO suggested_replies (application_id, reply_to_id, body, kind)
@@ -101,16 +100,15 @@ export async function generateInterviewPrep(applicationId) {
   const { rows: [profile] } = await pool.query(`SELECT cv_text FROM profile LIMIT 1`);
   if (!app) return null;
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 1500,
+  const prep = await llmJson({
+    tier: 'smart',
+    maxTokens: 1500,
     system: PREP_SYSTEM,
     messages: [{
       role: 'user',
       content: `## ANNONS\n${app.title} — ${app.employer}\n${app.description}\n\n## CV\n${profile?.cv_text}\n\n## SKICKAT BREV\n${app.letter_text}`,
     }],
   });
-  const prep = jsonOf(res);
 
   const { rows: [row] } = await pool.query(
     `INSERT INTO interview_prep (application_id, questions, claimed_note, gaps)

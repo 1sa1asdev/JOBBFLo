@@ -82,7 +82,7 @@ export default function App() {
   return (
     <>
       <div className="topnav" role="tablist">
-        <span className="brand">Jobbjakt</span>
+        <span className="brand">Jobbflo</span>
         <button role="tab" aria-selected={workspace === 'search'} onClick={() => setWorkspace('search')}>
           Sökning
         </button>

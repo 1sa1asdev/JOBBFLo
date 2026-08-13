@@ -1,4 +1,4 @@
-# Jobbjakt
+# Jobbflo
 
 AI-assisted job search + application CRM for the Swedish market.
 Single user (the developer) for now; schema designed so multi-user is

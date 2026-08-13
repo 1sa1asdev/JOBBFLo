@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { anthropic, MODEL_SMART, jsonOf } from './llm.js';
+import { llmJson } from './llm.js';
 
 // ------------------------------------------------------------
 // Cover letters. Always drafts — nothing here sends anything.
@@ -79,27 +79,29 @@ async function loadContext(adId) {
 // UNIQUE(ad_id) guarantees one application per ad, ever.
 // ------------------------------------------------------------
 export async function draftLetter(adId, { originSearchId = null } = {}) {
-  const existing = await pool.query(`SELECT * FROM applications WHERE ad_id = $1`, [adId]);
-  if (existing.rows[0]?.letter_text) return existing.rows[0];
-
   const ctx = await loadContext(adId);
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 2000,
+  const existing = await pool.query(
+    `SELECT * FROM applications WHERE ad_id = $1 AND profile_id = $2`,
+    [adId, ctx.profile.id]
+  );
+  if (existing.rows[0]?.letter_text) return existing.rows[0];
+
+  const draft = await llmJson({
+    tier: 'smart',
+    maxTokens: 2000,
     system: LETTER_SYSTEM,
     messages: [{ role: 'user', content: letterContext(ctx) }],
   });
-  const draft = jsonOf(res);
 
   const { rows: [app] } = await pool.query(
-    `INSERT INTO applications (ad_id, origin_search_id, status, subject, letter_text, letter_version)
-     VALUES ($1, $2, 'drafted', $3, $4, 1)
-     ON CONFLICT (ad_id) DO UPDATE SET
+    `INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text, letter_version)
+     VALUES ($1, $2, $3, 'drafted', $4, $5, 1)
+     ON CONFLICT (profile_id, ad_id) DO UPDATE SET
        subject = EXCLUDED.subject, letter_text = EXCLUDED.letter_text,
        letter_version = 1, updated_at = now()
      RETURNING *`,
-    [adId, originSearchId, draft.subject, draft.body]
+    [adId, ctx.profile.id, originSearchId, draft.subject, draft.body]
   );
 
   await pool.query(
@@ -127,9 +129,9 @@ export async function reviseLetter(applicationId, instruction) {
 
   const ctx = await loadContext(app.ad_id);
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 2000,
+  const draft = await llmJson({
+    tier: 'smart',
+    maxTokens: 2000,
     system: LETTER_SYSTEM,
     messages: [
       { role: 'user', content: letterContext(ctx) },
@@ -137,7 +139,6 @@ export async function reviseLetter(applicationId, instruction) {
       { role: 'user', content: `Revidera brevet enligt: ${instruction}\nSvara med samma JSON-format, inklusive "change_note".` },
     ],
   });
-  const draft = jsonOf(res);
   const version = app.letter_version + 1;
 
   await pool.query(

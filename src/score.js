@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { anthropic, MODEL_SMART, jsonOf } from './llm.js';
+import { llmJson } from './llm.js';
 
 // ------------------------------------------------------------
 // LAYER 1 — natural language -> structured API filters.
@@ -8,9 +8,16 @@ import { anthropic, MODEL_SMART, jsonOf } from './llm.js';
 const FILTER_SYSTEM = `Du översätter en jobbsökandes egna ord till filter för Arbetsförmedlingens JobSearch API.
 
 Tillgängliga filter:
-- q (fritext)
-- occupation-field (t.ex. "Data/IT")
-- municipality, region
+- q (fritext — yrkesord, teknik, nyckelord)
+- occupation-field: EXAKT ett av dessa värden, annars utelämna:
+  Administration, ekonomi, juridik | Bygg och anläggning | Chefer och verksamhetsledare |
+  Data/IT | Försäljning, inköp, marknadsföring | Hantverk | Hotell, restaurang, storhushåll |
+  Hälso- och sjukvård | Industriell tillverkning | Installation, drift, underhåll |
+  Kropps- och skönhetsvård | Kultur, media, design | Militära yrken | Naturbruk |
+  Naturvetenskap | Pedagogik | Sanering och renhållning | Säkerhet och bevakning |
+  Transport, distribution, lager | Yrken med social inriktning | Yrken med teknisk inriktning
+- municipality: kommunnamn på svenska, t.ex. "Stockholm", "Göteborg", "Solna"
+- region: länsnamn, t.ex. "Stockholms län"
 - employment-type
 - experience-required: true|false
 - remote: true|false
@@ -22,14 +29,12 @@ Svara ENDAST med JSON, ingen förklaring, inga kodstaket:
 Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.`;
 
 export async function parseCriteria(criteriaText) {
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 1000,
+  return llmJson({
+    tier: 'smart',
+    maxTokens: 1000,
     system: FILTER_SYSTEM,
     messages: [{ role: 'user', content: criteriaText }],
   });
-
-  return jsonOf(res);
 }
 
 // ------------------------------------------------------------
@@ -91,14 +96,12 @@ ${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
 
 ${ad.description}`;
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 2000,
+  return llmJson({
+    tier: 'smart',
+    maxTokens: 2000,
     system: SCORE_SYSTEM,
     messages: [{ role: 'user', content: input }],
   });
-
-  return jsonOf(res);
 }
 
 // ------------------------------------------------------------
@@ -106,7 +109,7 @@ ${ad.description}`;
 // ads are global; match_results are per-search — so an ad
 // already scored for search A still gets scored for search B.
 // ------------------------------------------------------------
-export async function scoreSearch(searchId, { limit = 20 } = {}) {
+export async function scoreSearch(searchId, { limit = 20, adIds = null } = {}) {
   const { rows: [search] } = await pool.query(
     `SELECT s.*, p.cv_text, p.about_text
      FROM searches s JOIN profile p ON p.id = s.profile_id
@@ -119,7 +122,12 @@ export async function scoreSearch(searchId, { limit = 20 } = {}) {
      WHERE profile_id = $1 AND is_active`, [search.profile_id]
   );
 
-  // unscored, not expired, not suppressed
+  // Unscored, not expired, not suppressed — restricted to the ads
+  // layer 1 actually selected for THIS search. Without that
+  // restriction we'd LLM-score the newest ads in the whole global
+  // pool (every job in Sweden), which is exactly what layer 1's
+  // cheap narrowing exists to prevent. Ads stay global; only the
+  // scoring candidate set is per-search.
   const { rows: ads } = await pool.query(
     `SELECT a.* FROM ads a
      LEFT JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1
@@ -128,8 +136,9 @@ export async function scoreSearch(searchId, { limit = 20 } = {}) {
        AND a.removed_at IS NULL
        AND na.fingerprint IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
+       AND ($3::uuid[] IS NULL OR a.id = ANY($3))
      ORDER BY a.published_at DESC NULLS LAST
-     LIMIT $2`, [searchId, limit]
+     LIMIT $2`, [searchId, limit, adIds]
   );
 
   console.log(`scoring ${ads.length} ads for "${search.name}"`);
@@ -167,6 +176,23 @@ export async function scoreSearch(searchId, { limit = 20 } = {}) {
 
   await pool.query(`UPDATE searches SET last_scanned_at = now() WHERE id = $1`, [searchId]);
   return results;
+}
+
+// ------------------------------------------------------------
+// One scan = layer 1 (narrow via the API) then layer 2 (score
+// what came back). The two must be chained: scoring a candidate
+// set layer 1 didn't produce is what makes the funnel leak.
+// Used by the worker, the "Skanna nu" route, and scripts/tryit.
+// ------------------------------------------------------------
+export async function scanSearch(searchId, { limit = 20, fetchLimit = 50 } = {}) {
+  const { rows: [search] } = await pool.query(
+    `SELECT * FROM searches WHERE id = $1 AND deleted_at IS NULL`, [searchId]
+  );
+  if (!search) throw new Error(`no search ${searchId}`);
+
+  const { backfillSearch } = await import('./fetchJobs.js');
+  const adIds = await backfillSearch(search.api_filters || {}, fetchLimit);
+  return scoreSearch(searchId, { limit, adIds });
 }
 
 // ------------------------------------------------------------

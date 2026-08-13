@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'JOBBJAKT',
+  title: 'JOBBFLO',
   description: 'AI-assisterad jobbsökning och ansöknings-CRM',
 };
 

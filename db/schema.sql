@@ -1,5 +1,5 @@
 -- ============================================================
--- JOBBJAKT — schema
+-- JOBBFLO — schema
 -- Core rule: ads are GLOBAL, match_results are PER-SEARCH,
 -- applications are PER-AD. This is what prevents the CRM-E
 -- problem where a new search didn't know an ad was applied to.
@@ -8,10 +8,22 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ------------------------------------------------------------
--- profile: the user + their base CV
+-- users: login identity. One account = one profile.
+-- ------------------------------------------------------------
+CREATE TABLE users (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email           text NOT NULL UNIQUE,
+  password_hash   text NOT NULL,              -- scrypt$N$salt$hash
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
+-- profile: the user + their base CV. user_id is nullable so a
+-- seeded profile can be claimed by signing up with its email.
 -- ------------------------------------------------------------
 CREATE TABLE profile (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   name            text NOT NULL,
   email           text NOT NULL,              -- gmail used for SMTP/IMAP
   phone           text,
@@ -133,13 +145,14 @@ CREATE TABLE match_results (
 CREATE INDEX match_results_score ON match_results(search_id, score DESC);
 
 -- ------------------------------------------------------------
--- applications: PER-AD. this UNIQUE is the whole fix.
+-- applications: PER-(USER, AD). this UNIQUE is the whole fix.
 -- a second search physically cannot create a second
--- application for an ad that already has one.
+-- application for an ad the user already applied to.
 -- ------------------------------------------------------------
 CREATE TABLE applications (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  ad_id           uuid NOT NULL UNIQUE REFERENCES ads(id) ON DELETE CASCADE,
+  ad_id           uuid NOT NULL REFERENCES ads(id) ON DELETE CASCADE,
+  profile_id      uuid NOT NULL REFERENCES profile(id) ON DELETE CASCADE,
 
   -- which search produced it: for the inbox "find similar jobs" button.
   -- ON DELETE SET NULL + searches.deleted_at means the back-reference
@@ -163,7 +176,8 @@ CREATE TABLE applications (
   followup_sent_at timestamptz,
 
   created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (profile_id, ad_id)
 );
 
 CREATE INDEX applications_status ON applications(status);
@@ -285,7 +299,8 @@ SELECT
   (app.id IS NOT NULL AND m.search_id <> app.origin_search_id) AS applied_via_other_search,
   (na.fingerprint IS NOT NULL) AS suppressed
 FROM match_results m
+JOIN searches s      ON s.id = m.search_id
 JOIN ads a           ON a.id = m.ad_id
-LEFT JOIN applications app ON app.ad_id = a.id
+LEFT JOIN applications app ON app.ad_id = a.id AND app.profile_id = s.profile_id
 LEFT JOIN never_apply na   ON na.fingerprint = a.fingerprint
 WHERE a.removed_at IS NULL;

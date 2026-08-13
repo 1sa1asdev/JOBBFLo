@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { anthropic, MODEL_SMART, textOf } from './llm.js';
+import { llmText } from './llm.js';
 
 // ------------------------------------------------------------
 // Follow-up nudges. Scheduled follow-ups schedule a DRAFT —
@@ -39,9 +39,9 @@ export async function checkFollowups() {
 
   for (const app of due) {
     try {
-      const res = await anthropic.messages.create({
-        model: MODEL_SMART,
-        max_tokens: 500,
+      const body = await llmText({
+        tier: 'smart',
+        maxTokens: 500,
         system: FOLLOWUP_SYSTEM,
         messages: [{
           role: 'user',
@@ -50,7 +50,7 @@ export async function checkFollowups() {
       });
       await pool.query(
         `INSERT INTO suggested_replies (application_id, body, kind) VALUES ($1, $2, 'followup')`,
-        [app.id, textOf(res).trim()]
+        [app.id, body.trim()]
       );
       console.log(`  followup draft: ${app.title} — ${app.employer}`);
     } catch (err) {

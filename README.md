@@ -1,4 +1,4 @@
-# Jobbjakt
+# Jobbflo
 
 AI-assisted job search + application CRM for the Swedish market. Polls
 Arbetsförmedlingen's JobStream API into one shared ad pool, scores ads in two

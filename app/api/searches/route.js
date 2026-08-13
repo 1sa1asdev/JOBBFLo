@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
-import { parseCriteria, scoreSearch } from '../../../src/score.js';
-import { backfillSearch } from '../../../src/fetchJobs.js';
+import { parseCriteria, scanSearch } from '../../../src/score.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +31,10 @@ export async function POST(req) {
   try {
     ({ filters } = await parseCriteria(criteria));
   } catch (err) {
-    parseError = err.message; // no API key / model error — search still gets created
+    // no API key / model error — fall back to plain free-text search so
+    // the real JobSearch API still gets queried; layer 2 waits for a key
+    parseError = err.message;
+    filters = { q: criteria.slice(0, 200) };
   }
 
   const { rows: [search] } = await pool.query(
@@ -48,21 +50,18 @@ export async function POST(req) {
   await pool.query(
     `INSERT INTO search_messages (search_id, role, content) VALUES ($1, 'assistant', $2)`,
     [search.id, parseError
-      ? `Kunde inte tolka kriterierna mot API:t (${parseError}). Sökningen är sparad — försök igen via chatten.`
+      ? `AI-tolkning otillgänglig (${parseError}) — söker med fritext mot JobSearch API istället. Annonser hämtas, men poängsättning kräver en AI-nyckel (OPENROUTER_API_KEY i .env).`
       : `Filter satta via JobSearch API: ${Object.entries(filters).map(([k, v]) => `${k}=${v}`).join(' · ') || 'inga — bred sökning'}. Resten bedöms mot annonstexten.`]
   );
 
-  // backfill + first scoring pass in the background; UI polls results
-  if (!parseError) {
-    (async () => {
-      try {
-        await backfillSearch(filters, 50);
-        await scoreSearch(search.id, { limit: 20 });
-      } catch (err) {
-        console.error(`backfill ${search.id}:`, err.message);
-      }
-    })();
-  }
+  // first scan in the background; UI polls results
+  (async () => {
+    try {
+      await scanSearch(search.id, { limit: 20 });
+    } catch (err) {
+      console.error(`scan ${search.id}:`, err.message);
+    }
+  })();
 
   return NextResponse.json(search, { status: 201 });
 }

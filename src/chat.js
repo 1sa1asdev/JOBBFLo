@@ -1,6 +1,6 @@
 import { pool } from './db.js';
-import { anthropic, MODEL_SMART, jsonOf } from './llm.js';
-import { parseCriteria, scoreSearch } from './score.js';
+import { llmJson } from './llm.js';
+import { parseCriteria, scanSearch } from './score.js';
 
 // ------------------------------------------------------------
 // The search-criteria conversation. Each saved search is one
@@ -28,16 +28,15 @@ export async function chatTurn(searchId, userMessage) {
     [searchId, userMessage]
   );
 
-  const res = await anthropic.messages.create({
-    model: MODEL_SMART,
-    max_tokens: 1000,
+  const { criteria, reply } = await llmJson({
+    tier: 'smart',
+    maxTokens: 1000,
     system: MERGE_SYSTEM,
     messages: [{
       role: 'user',
       content: `## NUVARANDE KRITERIER\n${search.criteria_text}\n\n## NYTT MEDDELANDE\n${userMessage}`,
     }],
   });
-  const { criteria, reply } = jsonOf(res);
 
   // re-parse layer-1 filters from the merged criteria
   const { filters } = await parseCriteria(criteria);
@@ -54,8 +53,8 @@ export async function chatTurn(searchId, userMessage) {
   // stale scores: criteria changed, so re-score this search's pool.
   // match_results are per-search, so this touches nothing else.
   await pool.query(`DELETE FROM match_results WHERE search_id = $1`, [searchId]);
-  scoreSearch(searchId, { limit: 30 }).catch((e) =>
-    console.error(`rescore ${searchId}:`, e.message)
+  scanSearch(searchId, { limit: 30 }).catch((e) =>
+    console.error(`rescan ${searchId}:`, e.message)
   );
 
   return { reply, criteria, filters };
