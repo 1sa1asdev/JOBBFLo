@@ -39,6 +39,10 @@ export default function ProfileView({ onClose }) {
           <button className="close-profile" onClick={onClose}>✕ Stäng</button>
         </div>
 
+        {/* First: the setting that gates scoring, letters and chat.
+            Everything below is CV data, which is useless without it. */}
+        <LlmSettings />
+
         <div className="field-group">
           <span className="label">Bas-CV (klistra in som text)</span>
           <textarea
@@ -101,8 +105,6 @@ export default function ProfileView({ onClose }) {
           <textarea className="txt-area" style={{ minHeight: 62 }} aria-label="Ton"
             value={profile.tone_text || ''} onChange={(e) => set('tone_text', e.target.value)} />
         </div>
-
-        <LlmSettings />
 
         {error && <div className="err-note" style={{ margin: '0 0 14px' }}>{error}</div>}
 

@@ -92,6 +92,8 @@ export default function LlmSettings() {
             key={p.id}
             type="button"
             className={`llm-card${provider === p.id ? ' active' : ''}`}
+            aria-pressed={provider === p.id}
+            aria-label={`${p.label}${p.eu === true ? ' (data inom EU)' : ''}`}
             onClick={() => pick(p.id)}
           >
             <span className="llm-name">
