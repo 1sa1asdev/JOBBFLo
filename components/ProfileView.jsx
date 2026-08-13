@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import LlmSettings from './LlmSettings.jsx';
 
 export default function ProfileView({ onClose }) {
   const [profile, setProfile] = useState(null);
@@ -100,6 +101,8 @@ export default function ProfileView({ onClose }) {
           <textarea className="txt-area" style={{ minHeight: 62 }} aria-label="Ton"
             value={profile.tone_text || ''} onChange={(e) => set('tone_text', e.target.value)} />
         </div>
+
+        <LlmSettings />
 
         {error && <div className="err-note" style={{ margin: '0 0 14px' }}>{error}</div>}
 

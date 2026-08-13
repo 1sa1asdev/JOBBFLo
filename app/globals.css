@@ -931,3 +931,32 @@
 .login-card .err-note{margin:0 22px 14px!important;}
 .login-submit{display:block;width:calc(100% - 44px);margin:0 22px 18px;}
 .login-hint{font-size:10.5px;color:var(--mute);line-height:1.5;padding:0 22px 18px;}
+
+/* ================= LLM PROVIDER SETTINGS ================= */
+.llm-active{border:1px solid var(--tag-border);background:var(--panel);padding:10px 12px;
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;line-height:1.5;color:var(--ink);margin-bottom:12px;}
+.llm-active .llm-src{color:var(--mute);}
+.llm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-bottom:14px;}
+.llm-card{text-align:left;background:var(--paper);border:1px solid var(--tag-border);
+  padding:10px 11px;cursor:pointer;color:var(--ink);min-height:74px;}
+.llm-card:hover{background:var(--card-hover);border-color:var(--line);}
+.llm-card.active{border:2px solid var(--ink);background:var(--panel);}
+.llm-card:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.llm-name{display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;}
+.llm-eu{font-style:normal;font-size:8px;font-weight:700;letter-spacing:.06em;
+  border:1px solid var(--ok);color:var(--ok);padding:1px 4px;}
+.llm-note{display:block;font-size:10px;line-height:1.45;color:var(--mute);}
+.llm-form{border:1px solid var(--line);background:var(--panel);padding:14px;}
+.llm-form label{display:block;margin-bottom:12px;}
+.llm-form label > span{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--mute);display:block;margin-bottom:5px;}
+.llm-form label > span code{text-transform:none;color:var(--ink);}
+.llm-link{display:inline-block;margin-top:6px;font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;color:var(--flag);}
+.llm-test{margin-top:10px;padding:9px 11px;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;line-height:1.5;}
+.llm-test.ok{border:1px solid var(--ok);color:var(--ok);background:#E9EDDC;}
+.llm-test.fail{border:1px solid var(--flag);color:var(--flag);background:#F0DCD4;}
+.llm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+.llm-gdpr{border-left:2px solid var(--flag);padding-left:10px;margin-top:14px;}

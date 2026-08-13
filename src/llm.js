@@ -1,66 +1,99 @@
 import 'dotenv/config';
+import { PROVIDERS } from './providers.js';
+import { decryptSecret } from './secrets.js';
 
 // ------------------------------------------------------------
-// LLM layer. Provider-pluggable:
-//   OPENROUTER_API_KEY set  → OpenRouter (default: free models)
-//   else ANTHROPIC_API_KEY  → Anthropic direct
-// Callers only ever use llmText()/llmJson() with a tier:
+// LLM layer. The provider is the USER's choice, stored per
+// profile (bring your own key); server env vars are the
+// fallback when nothing is configured in the UI.
+//
+// Every provider except Anthropic speaks OpenAI chat-completions,
+// so there are only two transports here.
+//
+// Callers only use llmText()/llmJson() with a tier:
 //   'smart' — scoring, letters, criteria chat (nuance)
 //   'fast'  — reply classification (latency budget ~1s)
-//
-// Free models are aggressively rate-limited upstream, so each
-// tier is a CHAIN: on 429/404/5xx we fall through to the next
-// model, and only retry-with-backoff if the whole chain is busy.
 // ------------------------------------------------------------
-
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-
-// Chains chosen by probing openrouter.ai/api/v1/models for JSON
-// compliance + latency. OpenRouter rotates its :free catalogue —
-// if these all 404, re-probe and override via .env (comma-separated).
-const DEFAULT_SMART = [
-  'google/gemma-4-31b-it:free',
-  'openai/gpt-oss-20b:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-  'google/gemma-4-26b-a4b-it:free',
-  'nvidia/nemotron-nano-9b-v2:free',
-];
-const DEFAULT_FAST = [
-  'nvidia/nemotron-nano-9b-v2:free',
-  'google/gemma-4-31b-it:free',
-  'openai/gpt-oss-20b:free',
-  'liquid/lfm-2.5-2.6b:free',
-];
-
-const chain = (envVar, fallback) =>
-  (process.env[envVar]?.split(',').map((s) => s.trim()).filter(Boolean).length
-    ? process.env[envVar].split(',').map((s) => s.trim()).filter(Boolean)
-    : fallback);
-
-const ANT_SMART = 'claude-sonnet-4-6';
-const ANT_FAST = 'claude-haiku-4-5';
-
-export function llmAvailable() {
-  return Boolean(process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY);
-}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// The free tier has a per-DAY account quota. That error is
-// account-wide, so rotating models can't help — trying is pure
-// waste (the worker would hammer 5 models × 2 rounds per ad).
-// Trip a breaker and fail fast until it resets.
-let quotaBlockedUntil = 0;
-const isDailyQuota = (msg) => /free-models-per-day|per-day|daily limit/i.test(msg);
-export function quotaBlocked() {
-  return quotaBlockedUntil > Date.now();
+// ---------- config resolution ----------
+// Cached briefly so a 20-ad scan doesn't re-query per ad.
+let cached = null;
+let cachedAt = 0;
+const CONFIG_TTL = 30_000;
+
+export function invalidateLlmConfig() {
+  cached = null;
 }
 
-async function callOpenRouter(model, { system, messages, maxTokens }) {
-  const res = await fetch(OPENROUTER_URL, {
+function envConfig() {
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      provider: 'openrouter',
+      apiKey: process.env.OPENROUTER_API_KEY,
+      smart: process.env.OPENROUTER_MODEL_SMART || PROVIDERS.openrouter.smart,
+      fast: process.env.OPENROUTER_MODEL_FAST || PROVIDERS.openrouter.fast,
+      baseUrl: PROVIDERS.openrouter.baseUrl,
+      source: 'env',
+    };
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    return {
+      provider: 'anthropic',
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      smart: PROVIDERS.anthropic.smart,
+      fast: PROVIDERS.anthropic.fast,
+      baseUrl: null,
+      source: 'env',
+    };
+  }
+  return null;
+}
+
+export async function llmConfig({ fresh = false } = {}) {
+  if (!fresh && cached && Date.now() - cachedAt < CONFIG_TTL) return cached;
+
+  let config = null;
+  try {
+    const { pool } = await import('./db.js');
+    const { rows: [p] } = await pool.query(
+      `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast, llm_base_url
+       FROM profile WHERE llm_provider IS NOT NULL LIMIT 1`
+    );
+    if (p?.llm_provider) {
+      const preset = PROVIDERS[p.llm_provider] || {};
+      const apiKey = decryptSecret(p.llm_api_key_enc);
+      if (apiKey || p.llm_provider === 'ollama') {
+        config = {
+          provider: p.llm_provider,
+          apiKey: apiKey || 'ollama',
+          smart: p.llm_model_smart || preset.smart,
+          fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
+          baseUrl: p.llm_base_url || preset.baseUrl,
+          source: 'user',
+        };
+      }
+    }
+  } catch {
+    // DB unavailable (e.g. build time) — fall through to env
+  }
+
+  cached = config || envConfig();
+  cachedAt = Date.now();
+  return cached;
+}
+
+export async function llmAvailable() {
+  return Boolean(await llmConfig());
+}
+
+// ---------- transports ----------
+async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens }) {
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      authorization: `Bearer ${apiKey}`,
       'content-type': 'application/json',
       'x-title': 'jobbflo',
     },
@@ -75,7 +108,6 @@ async function callOpenRouter(model, { system, messages, maxTokens }) {
     const body = (await res.text()).slice(0, 200);
     const err = new Error(`${res.status} ${body}`);
     err.status = res.status;
-    // 429 = busy now (worth retrying), 404 = gone from the free tier
     err.transient = res.status === 429 || res.status >= 500;
     throw err;
   }
@@ -86,77 +118,75 @@ async function callOpenRouter(model, { system, messages, maxTokens }) {
     err.transient = data.error.code === 429;
     throw err;
   }
-  // reasoning models put chain-of-thought in `reasoning` and the
-  // real answer in `content` — only `content` is usable output
+  // reasoning models put chain-of-thought in `reasoning`; only
+  // `content` is usable output
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) {
     const err = new Error(`tomt svar (finish=${data.choices?.[0]?.finish_reason})`);
-    err.transient = true; // try the next model in the chain
+    err.transient = true;
     throw err;
   }
   return text;
 }
 
-async function completeOpenRouter({ tier, system, messages, maxTokens, validate }) {
-  const models = tier === 'fast'
-    ? chain('OPENROUTER_MODEL_FAST', DEFAULT_FAST)
-    : chain('OPENROUTER_MODEL_SMART', DEFAULT_SMART);
-
-  if (quotaBlocked()) {
-    const mins = Math.ceil((quotaBlockedUntil - Date.now()) / 60000);
-    throw new Error(`OpenRouter: dagskvoten för gratismodeller är slut (försök igen om ~${mins} min, eller lägg till credits på openrouter.ai)`);
-  }
-
-  const problems = [];
-  // two passes: try every model, then back off and try again.
-  // `validate` runs here so a model that won't produce the shape
-  // we need (common with free reasoning models) is skipped like
-  // any other failure instead of poisoning the caller.
-  for (let round = 0; round < 2; round++) {
-    if (round > 0) await sleep(4000);
-    for (const model of models) {
-      try {
-        const text = await callOpenRouter(model, { system, messages, maxTokens });
-        return validate ? validate(text) : text;
-      } catch (err) {
-        if (isDailyQuota(err.message)) {
-          quotaBlockedUntil = Date.now() + 30 * 60 * 1000; // re-probe in 30 min
-          throw new Error('OpenRouter: dagskvoten för gratismodeller är slut — lägg till credits på openrouter.ai, sätt ANTHROPIC_API_KEY, eller vänta tills kvoten återställs');
-        }
-        problems.push(`${model}: ${err.message.slice(0, 80)}`);
-        if (err.status && !err.transient && err.status !== 404) throw err; // real API error
-      }
-    }
-  }
-  throw new Error(`OpenRouter: ingen modell gav användbart svar\n  ${problems.slice(-4).join('\n  ')}`);
-}
-
-async function completeAnthropic({ tier, system, messages, maxTokens }) {
+async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const res = await client.messages.create({
-    model: tier === 'fast' ? ANT_FAST : ANT_SMART,
-    max_tokens: maxTokens,
-    system,
-    messages,
-  });
+  const client = new Anthropic({ apiKey });
+  const res = await client.messages.create({ model, max_tokens: maxTokens, system, messages });
   return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
-export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate }) {
-  if (process.env.OPENROUTER_API_KEY) {
-    return completeOpenRouter({ tier, system, messages, maxTokens, validate });
+// ---------- free-tier daily quota breaker ----------
+// A per-day account quota is account-wide, so rotating models
+// can't help — fail fast instead of hammering the API.
+let quotaBlockedUntil = 0;
+const isDailyQuota = (msg) => /free-models-per-day|per-day|daily limit|quota exceeded/i.test(msg);
+
+// ---------- public API ----------
+export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate, config }) {
+  const cfg = config || await llmConfig();
+  if (!cfg) {
+    throw new Error('Ingen AI-leverantör vald — gå till Profil → AI-leverantör och lägg in en nyckel.');
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    const text = await completeAnthropic({ tier, system, messages, maxTokens });
-    return validate ? validate(text) : text;
+
+  if (quotaBlockedUntil > Date.now()) {
+    const mins = Math.ceil((quotaBlockedUntil - Date.now()) / 60000);
+    throw new Error(`Dagskvoten hos ${cfg.provider} är slut (ny chans om ~${mins} min) — byt leverantör eller lägg till credits.`);
   }
-  throw new Error('ingen AI-nyckel — sätt OPENROUTER_API_KEY (gratis) eller ANTHROPIC_API_KEY i .env');
+
+  // model chain: comma-separated values allow "paid first, free fallback"
+  const models = String(tier === 'fast' ? cfg.fast : cfg.smart)
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!models.length) throw new Error(`Ingen modell angiven för ${tier}-nivån.`);
+
+  const problems = [];
+  for (let round = 0; round < 2; round++) {
+    if (round > 0) await sleep(3000);
+    for (const model of models) {
+      try {
+        const text = cfg.provider === 'anthropic'
+          ? await callAnthropic({ ...cfg, model, system, messages, maxTokens })
+          : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
+        return validate ? validate(text) : text;
+      } catch (err) {
+        if (isDailyQuota(err.message)) {
+          quotaBlockedUntil = Date.now() + 30 * 60 * 1000;
+          throw new Error(`Dagskvoten hos ${cfg.provider} är slut — byt leverantör i Profil, lägg till credits, eller vänta.`);
+        }
+        problems.push(`${model}: ${err.message.slice(0, 80)}`);
+        if (err.status === 401 || err.status === 403) {
+          throw new Error(`${cfg.provider}: nyckeln avvisades (${err.status}). Kontrollera den i Profil → AI-leverantör.`);
+        }
+        if (err.status && !err.transient && err.status !== 404) throw err;
+      }
+    }
+  }
+  throw new Error(`${cfg.provider}: ingen modell gav användbart svar\n  ${problems.slice(-3).join('\n  ')}`);
 }
 
-// The prompts demand bare JSON; free models are less disciplined,
+// Prompts demand bare JSON; smaller models are less disciplined,
 // so strip fences and fall back to the outermost {...} span.
-// Passed as a validator so unparseable output rotates to the next model.
+// Runs as a validator so unparseable output rotates to the next model.
 export function parseJson(raw) {
   const cleaned = raw.replace(/```json|```/g, '').trim();
   try {
