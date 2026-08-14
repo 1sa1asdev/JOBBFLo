@@ -51,11 +51,11 @@ function envConfigFor(id) {
   const preset = PROVIDERS[id];
   if (!preset) return null;
   const apiKey = envKeyFor(id);
-  if (!apiKey && id !== 'ollama') return null;
+  if (!apiKey && !['ollama','lmstudio'].includes(id)) return null;
   const upper = id.toUpperCase();
   return {
     provider: id,
-    apiKey: apiKey || 'ollama',
+    apiKey: apiKey || 'local',
     smart: process.env[`${upper}_MODEL_SMART`] || process.env.LLM_MODEL_SMART || preset.smart,
     fast: process.env[`${upper}_MODEL_FAST`] || process.env.LLM_MODEL_FAST || preset.fast,
     // bulk (scoring) and write (prose) can point at different models —
@@ -94,10 +94,10 @@ export async function llmConfig({ fresh = false } = {}) {
     if (p?.llm_provider) {
       const preset = PROVIDERS[p.llm_provider] || {};
       const apiKey = decryptSecret(p.llm_api_key_enc);
-      if (apiKey || p.llm_provider === 'ollama') {
+      if (apiKey || ['ollama','lmstudio'].includes(p.llm_provider)) {
         config = {
           provider: p.llm_provider,
-          apiKey: apiKey || 'ollama',
+          apiKey: apiKey || 'local',
           smart: p.llm_model_smart || preset.smart,
           fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
           bulk: p.llm_model_bulk || preset.bulk || null,
@@ -136,11 +136,21 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
     }),
   });
 
+  // learn the real per-minute budget instead of guessing at it
+  const limHeader = Number(res.headers.get('x-ratelimit-limit-tokens'));
+  if (limHeader > 0) tpmLimit.set(model, limHeader);
+
   if (!res.ok) {
     const body = (await res.text()).slice(0, 200);
     const err = new Error(`${res.status} ${body}`);
     err.status = res.status;
     err.transient = res.status === 429 || res.status >= 500;
+    // honour Retry-After / the reset header rather than blind backoff
+    const retry = res.headers.get('retry-after')
+      || res.headers.get('x-ratelimit-reset-tokens');
+    if (retry) err.retryAfterMs = /ms$/.test(retry)
+      ? parseFloat(retry)
+      : Math.min(parseFloat(retry) * 1000 || 2000, 30_000);
     throw err;
   }
 
@@ -152,6 +162,10 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
   }
   // reasoning models put chain-of-thought in `reasoning`; only
   // `content` is usable output
+  // charge the bucket with what was actually used, when reported
+  const used = data.usage?.total_tokens;
+  if (used) recordSpend(model, used);
+
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) {
     const err = new Error(`tomt svar (finish=${data.choices?.[0]?.finish_reason})`);
@@ -172,7 +186,46 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
 // A per-day account quota is account-wide, so rotating models
 // can't help — fail fast instead of hammering the API.
 let quotaBlockedUntil = 0;
-const isDailyQuota = (msg) => /free-models-per-day|per-day|daily limit|quota exceeded/i.test(msg);
+const isDailyQuota = (msg) =>
+  /free-models-per-day|per-day|daily limit|quota exceeded|requests per day|RPD/i.test(msg);
+
+// A per-MINUTE limit is the opposite: waiting fixes it. Free tiers
+// are generous per day but tight per minute (Groq: 1000 req/day but
+// only 12k tokens/min), and a 20-ad scan fires ~50k tokens back to
+// back — so without pacing the first scan of the day looks exactly
+// like "out of credits".
+const isPerMinute = (msg) =>
+  /per minute|TPM|RPM|tokens per min|requests per min|rate limit reached/i.test(msg);
+
+// Token bucket over a sliding 60s window, per model.
+const spent = new Map();            // model -> [{t, tokens}]
+const TPM_DEFAULT = 10_000;         // conservative; corrected from response headers
+const tpmLimit = new Map();
+
+function recordSpend(model, tokens) {
+  const now = Date.now();
+  const log = (spent.get(model) || []).filter((e) => now - e.t < 60_000);
+  log.push({ t: now, tokens });
+  spent.set(model, log);
+}
+
+async function waitForBudget(model, need) {
+  const limit = tpmLimit.get(model) || TPM_DEFAULT;
+  for (let i = 0; i < 12; i++) {
+    const now = Date.now();
+    const log = (spent.get(model) || []).filter((e) => now - e.t < 60_000);
+    spent.set(model, log);
+    const used = log.reduce((s, e) => s + e.tokens, 0);
+    if (used + need <= limit * 0.9) return;          // 10% headroom
+    // wait until the oldest entry ages out of the window
+    const oldest = log[0]?.t || now;
+    await sleep(Math.min(Math.max(60_000 - (now - oldest) + 250, 500), 20_000));
+  }
+}
+
+const estimateTokens = (system, messages, maxTokens) =>
+  Math.ceil((String(system || '').length
+    + messages.reduce((s, m) => s + String(m.content || '').length, 0)) / 3.6) + (maxTokens || 0);
 
 // ---------- public API ----------
 export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate, config }) {
@@ -194,11 +247,15 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
     .split(',').map((s) => s.trim()).filter(Boolean);
   if (!models.length) throw new Error(`Ingen modell angiven för ${tier}-nivån.`);
 
+  const need = estimateTokens(system, messages, maxTokens);
   const problems = [];
-  for (let round = 0; round < 2; round++) {
-    if (round > 0) await sleep(3000);
+  for (let round = 0; round < 3; round++) {
+    if (round > 0) await sleep(2000);
     for (const model of models) {
       try {
+        // pace BEFORE spending, so a burst scan doesn't trip the
+        // per-minute ceiling and look like an exhausted account
+        await waitForBudget(model, need);
         const text = cfg.provider === 'anthropic'
           ? await callAnthropic({ ...cfg, model, system, messages, maxTokens })
           : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
@@ -207,6 +264,12 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
         if (isDailyQuota(err.message)) {
           quotaBlockedUntil = Date.now() + 30 * 60 * 1000;
           throw new Error(`Dagskvoten hos ${cfg.provider} är slut — byt leverantör i Profil, lägg till credits, eller vänta.`);
+        }
+        // per-minute limit: waiting fixes it, so wait rather than
+        // burning through the rest of the chain
+        if (isPerMinute(err.message) || err.status === 429) {
+          recordSpend(model, need);          // assume it counted
+          await sleep(Math.min(err.retryAfterMs || 5000, 30_000));
         }
         problems.push(`${model}: ${err.message.slice(0, 80)}`);
         if (err.status === 401 || err.status === 403) {

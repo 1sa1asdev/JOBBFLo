@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
+import { buildProfileTerms, prefilterAd } from './prefilter.js';
 
 // ------------------------------------------------------------
 // LAYER 1 — natural language -> structured API filters.
@@ -27,6 +28,14 @@ Svara ENDAST med JSON, ingen förklaring, inga kodstaket:
 {"filters": {...}, "unmapped": ["kriterier som inte går att uttrycka som filter"]}
 
 Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.
+
+VIKTIGT — sätt ALLTID occupation-field om yrket hör hemma i ett tydligt område.
+Utan det returnerar API:t annonser från alla branscher (svetsare, barnskötare,
+säljare) som sedan kostar en dyr bedömning var. Ett fält är nästan alltid
+härledbart: "frontendutvecklare" → Data/IT, "restaurangbiträde" → Hotell,
+restaurang, storhushåll, "undersköterska" → Hälso- och sjukvård.
+Utelämna det bara när kandidaten uttryckligen söker brett över flera branscher
+(t.ex. "vilket extrajobb som helst").
 
 VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
 - remote: sätt ENDAST om kandidaten kräver helt distansarbete. "Hybrid är okej",
@@ -76,6 +85,22 @@ Poängsättning:
 50-69  = möjlig, med reservationer
 0-49   = svag match`;
 
+// Requirements live in the first half of an ad; the tail is usually
+// benefits, company boilerplate and application instructions. Capping
+// keeps the long tail (p99 is 6190 chars) from eating a free tier's
+// per-minute budget. Safe for the verbatim-quote invariant: the model
+// can only quote what it was shown, and that text is a prefix of what
+// the UI highlights.
+const AD_CHARS_MAX = 4200;   // ≈ p75, so most ads are untouched
+
+function adTextForScoring(description) {
+  const text = String(description || '');
+  if (text.length <= AD_CHARS_MAX) return text;
+  const cut = text.slice(0, AD_CHARS_MAX);
+  const lastBreak = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('. '));
+  return `${cut.slice(0, lastBreak > AD_CHARS_MAX * 0.6 ? lastBreak : AD_CHARS_MAX)}\n\n[…annonsen fortsätter]`;
+}
+
 export async function scoreAd({ ad, profile, projects, criteriaText }) {
   const projectList = projects
     .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
@@ -100,7 +125,7 @@ Ort: ${ad.municipality || '—'}
 Sista ansökningsdag: ${ad.deadline || '—'}
 ${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
 
-${ad.description}`;
+${adTextForScoring(ad.description)}`;
 
   return llmJson({
     tier: 'bulk',
@@ -168,10 +193,24 @@ export async function scoreSearch(searchId, { limit = 20, adIds = null } = {}) {
      LIMIT $2`, [searchId, limit, adIds]
   );
 
-  console.log(`scoring ${ads.length} ads for "${search.name}"`);
+  // Spend LLM calls only on plausible ads. On a free tier the
+  // per-minute budget is the bottleneck, so skipping obvious
+  // mismatches is worth more than any prompt tuning.
+  const profileTerms = buildProfileTerms({
+    criteriaText: search.criteria_text, cvText: search.cv_text,
+    apiFilters: search.api_filters || {},
+  });
+  const triaged = ads.map((ad) => ({ ad, ...prefilterAd(ad, profileTerms) }));
+  const candidates = triaged.filter((t) => t.keep).sort((a, b) => b.score - a.score);
+  const skipped = triaged.filter((t) => !t.keep);
+
+  if (skipped.length) {
+    console.log(`  förfilter: hoppar över ${skipped.length} av ${ads.length} (${skipped.slice(0,3).map((s) => s.reason).join(', ')}…)`);
+  }
+  console.log(`scoring ${candidates.length} ads for "${search.name}"`);
   const results = [];
 
-  for (const ad of ads) {
+  for (const { ad } of candidates) {
     try {
       const r = await scoreAd({
         ad,

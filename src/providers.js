@@ -99,6 +99,17 @@ export const PROVIDERS = {
     eu: false,
     note: 'Bäst kvalitet i den här appens prompter. Ingen gratisnivå.',
   },
+  lmstudio: {
+    label: 'LM Studio (lokalt)',
+    baseUrl: 'http://localhost:1234/v1',
+    keyUrl: null,
+    smart: 'local-model',
+    fast: 'local-model',
+    bulk: 'local-model',
+    write: 'local-model',
+    eu: true,                    // never leaves the machine
+    note: 'Kör modellen på din egen dator, helt gratis och utan kvot. Bäst val för AMD-grafikkort på Windows (Vulkan). Starta servern i LM Studio → Developer → Start Server.',
+  },
   ollama: {
     label: 'Ollama (lokalt)',
     baseUrl: 'http://localhost:11434/v1',
@@ -135,5 +146,5 @@ export const providerList = () =>
     eu: p.eu,
     note: p.note,
     needsBaseUrl: p.baseUrl === null && id !== 'anthropic',
-    needsKey: id !== 'ollama',
+    needsKey: !['ollama','lmstudio'].includes(id),
   }));
