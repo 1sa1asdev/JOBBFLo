@@ -86,7 +86,11 @@ export function ensureLetterShape(body, name) {
 }
 
 async function loadContext(adId, { searchId = null } = {}) {
-  const { rows: [profile] } = await pool.query(`SELECT * FROM profile LIMIT 1`);
+  // named columns: SELECT * drags the CV bytea (68 kB) through every
+  // letter generation for no reason
+  const { rows: [profile] } = await pool.query(
+    `SELECT id, name, email, phone, city, cv_text, about_text, tone_text
+     FROM profile LIMIT 1`);
   if (!profile) throw new Error('no profile — run db:seed');
 
   // letters answer with whatever CV that search is using
