@@ -11,7 +11,8 @@
     "worker": "node worker.js",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "build:check": "next build --distDir .next-check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
