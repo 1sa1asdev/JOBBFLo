@@ -53,6 +53,11 @@ Two deployables — IMAP IDLE needs a long-lived process, so the worker
 |---|---|---|
 | UI + API | `npm run dev` / `npm run build && npm start` | Vercel (or Railway) |
 | Worker | `npm run worker` | Railway / Fly / Render |
+| Both (local) | `npm run restart` | — |
+
+`npm run restart` kills any running dev/worker processes for this repo and
+starts both again detached, logging to `%TEMP%\jobbflo-dev.log` and
+`%TEMP%\jobbflo-worker.log` (Windows only).
 
 The worker runs the JobStream poll (one global cursor in `poll_state`), the
 scoring queue (per-search `scan_interval`), the IMAP IDLE loop with

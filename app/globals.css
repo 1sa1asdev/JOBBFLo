@@ -966,6 +966,18 @@
 .llm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
 .llm-gdpr{border-left:2px solid var(--flag);padding-left:10px;margin-top:14px;}
 
+/* free-model loader + picker */
+.llm-models{border-top:1px dashed var(--line);margin-top:2px;padding-top:12px;}
+.llm-models-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.llm-form .llm-freeonly{margin:0 4px 0 0;font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--mute);display:flex;align-items:center;gap:5px;}
+.llm-freeonly input{margin:0;}
+.llm-models-body{border:1px dashed var(--tag-border);background:var(--paper);padding:10px 12px;}
+.llm-blocked{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:10px;}
+.llm-blocked-title{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--flag);width:100%;}
+.llm-blocked .tag{border:1px solid var(--flag);color:var(--flag);}
+
 /* evidence whose quote is not verbatim in the ad — not clickable */
 .evidence-flat{display:block;border:1px dashed var(--tag-border);border-left:3px solid var(--tag-border);
   padding:7px 10px;margin-bottom:6px;font-size:11px;line-height:1.4;color:var(--mute);}

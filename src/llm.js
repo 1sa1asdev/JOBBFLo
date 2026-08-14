@@ -120,6 +120,44 @@ export async function llmAvailable() {
   return Boolean(await llmConfig());
 }
 
+// Config for ONE provider inside a cross-provider chain. Keys come
+// from the per-provider map, then the primary key when it's the same
+// provider, then the server env. Local servers need none.
+let keyMapCache = null;
+let keyMapAt = 0;
+
+async function providerKeys() {
+  if (keyMapCache && Date.now() - keyMapAt < CONFIG_TTL) return keyMapCache;
+  let map = {};
+  try {
+    const { pool } = await import('./db.js');
+    const { rows: [p] } = await pool.query(`SELECT llm_keys_enc FROM profile LIMIT 1`);
+    for (const [prov, enc] of Object.entries(p?.llm_keys_enc || {})) {
+      const k = decryptSecret(enc);
+      if (k) map[prov] = k;
+    }
+  } catch { map = {}; }
+  keyMapCache = map;
+  keyMapAt = Date.now();
+  return map;
+}
+
+export async function configFor(provider, primary) {
+  const preset = PROVIDERS[provider];
+  if (!preset) return null;
+  if (provider === primary?.provider) return primary;
+
+  const isLocal = ['ollama', 'lmstudio'].includes(provider);
+  const key = (await providerKeys())[provider] || envKeyFor(provider);
+  if (!key && !isLocal) return null;
+
+  return {
+    provider,
+    apiKey: key || 'local',
+    baseUrl: process.env[`${provider.toUpperCase()}_BASE_URL`] || preset.baseUrl,
+  };
+}
+
 // ---------- transports ----------
 async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens }) {
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -161,6 +199,14 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
     // never retry a rate limit faster than a second — that just
     // spends another request against the same exhausted bucket
     err.retryAfterMs = Math.min(Math.max(waitMs || 5000, 1000), 60_000);
+
+    // OpenRouter reports the daily reset as a unix-ms timestamp, in a
+    // header AND mirrored inside the error body — so a spent free tier
+    // can say exactly when it returns instead of guessing an hour.
+    const resetHeader = Number(res.headers.get('x-ratelimit-reset'));
+    const resetInBody = Number(body.match(/"X-RateLimit-Reset":"?(\d{10,})"?/)?.[1]);
+    const resetAt = resetHeader || resetInBody;
+    if (resetAt > Date.now()) err.resetAt = resetAt;
     throw err;
   }
 
@@ -206,14 +252,46 @@ let quotaBlockedUntil = 0;
 const isAccountQuota = (msg) => /free-models-per-day|quota exceeded/i.test(msg);
 const isModelDayQuota = (msg) => /per day|TPD|RPD|daily limit/i.test(msg);
 
-const modelBlocked = new Map();          // model -> timestamp
-const modelIsBlocked = (m) => (modelBlocked.get(m) || 0) > Date.now();
+const modelBlocked = new Map();          // "provider:model" -> timestamp
+const providerBlocked = new Map();       // provider -> timestamp (account-wide)
+const modelIsBlocked = (k) => (modelBlocked.get(k) || 0) > Date.now();
+const providerIsBlocked = (p) => (providerBlocked.get(p) || 0) > Date.now();
 
-function blockModel(model, msg) {
-  const m = msg.match(/try again in (?:(\d+)m)?\s*([\d.]+)s/i);
-  const ms = m ? ((Number(m[1] || 0) * 60) + parseFloat(m[2])) * 1000 : 60 * 60 * 1000;
-  modelBlocked.set(model, Date.now() + Math.min(ms, 24 * 60 * 60 * 1000));
-  return Math.round(ms / 60000);
+// so the settings UI can show what's spent and when it comes back
+export function blockedModels() {
+  const now = Date.now();
+  const mins = (until) => Math.ceil((until - now) / 60000);
+  return {
+    ...Object.fromEntries(
+      [...modelBlocked.entries()].filter(([, u]) => u > now).map(([k, u]) => [k, mins(u)])
+    ),
+    ...Object.fromEntries(
+      [...providerBlocked.entries()].filter(([, u]) => u > now).map(([p, u]) => [`${p}:*`, mins(u)])
+    ),
+  };
+}
+
+// Reset timing is knowable — both providers say so, just differently:
+//   Groq        429 body: "Please try again in 48m56.736s"
+//   OpenRouter  X-RateLimit-Reset header: unix ms (UTC midnight)
+// Falling back to an hour is only for providers that say nothing.
+function resetFromError(err) {
+  if (err?.resetAt) return err.resetAt;
+  const m = String(err?.message || '').match(/try again in (?:(\d+)m)?\s*([\d.]+)s/i);
+  if (m) return Date.now() + (((Number(m[1] || 0) * 60) + parseFloat(m[2])) * 1000);
+  return Date.now() + 60 * 60 * 1000;
+}
+
+function blockModel(provider, model, err) {
+  const until = Math.min(resetFromError(err), Date.now() + 24 * 60 * 60 * 1000);
+  modelBlocked.set(`${provider}:${model}`, until);
+  return Math.max(1, Math.round((until - Date.now()) / 60000));
+}
+
+function blockProvider(provider, err) {
+  const until = Math.min(resetFromError(err), Date.now() + 24 * 60 * 60 * 1000);
+  providerBlocked.set(provider, until);
+  return Math.max(1, Math.round((until - Date.now()) / 60000));
 }
 
 // A per-MINUTE limit is the opposite: waiting fixes it. Free tiers
@@ -270,48 +348,74 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
   const forTier = tier === 'fast' ? (cfg.fast || cfg.bulk || cfg.smart)
     : tier === 'bulk' ? (cfg.bulk || cfg.smart)
     : (cfg.write || cfg.smart);
-  const models = String(forTier || '')
-    .split(',').map((s) => s.trim()).filter(Boolean);
-  if (!models.length) throw new Error(`Ingen modell angiven för ${tier}-nivån.`);
+  // A chain entry may name its own provider ("groq:llama-3.3-70b"),
+  // so one tier can fall from Groq to OpenRouter to the local model —
+  // each has its own quota and its own reset clock.
+  const entries = String(forTier || '')
+    .split(',').map((s) => s.trim()).filter(Boolean)
+    .map((raw) => {
+      const i = raw.indexOf(':');
+      const maybe = i > 0 ? raw.slice(0, i) : null;
+      return PROVIDERS[maybe]
+        ? { provider: maybe, model: raw.slice(i + 1) }
+        : { provider: cfg.provider, model: raw };
+    });
+  if (!entries.length) throw new Error(`Ingen modell angiven för ${tier}-nivån.`);
 
   const need = estimateTokens(system, messages, maxTokens);
   const problems = [];
   for (let round = 0; round < 3; round++) {
     if (round > 0) await sleep(2000);
-    for (const model of models) {
-      if (modelIsBlocked(model)) continue;   // daily budget spent
+    for (const { provider, model } of entries) {
+      if (providerIsBlocked(provider)) continue;          // account cap hit
+      if (modelIsBlocked(`${provider}:${model}`)) continue; // model's daily budget spent
+      const pcfg = await configFor(provider, cfg);
+      if (!pcfg) { problems.push(`${provider}: ingen nyckel`); continue; }
       try {
         // pace BEFORE spending, so a burst scan doesn't trip the
-        // per-minute ceiling and look like an exhausted account
-        await waitForBudget(model, need);
-        const text = cfg.provider === 'anthropic'
-          ? await callAnthropic({ ...cfg, model, system, messages, maxTokens })
-          : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
+        // per-minute ceiling and look like an exhausted account.
+        // Local servers have no per-minute quota — pacing just sleeps
+        // between ads, so skip it there entirely.
+        if (!['ollama', 'lmstudio'].includes(provider)) {
+          await waitForBudget(`${provider}:${model}`, need);
+        }
+        const text = provider === 'anthropic'
+          ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
+          : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
         return validate ? validate(text) : text;
       } catch (err) {
+        // local servers have no quotas — never block, never retry-chain,
+        // just report the failure and move on
+        if (provider === 'ollama' || provider === 'lmstudio') {
+          problems.push(`${model}: ${err.message.slice(0, 80)}`);
+          continue;
+        }
+        // account-wide cap: this PROVIDER is done, but the next
+        // entry may live on a different one, so keep going
         if (isAccountQuota(err.message)) {
-          quotaBlockedUntil = Date.now() + 30 * 60 * 1000;
-          throw new Error(`Dagskvoten hos ${cfg.provider} är slut — byt leverantör i Profil, lägg till credits, eller vänta.`);
+          const mins = blockProvider(provider, err);
+          problems.push(`${provider}: dagskvot slut (~${mins} min)`);
+          continue;
         }
         // this model is done for the day; the next one in the chain
         // has its own budget
         if (isModelDayQuota(err.message)) {
-          const mins = blockModel(model, err.message);
-          problems.push(`${model}: dagskvot slut (~${mins} min kvar)`);
+          const mins = blockModel(provider, model, err);
+          problems.push(`${provider}:${model}: dagskvot slut (~${mins} min kvar)`);
           continue;
         }
         // per-minute limit: waiting fixes it, so wait rather than
         // burning through the rest of the chain
         if (isPerMinute(err.message) || err.status === 429) {
-          recordSpend(model, need);          // assume it counted
+          recordSpend(`${provider}:${model}`, need);   // assume it counted
           await sleep(Math.min(err.retryAfterMs || 5000, 60_000));
           // a per-minute limit is not the model's fault — retry it
           // rather than falling through to a weaker one
           try {
-            await waitForBudget(model, need);
-            const text = cfg.provider === 'anthropic'
-              ? await callAnthropic({ ...cfg, model, system, messages, maxTokens })
-              : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
+            await waitForBudget(`${provider}:${model}`, need);
+            const text = provider === 'anthropic'
+              ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
+              : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
             return validate ? validate(text) : text;
           } catch (retryErr) {
             problems.push(`${model} (omförsök): ${retryErr.message.slice(0, 60)}`);

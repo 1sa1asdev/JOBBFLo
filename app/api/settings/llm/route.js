@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { PROVIDERS, providerList } from '../../../../src/providers.js';
 import { encryptSecret, decryptSecret, maskSecret } from '../../../../src/secrets.js';
-import { invalidateLlmConfig, llmConfig } from '../../../../src/llm.js';
+import { invalidateLlmConfig, llmConfig, blockedModels } from '../../../../src/llm.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,9 @@ export async function GET() {
 
   return NextResponse.json({
     providers: providerList(),
+    // which models are spent for today (model -> minutes left). The client
+    // polls this so the dropdown can mark models that ran out of tokens.
+    blocked: blockedModels(),
     current: {
       provider: p?.llm_provider || null,
       model_smart: p?.llm_model_smart || null,

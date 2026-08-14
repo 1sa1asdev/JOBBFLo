@@ -1,0 +1,11 @@
+-- ============================================================
+-- 006: keys for SEVERAL providers at once.
+--
+-- Free tiers run out constantly and each provider resets on its own
+-- clock, so the chain needs to cross providers: Groq until its
+-- per-model daily tokens are spent, OpenRouter until its 50/day is
+-- spent, then the local model which never runs out.
+-- That requires holding a key per provider, not one key total.
+-- llm_api_key_enc stays as the key for the primary provider.
+-- ============================================================
+ALTER TABLE profile ADD COLUMN IF NOT EXISTS llm_keys_enc jsonb NOT NULL DEFAULT '{}'::jsonb;

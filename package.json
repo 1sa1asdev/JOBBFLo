@@ -12,7 +12,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:check": "next build --distDir .next-check"
+    "build:check": "next build --distDir .next-check",
+    "restart": "node scripts/restart.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
