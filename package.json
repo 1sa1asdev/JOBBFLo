@@ -12,7 +12,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:check": "next build --experimental-build-mode compile",
+    "build:check": "node scripts/build-check.js",
     "restart": "node scripts/restart.js"
   },
   "dependencies": {
