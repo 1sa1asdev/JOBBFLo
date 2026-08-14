@@ -20,15 +20,18 @@ async function fetchType(type) {
   if (!res.ok) throw new Error(`taxonomy ${type}: ${res.status}`);
   const concepts = await res.json();
   const map = new Map();
+  const labels = [];       // original casing, for display in pickers
   for (const c of concepts) {
     const id = c['taxonomy/id'];
     const label = c['taxonomy/preferred-label'];
     if (!id || !label) continue;
     map.set(label.toLowerCase(), id);
+    labels.push(label);
     // "Stockholms län" should also match "Stockholm"
     const short = label.replace(/s? (län|kommun)$/i, '').toLowerCase();
     if (!map.has(short)) map.set(short, id);
   }
+  map.labels = labels;
   return map;
 }
 

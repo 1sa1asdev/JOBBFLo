@@ -979,3 +979,51 @@
   .live-dot.hit i{animation:livepulse 1s ease-out 2;}
   @keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(168,67,31,.5);}100%{box-shadow:0 0 0 7px rgba(168,67,31,0);}}
 }
+
+/* ============ CHAT TOOLS (ort + CV ovanför chatten) ============ */
+.chat-tools{flex-shrink:0;border-bottom:1px solid var(--line);background:var(--panel);padding:9px 17px;}
+.ct-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.ct-row:last-child{margin-bottom:0;}
+.ct-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--mute);width:26px;flex-shrink:0;}
+.ct-input{flex:1;min-width:0;border:1px solid var(--tag-border);background:var(--paper);
+  padding:6px 8px;min-height:32px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);}
+.ct-input:focus{outline:2px solid var(--flag);outline-offset:1px;}
+.ct-clear{background:none;border:1px solid var(--tag-border);color:var(--mute);cursor:pointer;
+  width:30px;min-height:32px;font-size:11px;flex-shrink:0;}
+.ct-clear:hover{border-color:var(--flag);color:var(--flag);}
+.ct-saving{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--mute);}
+.ct-cv{flex:1;text-align:left;background:var(--paper);border:1px solid var(--tag-border);
+  padding:6px 8px;min-height:32px;cursor:pointer;color:var(--ink);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.ct-cv:hover{border-color:var(--line);}
+.ct-cv i{font-style:normal;color:var(--mute);}
+.ct-cv.missing{border-color:var(--flag);color:var(--flag);font-weight:700;}
+.ct-cv.tailored{border-color:var(--ok);color:var(--ok);}
+.ct-cvpanel{border-top:1px dashed var(--tag-border);margin-top:8px;padding-top:9px;}
+.ct-cvhint{font-size:10.5px;line-height:1.45;color:var(--mute);margin-bottom:8px;}
+
+/* ============ CV UPLOAD ============ */
+.cvup-zone{border:2px dashed var(--line);background:var(--panel);padding:14px;text-align:center;}
+.cvup.compact .cvup-zone{padding:10px;}
+.cvup-zone.drag{border-color:var(--flag);background:#F2EAD6;}
+.cvup-hint{display:block;font-size:11px;color:var(--mute);margin-bottom:9px;}
+.cvup-current{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin-bottom:9px;}
+.cvup-file{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:var(--ink);}
+.cvup-meta{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute);}
+.cvup-acts{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+.cvup-acts .btn{padding:7px 11px;min-height:32px;font-size:9.5px;}
+.cvup-paste{margin-top:9px;}
+.cvup-paste .txt-area{min-height:120px;margin-bottom:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;}
+.cvup-warn{margin-top:8px;border:1px solid #B08238;color:#8A6428;background:#F5EEDC;
+  padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.45;}
+
+/* CV-grind i chatten när inget CV finns */
+.cv-gate{flex-shrink:0;border-bottom:2px solid var(--flag);background:#F0DCD4;padding:13px 17px;}
+.cv-gate-head{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--flag);margin-bottom:6px;}
+.cv-gate p{font-size:11.5px;line-height:1.5;color:var(--ink);margin-bottom:10px;}
+.cv-raw{margin-top:10px;}
+.cv-raw summary{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--mute);cursor:pointer;margin-bottom:8px;}

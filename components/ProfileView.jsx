@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
+import CvUpload from './CvUpload.jsx';
 
 export default function ProfileView({ onClose }) {
   const [profile, setProfile] = useState(null);
@@ -44,14 +45,22 @@ export default function ProfileView({ onClose }) {
         <LlmSettings />
 
         <div className="field-group">
-          <span className="label">Bas-CV (klistra in som text)</span>
-          <textarea
-            className="txt-area"
-            style={{ minHeight: 220, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5 }}
-            aria-label="CV-text"
-            value={profile.cv_text || ''}
-            onChange={(e) => set('cv_text', e.target.value)}
+          <span className="label">Bas-CV</span>
+          <CvUpload
+            scope="profile"
+            current={profile.cv_text ? { filename: profile.cv_filename || 'CV', chars: profile.cv_text.length } : null}
+            onDone={() => api('/api/profile').then(setProfile).catch(() => {})}
           />
+          <details className="cv-raw">
+            <summary>Visa / redigera CV-texten</summary>
+            <textarea
+              className="txt-area"
+              style={{ minHeight: 220, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5 }}
+              aria-label="CV-text"
+              value={profile.cv_text || ''}
+              onChange={(e) => set('cv_text', e.target.value)}
+            />
+          </details>
           {(parsed.tech?.length || parsed.experience?.length) && (
             <div className="parsed">
               <span className="ptitle">Tolkat ur ditt CV — används för matchning</span>

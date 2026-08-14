@@ -133,12 +133,16 @@ export function verifyQuotes(items, adText) {
 // already scored for search A still gets scored for search B.
 // ------------------------------------------------------------
 export async function scoreSearch(searchId, { limit = 20, adIds = null } = {}) {
+  // a search may carry its own tailored CV; fall back to the base one
   const { rows: [search] } = await pool.query(
-    `SELECT s.*, p.cv_text, p.about_text
+    `SELECT s.*, COALESCE(s.cv_text, p.cv_text) AS cv_text, p.about_text
      FROM searches s JOIN profile p ON p.id = s.profile_id
      WHERE s.id = $1`, [searchId]
   );
   if (!search) throw new Error(`no search ${searchId}`);
+  if (!search.cv_text?.trim()) {
+    throw new Error('Inget CV inlagt — ladda upp ett CV innan annonser kan bedömas.');
+  }
 
   const { rows: projects } = await pool.query(
     `SELECT id, name, summary, tech FROM projects

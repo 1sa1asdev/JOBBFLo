@@ -1,18 +1,30 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import ChatTools from './ChatTools.jsx';
+import CvUpload from './CvUpload.jsx';
 
 // One pane, two conversations: search criteria (per saved search,
 // persisted in search_messages) and letter revision (per draft).
-export default function Chat({ mode, search, creatingSearch, onCreateSearch, letterState, onLetterRevised }) {
+export default function Chat({ mode, search, creatingSearch, onCreateSearch, letterState, onLetterRevised, onSearchChanged }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [letterLog, setLetterLog] = useState([]);
+  const [cv, setCv] = useState(null);
   const bodyRef = useRef(null);
 
   const isLetter = mode === 'letter';
+  // No CV means scoring and letters can't run at all, so the chat
+  // asks for one first instead of letting the user write criteria
+  // that silently produce nothing.
+  const needsCv = !isLetter && cv?.active === 'none';
+
+  useEffect(() => {
+    if (isLetter) return;
+    api('/api/cv').then(setCv).catch(() => {});
+  }, [isLetter, search?.id]);
 
   useEffect(() => {
     setError(null);
@@ -76,6 +88,29 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
         <h1>{isLetter ? 'Ändra brevet' : creatingSearch ? 'Ny sökning' : 'Vad letar du efter?'}</h1>
       </div>
 
+      {!isLetter && !creatingSearch && search?.id && (
+        <ChatTools
+          search={search}
+          onChanged={onSearchChanged}
+          onCvChanged={(d) => setCv(d)}
+        />
+      )}
+
+      {needsCv && (
+        <div className="cv-gate">
+          <div className="cv-gate-head">Ladda upp ditt CV först</div>
+          <p>
+            Matchningen läser hela annonstexten mot ditt CV. Utan CV kan inga
+            annonser bedömas och inga brev skrivas.
+          </p>
+          <CvUpload
+            compact
+            scope="profile"
+            onDone={() => api('/api/cv').then(setCv).catch(() => {})}
+          />
+        </div>
+      )}
+
       <div className="chat-body" ref={bodyRef}>
         {creatingSearch && (
           <div className="sys-note">Beskriv med egna ord vad du söker — roller, ort, undantag</div>
@@ -110,13 +145,14 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
           <textarea
             rows={creatingSearch ? 3 : 1}
             value={input}
-            placeholder={isLetter ? 'Beskriv en ändring…' : creatingSearch ? 'T.ex. junior frontend i Stockholm, gärna React…' : 'Justera kriterier…'}
+            disabled={needsCv}
+            placeholder={needsCv ? 'Ladda upp ett CV först…' : isLetter ? 'Beskriv en ändring…' : creatingSearch ? 'T.ex. junior frontend i Stockholm, gärna React…' : 'Justera kriterier…'}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
             }}
           />
-          <button className="send-btn" onClick={() => send()} disabled={busy}>→</button>
+          <button className="send-btn" onClick={() => send()} disabled={busy || needsCv}>→</button>
         </div>
       </div>
     </div>

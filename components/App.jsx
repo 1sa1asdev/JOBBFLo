@@ -123,6 +123,7 @@ export default function App() {
             onCreateSearch={createSearch}
             letterState={letterState}
             onLetterRevised={(app) => setLetterState((s) => (s ? { ...s, application: app } : s))}
+            onSearchChanged={loadSearches}
           />
           <div className="stage">
             {view === 'list' && (

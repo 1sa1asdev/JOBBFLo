@@ -85,9 +85,20 @@ export function ensureLetterShape(body, name) {
   return text;
 }
 
-async function loadContext(adId) {
+async function loadContext(adId, { searchId = null } = {}) {
   const { rows: [profile] } = await pool.query(`SELECT * FROM profile LIMIT 1`);
   if (!profile) throw new Error('no profile — run db:seed');
+
+  // letters answer with whatever CV that search is using
+  if (searchId) {
+    const { rows: [s] } = await pool.query(
+      `SELECT cv_text FROM searches WHERE id = $1`, [searchId]
+    );
+    if (s?.cv_text?.trim()) profile.cv_text = s.cv_text;
+  }
+  if (!profile.cv_text?.trim()) {
+    throw new Error('Inget CV inlagt — ladda upp ett CV innan brev kan skrivas.');
+  }
 
   const { rows: [ad] } = await pool.query(`SELECT * FROM ads WHERE id = $1`, [adId]);
   if (!ad) throw new Error(`no ad ${adId}`);
@@ -111,7 +122,7 @@ async function loadContext(adId) {
 // UNIQUE(ad_id) guarantees one application per ad, ever.
 // ------------------------------------------------------------
 export async function draftLetter(adId, { originSearchId = null } = {}) {
-  const ctx = await loadContext(adId);
+  const ctx = await loadContext(adId, { searchId: originSearchId });
 
   const existing = await pool.query(
     `SELECT * FROM applications WHERE ad_id = $1 AND profile_id = $2`,
@@ -160,7 +171,7 @@ export async function reviseLetter(applicationId, instruction) {
   if (!app) throw new Error(`no application ${applicationId}`);
   if (app.status !== 'drafted') throw new Error('letter is locked — already sent');
 
-  const ctx = await loadContext(app.ad_id);
+  const ctx = await loadContext(app.ad_id, { searchId: app.origin_search_id });
 
   const draft = await llmJson({
     tier: 'smart',
