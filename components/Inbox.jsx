@@ -76,15 +76,16 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [error, setError] = useState(null);
   const [pulsed, setPulsed] = useState(null); // timestamp of last live update
   const notify = useNotify();
+  const { notifyFrom } = notify;
 
   const load = useCallback(async () => {
     try {
       const rows = await api(`/api/inbox?source=${source}`);
       setThreads(rows);
-      notify.notifyFrom(rows);
+      notifyFrom(rows);
       setStats(await api('/api/stats'));
     } catch (e) { setError(e.message); }
-  }, [source, notify]);
+  }, [source, notifyFrom]);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
