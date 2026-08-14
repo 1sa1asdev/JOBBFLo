@@ -78,6 +78,17 @@ export default function App() {
     setMobilePanel('chat');
   }
 
+  // deleting the search you're looking at must not leave the stage
+  // pointing at something that no longer exists
+  async function handleSearchDeleted(id) {
+    const rows = await api('/api/searches').catch(() => []);
+    setSearches(rows);
+    if (id === activeSearchId) {
+      backToList();
+      setActiveSearchId(rows[0]?.id || null);
+    }
+  }
+
   async function createSearch(criteria) {
     const search = await api('/api/searches', { method: 'POST', body: { criteria } });
     setCreatingSearch(false);
@@ -115,6 +126,7 @@ export default function App() {
             onPick={pickSearch}
             onNew={startNewSearch}
             onProfile={() => { setView('profile'); setMobilePanel('stage'); }}
+            onDeleted={handleSearchDeleted}
           />
           <Chat
             mode={view === 'letter' ? 'letter' : 'search'}

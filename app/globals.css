@@ -1027,3 +1027,31 @@
 .cv-raw{margin-top:10px;}
 .cv-raw summary{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.05em;
   text-transform:uppercase;color:var(--mute);cursor:pointer;margin-bottom:8px;}
+
+/* ============ LIBRARY: sortering + ta bort ============ */
+.lib-sort{display:flex;align-items:center;gap:6px;margin-top:9px;}
+.lib-sort label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--mute);flex-shrink:0;}
+.lib-sort select{flex:1;min-width:0;border:1px solid var(--tag-border);background:var(--paper);
+  cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;
+  color:var(--ink);padding:5px 4px;min-height:28px;}
+.lib-sort select:focus-visible{outline:2px solid var(--flag);outline-offset:1px;}
+
+/* row wraps the item + its delete button (a button can't nest in a button) */
+.search-row{position:relative;border-bottom:1px solid var(--tag-border);}
+.search-row .search-item{border-bottom:none;width:100%;padding-right:34px;}
+.search-del{position:absolute;top:8px;right:6px;width:24px;height:24px;
+  background:none;border:1px solid transparent;color:var(--mute);cursor:pointer;
+  font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1;
+  display:flex;align-items:center;justify-content:center;opacity:0;}
+.search-row:hover .search-del,.search-del:focus-visible{opacity:1;}
+.search-del:hover{border-color:var(--flag);color:var(--flag);background:var(--paper);}
+.search-del:focus-visible{outline:2px solid var(--flag);outline-offset:1px;}
+
+.search-confirm{padding:10px 12px;background:#F0DCD4;border-top:1px solid var(--flag);}
+.search-confirm > span{display:block;font-size:11px;line-height:1.4;color:var(--ink);}
+.search-confirm .sc-note{font-size:9.5px;color:var(--mute);margin-top:4px;line-height:1.4;}
+.sc-acts{display:flex;gap:6px;margin-top:9px;}
+.sc-acts .btn{flex:1;padding:7px 8px;min-height:32px;font-size:9px;}
+
+@media (max-width:760px){ .search-del{opacity:1;} }
