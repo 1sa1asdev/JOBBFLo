@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import ChatTools from './ChatTools.jsx';
 import CvUpload from './CvUpload.jsx';
+import Dots from './Dots';
 
 // One pane, two conversations: search criteria (per saved search,
 // persisted in search_messages) and letter revision (per draft).
@@ -119,7 +120,7 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
           <div className="sys-note">
             {letterState?.application
               ? `Version ${letterState.application.letter_version} — beskriv en ändring nedan`
-              : 'Utkast genereras…'}
+              : <>Utkast genereras<Dots label="Genererar utkast" /></>}
           </div>
         )}
         {shown.map((m, i) => (
@@ -128,7 +129,7 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
             {m.content}
           </div>
         ))}
-        {busy && <div className="sys-note">tänker…</div>}
+        {busy && <div className="sys-note">tänker<Dots label="Tänker" /></div>}
         {error && <div className="sys-note">fel: {error}</div>}
       </div>
 

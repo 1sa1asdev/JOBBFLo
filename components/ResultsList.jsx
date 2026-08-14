@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import Dots from './Dots';
 
 function scoreClass(s) { return s >= 75 ? 'strong' : s < 45 ? 'flagged' : ''; }
 
@@ -143,7 +144,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
       </div>
 
       <div className="list-scroll">
-        {rows === null && <div className="loading-note">Laddar…</div>}
+        {rows === null && <div className="loading-note">Laddar<Dots /></div>}
         {rows !== null && !visible.length && (
           <div className="loading-note">Inga bedömda annonser än — skanna eller vänta på nästa auto-skanning</div>
         )}

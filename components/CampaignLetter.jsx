@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import Dots from './Dots';
 
 // ------------------------------------------------------------
 // Co-authoring the campaign letter, mirroring the search chat:
@@ -85,7 +86,7 @@ export default function CampaignLetter({ search, onChanged }) {
   }
 
   if (!search) return <div className="loading-note">Välj en kampanj</div>;
-  if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
+  if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   const letter = data.letter;
   const shown = letter;   // sent exactly as written

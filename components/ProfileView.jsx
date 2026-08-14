@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
 import CvUpload from './CvUpload.jsx';
+import Dots from './Dots';
 
 export default function ProfileView({ onClose }) {
   const [profile, setProfile] = useState(null);
@@ -25,7 +26,7 @@ export default function ProfileView({ onClose }) {
     } catch (e) { setError(e.message); }
   }
 
-  if (!profile) return <div className="loading-note">{error || 'Laddar profil…'}</div>;
+  if (!profile) return <div className="loading-note">{error || <>Laddar profil<Dots /></>}</div>;
 
   const parsed = profile.cv_parsed || {};
 

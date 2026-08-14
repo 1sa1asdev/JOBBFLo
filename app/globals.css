@@ -884,6 +884,32 @@
 /* ================= APP ADDITIONS (not in mockup) ================= */
 .loading-note{padding:30px;text-align:center;font-family:'IBM Plex Mono',monospace;
   font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em;}
+
+  /* ---- waiting: three dots, one bounce at a time ---- */
+  /* currentColor so it works in a --mute note and an --ink chat line
+     alike. The peak lands at 30% of the cycle and each dot is offset
+     by .16s, so dot 3 has settled before dot 1 rises again — one dot
+     is in the air at any moment, never two. */
+  .dots{display:inline-flex;align-items:flex-end;gap:4px;height:5px;
+    margin-left:5px;position:relative;top:-1px;}
+  .dots i{width:5px;height:5px;border-radius:50%;background:currentColor;
+    animation:dotbounce 1.5s ease-in-out infinite;}
+  /* Each dot's whole arc fits in 22% of the cycle and the delay step is
+     exactly 22%, so dot N lands before dot N+1 leaves the baseline —
+     one dot in the air, never two. A .5s rest closes the loop so the
+     sequence reads as a repeating phrase rather than a churn. */
+  .dots i:nth-child(2){animation-delay:.33s;}
+  .dots i:nth-child(3){animation-delay:.66s;}
+  @keyframes dotbounce{
+    0%{transform:translateY(0);opacity:.32;}
+    11%{transform:translateY(-5px);opacity:1;}
+    22%,100%{transform:translateY(0);opacity:.32;}
+  }
+  /* motion is decoration here — the text already says it is loading */
+  @media (prefers-reduced-motion:reduce){
+    .dots i{animation-name:dotfade;}
+    @keyframes dotfade{0%,60%,100%{opacity:.32;}30%{opacity:1;}}
+  }
 .err-note{margin:12px 24px;border:1px solid var(--flag);color:var(--flag);padding:10px 12px;
   font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.5;}
 .evidence{margin-top:16px;padding-top:12px;border-top:1px solid var(--tag-border);}

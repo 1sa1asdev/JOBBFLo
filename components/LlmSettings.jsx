@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import Dots from './Dots';
 
 export default function LlmSettings() {
   const [data, setData] = useState(null);
@@ -176,7 +177,7 @@ export default function LlmSettings() {
     setBusy(null);
   }
 
-  if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
+  if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   return (
     <div className="field-group">
@@ -260,7 +261,7 @@ export default function LlmSettings() {
           <div className="llm-models">
             <div className="llm-models-head">
               <button className="btn" type="button" onClick={() => loadModels()} disabled={busy || loadingModels}>
-                {loadingModels ? 'Laddar…' : 'Ladda om modeller'}
+                {loadingModels ? <>Laddar<Dots /></> : 'Ladda om modeller'}
               </button>
               {modelData && (
                 <>

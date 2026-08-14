@@ -4,6 +4,7 @@ import { api, fmtDate, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import Inbox from './Inbox.jsx';
 import CampaignLetter from './CampaignLetter.jsx';
+import Dots from './Dots';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -88,7 +89,7 @@ export default function AutoApply({ onFindSimilar }) {
     setBusy(null);
   }
 
-  if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
+  if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   const noCv = !data.cv;
   const anyOn = data.searches.some((s) => s.auto_apply_enabled);

@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { api, daysUntil } from '../lib/api.js';
+import Dots from './Dots';
 
 // Highlight verbatim quotes from matched[]/flags[] inside a paragraph.
 // Quotes are max 15 words and MUST be verbatim (scoring invariant) —
@@ -114,7 +115,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     setBusy(false);
   }
 
-  if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
+  if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   const { ad, match, duplicates } = data;
   const exp = daysUntil(ad.deadline);
