@@ -1094,3 +1094,7 @@
   .inbox-head,
   .tv-head          { min-height:var(--row-head-inbox); box-sizing:border-box; }
 }
+
+/* attachments row: visible state when nothing will be attached */
+.attach.none{color:var(--flag);}
+.attach .file.none{border-color:var(--flag);color:var(--flag);}

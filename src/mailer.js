@@ -36,6 +36,47 @@ function aliasFrom(alias) {
 }
 
 // ------------------------------------------------------------
+// Files that go WITH the letter. Ads ask for "CV och personligt
+// brev", so a letter on its own is an incomplete application.
+// The CV follows the same precedence as its text: a search's own
+// tailored CV wins over the profile's base one.
+// ------------------------------------------------------------
+export async function attachmentsFor(applicationId) {
+  const { rows: [row] } = await pool.query(
+    `SELECT
+       COALESCE(s.cv_file, p.cv_file)         AS cv_file,
+       COALESCE(s.cv_filename, p.cv_filename) AS cv_filename,
+       COALESCE(s.cv_mime, p.cv_mime)         AS cv_mime,
+       p.id AS profile_id
+     FROM applications a
+     JOIN profile p  ON p.id = a.profile_id
+     LEFT JOIN searches s ON s.id = a.origin_search_id
+     WHERE a.id = $1`,
+    [applicationId]
+  );
+  if (!row) return [];
+
+  const files = [];
+  if (row.cv_file) {
+    files.push({
+      filename: row.cv_filename || 'cv.pdf',
+      content: row.cv_file,
+      contentType: row.cv_mime || undefined,
+    });
+  }
+
+  const { rows: extra } = await pool.query(
+    `SELECT filename, mime, bytes FROM attachments
+     WHERE profile_id = $1 AND include_by_default ORDER BY created_at`,
+    [row.profile_id]
+  );
+  for (const f of extra) {
+    files.push({ filename: f.filename, content: f.bytes, contentType: f.mime || undefined });
+  }
+  return files;
+}
+
+// ------------------------------------------------------------
 // sendApplication: send the approved letter for an application.
 // Stores messageId on the row — reply matching depends on it.
 // ------------------------------------------------------------
@@ -56,11 +97,14 @@ export async function sendApplication(applicationId, { to } = {}) {
   const from = aliasFrom(app.email_alias);
   const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
 
+  const attachments = await attachmentsFor(applicationId);
+
   const info = await transport().sendMail({
     from: `"${profile?.name || ''}" <${from}>`,
     to: recipient,
     subject: app.subject,
     text: app.letter_text,
+    attachments,
   });
 
   await pool.query(
@@ -77,7 +121,10 @@ export async function sendApplication(applicationId, { to } = {}) {
     [applicationId, info.messageId, from, recipient, app.subject, app.letter_text]
   );
 
-  return { messageId: info.messageId, to: recipient, from };
+  return {
+    messageId: info.messageId, to: recipient, from,
+    attachments: attachments.map((a) => a.filename),
+  };
 }
 
 // ------------------------------------------------------------

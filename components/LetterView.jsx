@@ -41,6 +41,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
   const [adCollapsed, setAdCollapsed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [justSent, setJustSent] = useState(false);
+  const [attachments, setAttachments] = useState(null);
 
   const application = letterState?.application || data?.application || null;
 
@@ -57,6 +58,13 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
   }, [adId, search?.id]);
 
   useEffect(() => { setError(null); setData(null); setAppDetail(null); load(); }, [load]);
+
+  // what will actually ride along with this letter
+  useEffect(() => {
+    if (!application?.id) return;
+    api(`/api/applications/${application.id}/attachments`)
+      .then(setAttachments).catch(() => {});
+  }, [application?.id]);
 
   // refresh detail (versions/warnings) after each revision
   useEffect(() => {
@@ -236,6 +244,21 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                     {letterParas.map((p, i) => <p key={i}>{p}</p>)}
                   </div>
                 )}
+                {/* mirror the mockup's "Bilagor" row — and make it honest:
+                    if nothing is attached, say so here rather than let the
+                    user discover it after sending */}
+                <div className={`attach${attachments?.count ? '' : ' none'}`}>
+                  Bilagor:
+                  {attachments?.count
+                    ? attachments.files.map((f) => (
+                        <span className="file" key={f.filename}>
+                          <span className="x">{(f.filename.split('.').pop() || '').toUpperCase().slice(0,4)}</span>
+                          {f.filename}
+                        </span>
+                      ))
+                    : <span className="file none">inget CV bifogas — ladda upp CV:t som fil i Profil</span>}
+                </div>
+
                 {spans.length > 0 && (
                   <div className="evidence">
                     <span className="elabel">Belägg ur annonsen — klicka för att se i källan</span>
@@ -327,6 +350,20 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
               <div className="confirm-row"><span className="k">Till</span><span className="v">{ad.apply_email}</span></div>
               <div className="confirm-row"><span className="k">Tjänst</span><span className="v">{ad.title}</span></div>
               <div className="confirm-row"><span className="k">Ämne</span><span className="v">{application.subject}</span></div>
+              <div className="confirm-row">
+                <span className="k">Bilagor</span>
+                <span className="v">
+                  {attachments?.count
+                    ? attachments.files.map((f) => f.filename).join(', ')
+                    : 'inga'}
+                </span>
+              </div>
+              {!attachments?.count && (
+                <div className="modal-warn" style={{ marginTop: 10 }}>
+                  Inget CV bifogas. Annonser ber oftast om både CV och personligt brev —
+                  ladda upp CV:t som fil (PDF/DOCX) i Profil om det ska följa med.
+                </div>
+              )}
               <div className="modal-warn">
                 Mejlet skickas från ditt eget Gmail-konto i ditt namn. Det går inte att ångra efter utskick.
               </div>

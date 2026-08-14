@@ -19,44 +19,52 @@ export async function POST(req) {
 
     let text;
     let filename;
+    let bytes = null;   // kept so the CV can be ATTACHED when applying
+    let mime = null;
 
     if (pastedText && String(pastedText).trim()) {
       text = String(pastedText).trim();
       filename = 'inklistrad text';
+      // pasted text has no file to attach — the UI warns about this
     } else {
       if (!file || typeof file.arrayBuffer !== 'function') {
         return NextResponse.json({ error: 'ingen fil bifogad' }, { status: 400 });
       }
       filename = file.name || 'cv';
-      text = await extractCvText(Buffer.from(await file.arrayBuffer()), filename);
+      bytes = Buffer.from(await file.arrayBuffer());
+      mime = file.type || null;
+      text = await extractCvText(bytes, filename);
     }
 
     const check = looksLikeCv(text);
 
     if (searchId) {
       const { rows: [s] } = await pool.query(
-        `UPDATE searches SET cv_text = $2, cv_filename = $3
+        `UPDATE searches SET cv_text = $2, cv_filename = $3, cv_file = $4, cv_mime = $5
          WHERE id = $1 AND deleted_at IS NULL
          RETURNING id, name, cv_filename`,
-        [searchId, text, filename]
+        [searchId, text, filename, bytes, mime]
       );
       if (!s) return NextResponse.json({ error: 'sökningen hittades inte' }, { status: 404 });
       return NextResponse.json({
         scope: 'search', search: s.name, filename, chars: text.length,
+        attachable: Boolean(bytes),
         warning: check.ok ? null : check.why,
       });
     }
 
     const { rows: [p] } = await pool.query(
-      `UPDATE profile SET cv_text = $1, cv_filename = $2, cv_uploaded_at = now(), updated_at = now()
+      `UPDATE profile SET cv_text = $1, cv_filename = $2, cv_file = $3, cv_mime = $4,
+         cv_uploaded_at = now(), updated_at = now()
        WHERE id = (SELECT id FROM profile LIMIT 1)
        RETURNING id, cv_filename`,
-      [text, filename]
+      [text, filename, bytes, mime]
     );
     if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 404 });
 
     return NextResponse.json({
       scope: 'profile', filename, chars: text.length,
+      attachable: Boolean(bytes),
       warning: check.ok ? null : check.why,
     });
   } catch (err) {
@@ -74,21 +82,28 @@ export async function DELETE(req) {
   return NextResponse.json({ ok: true });
 }
 
-// what CV is in play right now?
+// what CV is in play right now, and can it actually be attached?
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   const { rows: [p] } = await pool.query(
-    `SELECT cv_filename, cv_uploaded_at, length(cv_text) AS chars FROM profile LIMIT 1`
+    `SELECT cv_filename, cv_uploaded_at, length(cv_text) AS chars,
+            octet_length(cv_file) AS file_bytes FROM profile LIMIT 1`
   );
   let search = null;
   if (searchId) {
     const { rows: [s] } = await pool.query(
-      `SELECT cv_filename, length(cv_text) AS chars FROM searches WHERE id = $1`, [searchId]
+      `SELECT cv_filename, length(cv_text) AS chars, octet_length(cv_file) AS file_bytes
+       FROM searches WHERE id = $1`, [searchId]
     );
-    search = s?.chars ? { filename: s.cv_filename, chars: Number(s.chars) } : null;
+    search = s?.chars
+      ? { filename: s.cv_filename, chars: Number(s.chars), attachable: Boolean(s.file_bytes), size: Number(s.file_bytes || 0) }
+      : null;
   }
   return NextResponse.json({
-    profile: p?.chars ? { filename: p.cv_filename, chars: Number(p.chars), uploaded_at: p.cv_uploaded_at } : null,
+    profile: p?.chars
+      ? { filename: p.cv_filename, chars: Number(p.chars), uploaded_at: p.cv_uploaded_at,
+          attachable: Boolean(p.file_bytes), size: Number(p.file_bytes || 0) }
+      : null,
     search,
     active: search ? 'search' : (p?.chars ? 'profile' : 'none'),
   });
