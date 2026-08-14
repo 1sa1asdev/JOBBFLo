@@ -1200,3 +1200,19 @@
 .auto-confirm .ac-note{font-size:10px;color:var(--mute);margin-top:4px;}
 .ac-acts{display:flex;gap:7px;margin-top:9px;}
 .ac-acts .btn{padding:7px 12px;min-height:32px;font-size:9.5px;}
+
+/* profil alltid nåbar, oavsett flik */
+.topnav-profile{margin-left:auto;display:flex;align-items:center;gap:8px;
+  background:none;border:none;border-left:1px solid var(--line);cursor:pointer;
+  padding:0 16px;min-height:44px;align-self:stretch;color:var(--ink);
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;}
+.topnav-profile:hover{background:#DDD3BB;}
+.topnav-profile.active{background:var(--ink);color:var(--paper);}
+.topnav-profile:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+.tp-avatar{width:24px;height:24px;flex-shrink:0;background:var(--ink);color:var(--paper);
+  display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;}
+.topnav-profile.active .tp-avatar{background:var(--paper);color:var(--ink);}
+.profile-shell{flex:1;display:flex;min-height:0;}
+.profile-shell .profile-view{flex:1;}
+@media (max-width:760px){ .tp-label{display:none;} .topnav-profile{padding:0 12px;} }

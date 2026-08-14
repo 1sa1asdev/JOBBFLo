@@ -21,6 +21,10 @@ export default function App() {
   const [creatingSearch, setCreatingSearch] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
   const [mobilePanel, setMobilePanel] = useState('chat'); // library | chat | stage
+  // profile is reachable from EVERY workspace, so it lives outside
+  // the search view's `view` state rather than inside it
+  const [showProfile, setShowProfile] = useState(false);
+  const [profile, setProfile] = useState(null);
 
   const loadSearches = useCallback(async () => {
     try {
@@ -40,6 +44,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadSearches(); loadInboxCount(); }, [loadSearches, loadInboxCount]);
+  useEffect(() => { api('/api/profile').then(setProfile).catch(() => {}); }, [showProfile]);
 
   // sidebar counts + inbox badge follow the same beacon, so the
   // badge appears as soon as a reply is classified
@@ -115,9 +120,20 @@ export default function App() {
         <button role="tab" aria-selected={workspace === 'auto'} onClick={() => setWorkspace('auto')}>
           Auto-ansökan
         </button>
+        <button
+          className={`topnav-profile${showProfile ? ' active' : ''}`}
+          aria-pressed={showProfile}
+          title="Profil, CV och AI-leverantör"
+          onClick={() => setShowProfile(!showProfile)}
+        >
+          <span className="tp-avatar">
+            {(profile?.name || '—').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+          </span>
+          <span className="tp-label">Profil</span>
+        </button>
       </div>
 
-      {workspace === 'search' && (
+      {workspace === 'search' && !showProfile && (
         <div className="mobile-tabs" role="tablist">
           {[['library', 'Sök'], ['chat', 'Chatt'], ['stage', 'Resultat']].map(([k, label]) => (
             <button key={k} role="tab" aria-selected={mobilePanel === k} onClick={() => setMobilePanel(k)}>
@@ -127,14 +143,18 @@ export default function App() {
         </div>
       )}
 
-      {workspace === 'search' ? (
+      {showProfile ? (
+        <div className="profile-shell">
+          <ProfileView onClose={() => setShowProfile(false)} />
+        </div>
+      ) : workspace === 'search' ? (
         <div className="app" data-mobile-panel={mobilePanel}>
           <Library
             searches={searches}
             activeSearchId={activeSearchId}
             onPick={pickSearch}
             onNew={startNewSearch}
-            onProfile={() => { setView('profile'); setMobilePanel('stage'); }}
+            onProfile={() => setShowProfile(true)}
             onDeleted={handleSearchDeleted}
           />
           <Chat
@@ -164,7 +184,6 @@ export default function App() {
                 onBack={backToList}
               />
             )}
-            {view === 'profile' && <ProfileView onClose={backToList} />}
           </div>
         </div>
       ) : workspace === 'auto' ? (
