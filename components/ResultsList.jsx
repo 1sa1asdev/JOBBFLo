@@ -1,6 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
+import { usePoll } from '../lib/usePoll.js';
 
 function scoreClass(s) { return s >= 75 ? 'strong' : s < 45 ? 'flagged' : ''; }
 
@@ -21,6 +22,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const [rows, setRows] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState(null);
+  const [freshAt, setFreshAt] = useState(null);
 
   const load = useCallback(async () => {
     if (!search?.id) { setRows(null); return; }
@@ -29,12 +31,23 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     } catch (e) { setError(e.message); }
   }, [search?.id]);
 
-  useEffect(() => {
-    setError(null);
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { setError(null); load(); }, [load]);
+
+  // Scoring writes rows one ad at a time, so watch the per-search
+  // beacon and pull the list only when the count actually moves.
+  const version = useRef(null);
+  usePoll(async () => {
+    if (!search?.id) return;
+    const { search: v } = await api(`/api/pulse?search=${search.id}`);
+    if (v === version.current) return;
+    const first = version.current === null;
+    version.current = v;
+    await load();
+    if (!first) setFreshAt(Date.now());
+  }, { interval: 3000, enabled: Boolean(search?.id) });
+
+  // reset the beacon when switching searches
+  useEffect(() => { version.current = null; }, [search?.id]);
 
   async function toggleScan() {
     await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { scan_enabled: !search.scan_enabled } });
@@ -83,6 +96,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           <h2>Matchningar</h2>
           <div className="sub">
             <b>{visible.length}</b> bedömda annonser — {search.last_scanned_at ? `senast skannad ${timeAgo(search.last_scanned_at)}` : 'ej skannad än'}
+            {freshAt && Date.now() - freshAt < 4000 && <span className="fresh-flash"> · nya resultat</span>}
           </div>
         </div>
         <div className="header-controls">
@@ -136,7 +150,9 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         {visible.map((r) => {
           const chip = statusChip(r);
           const exp = daysUntil(r.deadline);
-          const flags = (r.flags || []).map((f) => f.tag).filter(Boolean);
+          // one ad often flags the same tag twice ("Erfarenhet" for both
+          // a years requirement and a seniority title) — dedupe for display
+          const flags = [...new Set((r.flags || []).map((f) => f.tag).filter(Boolean))];
           return (
             <div key={r.ad_id} className="card" onClick={() => onOpenAd(r.ad_id)}>
               <div className="score-col">

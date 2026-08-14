@@ -1,6 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
+import { usePoll } from '../lib/usePoll.js';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
@@ -43,6 +44,25 @@ function oddsNote(t) {
 
 const oddsCls = (p) => (p >= 60 ? '' : p >= 25 ? 'mid' : 'low');
 
+// Small "live" indicator: green when connected and polling, and it
+// flashes when an update actually lands, so a reply arriving while
+// you're looking at the screen is visibly new rather than silently
+// swapped in.
+function LiveDot({ pulsed }) {
+  const [recent, setRecent] = useState(false);
+  useEffect(() => {
+    if (!pulsed) return undefined;
+    setRecent(true);
+    const t = setTimeout(() => setRecent(false), 2500);
+    return () => clearTimeout(t);
+  }, [pulsed]);
+  return (
+    <span className={`live-dot${recent ? ' hit' : ''}`} title={recent ? 'Ny uppdatering' : 'Live — uppdateras automatiskt'}>
+      <i />{recent ? 'Uppdaterat' : 'Live'}
+    </span>
+  );
+}
+
 export default function Inbox({ onFindSimilar }) {
   const [threads, setThreads] = useState([]);
   const [stats, setStats] = useState(null);
@@ -53,6 +73,7 @@ export default function Inbox({ onFindSimilar }) {
   const [composerText, setComposerText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [pulsed, setPulsed] = useState(null); // timestamp of last live update
 
   const load = useCallback(async () => {
     try {
@@ -75,13 +96,23 @@ export default function Inbox({ onFindSimilar }) {
     } catch (e) { setError(e.message); }
   }, []);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
-  }, [load]);
-
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { loadThread(activeId); }, [activeId, loadThread]);
+
+  // Poll a tiny change beacon every 3s. Only when it moves do we
+  // refetch the list AND the open thread — the open thread used to
+  // never refresh, so a reply arriving while you read it stayed
+  // invisible until you clicked away and back.
+  const version = useRef(null);
+  usePoll(async () => {
+    const { version: v } = await api('/api/pulse');
+    if (v === version.current) return;
+    const first = version.current === null;
+    version.current = v;
+    await load();
+    if (activeId) await loadThread(activeId);
+    if (!first) setPulsed(Date.now());
+  }, { interval: 3000 });
 
   const filtered = threads.filter((t) => {
     if (filter === 'unread') return Number(t.pending_suggestions) > 0;
@@ -125,7 +156,10 @@ export default function Inbox({ onFindSimilar }) {
       <div className="thread-list">
         <div className="inbox-head">
           <div className="idx">03 / Ansökningar</div>
-          <h2>Inkorg</h2>
+          <h2>
+            Inkorg
+            <LiveDot pulsed={pulsed} />
+          </h2>
           <div className="inbox-filters">
             {[['all', 'Alla'], ['unread', 'Att göra'], ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']].map(([k, label]) => (
               <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{label}</button>

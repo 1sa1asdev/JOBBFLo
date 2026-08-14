@@ -966,3 +966,16 @@
   padding:7px 10px;margin-bottom:6px;font-size:11px;line-height:1.4;color:var(--mute);}
 .evidence-flat.neg{border-left-color:var(--flag);}
 .evidence-flat i{font-style:normal;font-size:10px;display:block;margin-top:2px;}
+
+/* live-update indicator */
+.live-dot{display:inline-flex;align-items:center;gap:5px;margin-left:9px;vertical-align:middle;
+  font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--mute);}
+.live-dot i{width:6px;height:6px;border-radius:50%;background:var(--ok);display:block;}
+.live-dot.hit{color:var(--ok);}
+.live-dot.hit i{background:var(--flag);box-shadow:0 0 0 3px rgba(168,67,31,.18);}
+.fresh-flash{color:var(--ok);font-weight:700;}
+@media (prefers-reduced-motion:no-preference){
+  .live-dot.hit i{animation:livepulse 1s ease-out 2;}
+  @keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(168,67,31,.5);}100%{box-shadow:0 0 0 7px rgba(168,67,31,0);}}
+}

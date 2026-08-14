@@ -1,6 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import { usePoll } from '../lib/usePoll.js';
 import Library from './Library.jsx';
 import Chat from './Chat.jsx';
 import ResultsList from './ResultsList.jsx';
@@ -36,12 +37,17 @@ export default function App() {
     } catch { /* db not up yet */ }
   }, []);
 
-  useEffect(() => {
-    loadSearches();
-    loadInboxCount();
-    const t = setInterval(() => { loadSearches(); loadInboxCount(); }, 15000);
-    return () => clearInterval(t);
-  }, [loadSearches, loadInboxCount]);
+  useEffect(() => { loadSearches(); loadInboxCount(); }, [loadSearches, loadInboxCount]);
+
+  // sidebar counts + inbox badge follow the same beacon, so the
+  // badge appears as soon as a reply is classified
+  const version = useRef(null);
+  usePoll(async () => {
+    const { version: v } = await api('/api/pulse');
+    if (v === version.current) return;
+    version.current = v;
+    await Promise.all([loadSearches(), loadInboxCount()]);
+  }, { interval: 5000 });
 
   const activeSearch = searches.find((s) => s.id === activeSearchId) || null;
 
