@@ -13,27 +13,43 @@ import { ensureLetterShape } from './letters.js';
 // reads it before it is ever sent.
 // ------------------------------------------------------------
 
-const PLACEHOLDERS = ['tjänst', 'arbetsgivare', 'ort'];
+// ------------------------------------------------------------
+// A campaign letter is a COLD PITCH, not a tailored application.
+// It goes to employers the letter knows nothing about, so faking
+// familiarity ("er roll som X hos Y") reads worse than simply being
+// direct. What carries a cold email is a sharp intention and a
+// concrete pitch: who you are, what you can do, what you want.
+// ------------------------------------------------------------
 
-const CAMPAIGN_SYSTEM = `Du skriver ETT personligt brev som ska skickas till FLERA arbetsgivare som annonserar liknande tjänster.
+const CAMPAIGN_SYSTEM = `Du skriver ETT kallt mejl som skickas till flera arbetsgivare.
 
-Det här är inte ett brev till en enskild annons. Det ska fungera för hela kategorin av jobb som kandidaten söker, utan att låta som ett massutskick.
+Det här är INTE en ansökan på en specifik annons. Mottagaren vet inget om
+kandidaten, och brevet vet inget om mottagaren. Det som avgör om ett kallt
+mejl fungerar är tydlig avsikt och en konkret pitch — inte artighetsfraser.
 
-Använd EXAKT dessa platshållare där det passar — systemet ersätter dem per arbetsgivare:
-  {{tjänst}}        t.ex. "Frontendutvecklare"
-  {{arbetsgivare}}  t.ex. "Neonpixel AB"
-  {{ort}}           t.ex. "Stockholm"
+STRUKTUR:
+  Ämnesrad: vem du är + vad du söker, på en rad. Konkret, inget "Ansökan".
+    Bra: "Fullstackutvecklare (React/Node) söker roll i Stockholm"
+    Dåligt: "Ansökan om anställning"
+  Hej,
+  <stycke 1: säg direkt varför du hör av dig och vad du söker>
+  <stycke 2: det starkaste konkreta du har — projekt, teknik, vad du byggt>
+  <stycke 3: kort avslut med en tydlig fråga: vill de prata?>
+  Vänliga hälsningar,
+  <namn>
 
-Regler:
-- 150–250 ord. Hälsningsfras först, "Vänliga hälsningar," och namnet sist.
-- Utgå från kandidatens CV, projekt och ton-instruktioner.
-- Argumentera från kandidatens sida: vad hen kan, har byggt och söker.
-- Påstå ALDRIG något om den specifika arbetsgivaren — brevet vet inget om dem.
-- Inga floskler ("passionerad", "driven", "brinner för", "övertygad om att").
+REGLER:
+- 120–200 ord. Kortare än en vanlig ansökan — det här är ett kallt mejl.
+- Påstå ALDRIG något om mottagaren, deras produkt, kultur eller behov.
+  Du vet inte vilka de är. Skriv inte "ert team", "er resa", "just er".
+- Inga floskler: "passionerad", "driven", "brinner för", "spännande möjlighet",
+  "övertygad om att mina färdigheter".
+- Konkret framför adjektiv: teknik, projekt, vad som faktiskt byggts.
 - Ljug aldrig. Bara sådant som har stöd i CV:t.
+- Skriv ut allt. Inga platshållare, inga hakparenteser, inget att fylla i.
 
 Svara ENDAST med JSON, inga kodstaket:
-{"subject":"Ansökan: {{tjänst}}","body":"brevet med \\n\\n mellan stycken","change_note":"en mening om vad du gjorde"}`;
+{"subject":"ämnesraden","body":"brevet med \\n\\n mellan stycken","change_note":"en mening om vad du gjorde"}`;
 
 async function context(searchId) {
   const { rows: [s] } = await pool.query(
@@ -112,7 +128,7 @@ export async function writeCampaignLetter(searchId, instruction = null) {
   await pool.query(
     `UPDATE searches SET campaign_subject = $2, campaign_letter = $3,
        campaign_letter_approved_at = NULL WHERE id = $1`,
-    [searchId, draft.subject || 'Ansökan: {{tjänst}}', draft.body]
+    [searchId, draft.subject || 'Söker roll', draft.body]
   );
   await pool.query(
     `INSERT INTO campaign_messages (search_id, role, content) VALUES ($1,'assistant',$2)`,
@@ -122,19 +138,11 @@ export async function writeCampaignLetter(searchId, instruction = null) {
   return { subject: draft.subject, body: draft.body, change_note: draft.change_note };
 }
 
-// ------------------------------------------------------------
-// Fill the placeholders for one ad.
-// ------------------------------------------------------------
-export function renderCampaignLetter(template, ad) {
-  const values = {
-    'tjänst': ad.title || '',
-    'arbetsgivare': ad.employer || '',
-    'ort': ad.municipality || '',
-  };
-  return PLACEHOLDERS.reduce(
-    (text, key) => text.replaceAll(`{{${key}}}`, values[key]),
-    String(template || '')
-  ).replace(/\s+,/g, ',').trim();
+// The letter goes out exactly as approved — a cold pitch needs no
+// per-employer substitution, and not doing any is what makes "what
+// you read is what they receive" literally true.
+export function renderCampaignLetter(template) {
+  return String(template || '').trim();
 }
 
 // what the user is actually approving, shown filled in for a real ad
@@ -159,8 +167,8 @@ export async function previewCampaign(searchId) {
     approved_at: s.campaign_letter_approved_at,
     example: ad ? {
       ad,
-      subject: renderCampaignLetter(s.campaign_subject, ad),
-      body: renderCampaignLetter(s.campaign_letter, ad),
+      subject: renderCampaignLetter(s.campaign_subject),
+      body: renderCampaignLetter(s.campaign_letter),
     } : null,
   };
 }

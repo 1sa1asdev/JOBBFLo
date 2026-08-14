@@ -14,7 +14,6 @@ export default function CampaignLetter({ search, onChanged }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [showFilled, setShowFilled] = useState(true);
   const bodyRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -56,7 +55,7 @@ export default function CampaignLetter({ search, onChanged }) {
   if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
 
   const letter = data.letter;
-  const shown = showFilled && data.example ? data.example : letter;
+  const shown = letter;   // sent exactly as written
   const approved = Boolean(data.approved_at);
   const quick = ['Kortare', 'Mindre formellt', 'Mer konkret', 'Lyft fram projekten', 'Skriv om helt'];
 
@@ -70,7 +69,7 @@ export default function CampaignLetter({ search, onChanged }) {
 
         <div className="chat-body" ref={bodyRef}>
           <div className="sys-note">
-            Ett brev — skickas till alla annonser som matchar reglerna
+Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
           </div>
           {!letter && (
             <div className="msg ai">
@@ -118,27 +117,22 @@ export default function CampaignLetter({ search, onChanged }) {
       <div className="cl-letter">
         <div className="pane-head">
           <span>{letter ? 'Kampanjbrev' : 'Inget brev än'}</span>
-          {data.example && (
-            <button className="collapse" onClick={() => setShowFilled(!showFilled)}>
-              {showFilled ? 'visa mallen' : 'visa ifyllt'}
-            </button>
-          )}
+
         </div>
 
         <div className="pane-scroll">
           {!letter ? (
             <p className="hint">
-              Kampanjbrevet skrivs en gång och skickas till varje annons som klarar
-              reglerna. Platshållarna <code>{'{{tjänst}}'}</code>,{' '}
-              <code>{'{{arbetsgivare}}'}</code> och <code>{'{{ort}}'}</code> fylls i per
-              arbetsgivare.
+              Ett kallt mejl som skickas oförändrat till varje annons som klarar
+              reglerna. Det som avgör om det fungerar är tydlig avsikt och en konkret
+              pitch — inte att låtsas veta något om mottagaren.
             </p>
           ) : (
             <div className="sheet">
-              {showFilled && data.example && (
+              {data.example && (
                 <div className="cl-example">
-                  Förhandsvisning för <b>{data.example.ad.employer}</b> ({data.example.ad.score} p)
-                  → {data.example.ad.apply_email}
+                  Går bl.a. till <b>{data.example.ad.employer}</b> ({data.example.ad.score} p)
+                  → {data.example.ad.apply_email} — exakt den här texten, oförändrad.
                 </div>
               )}
               <div className="subject-line">

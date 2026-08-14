@@ -123,10 +123,8 @@ export async function runAutoApply(searchId, { dryRun = false } = {}) {
       continue;
     }
     try {
-      const { rows: [ad] } = await pool.query(
-        `SELECT title, employer, municipality FROM ads WHERE id = $1`, [c.ad_id]);
-      const subject = renderCampaignLetter(search.campaign_subject, ad);
-      const body = renderCampaignLetter(search.campaign_letter, ad);
+      const subject = renderCampaignLetter(search.campaign_subject);
+      const body = renderCampaignLetter(search.campaign_letter);
 
       // store the exact text that goes out, so the inbox shows what
       // the employer actually received
