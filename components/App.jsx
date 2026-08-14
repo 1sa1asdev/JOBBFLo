@@ -9,6 +9,7 @@ import ResultsList from './ResultsList.jsx';
 import LetterView from './LetterView.jsx';
 import ProfileView from './ProfileView.jsx';
 import Inbox from './Inbox.jsx';
+import AutoApply from './AutoApply.jsx';
 
 export default function App() {
   const [workspace, setWorkspace] = useState('search'); // search | inbox
@@ -111,6 +112,9 @@ export default function App() {
         <button role="tab" aria-selected={workspace === 'inbox'} onClick={() => setWorkspace('inbox')}>
           Inkorg {inboxCount > 0 && <span className="badge">{inboxCount}</span>}
         </button>
+        <button role="tab" aria-selected={workspace === 'auto'} onClick={() => setWorkspace('auto')}>
+          Auto-ansökan
+        </button>
       </div>
 
       {workspace === 'search' && (
@@ -163,8 +167,16 @@ export default function App() {
             {view === 'profile' && <ProfileView onClose={backToList} />}
           </div>
         </div>
+      ) : workspace === 'auto' ? (
+        <AutoApply
+          onFindSimilar={(searchId) => {
+            setWorkspace('search');
+            if (searchId) pickSearch(searchId);
+          }}
+        />
       ) : (
         <Inbox
+          source="user"
           onFindSimilar={(searchId) => {
             setWorkspace('search');
             if (searchId) pickSearch(searchId);

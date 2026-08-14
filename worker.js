@@ -11,11 +11,13 @@ import { pool } from './src/db.js';
 import { pollJobStream } from './src/fetchJobs.js';
 import { scanSearch } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
+import { runAllAutoApply } from './src/autoapply.js';
 import { runImapLoop } from './src/imap.js';
 
 const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
 const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
 const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
+const AUTOAPPLY_EVERY = 30 * 60 * 1000; // auto-apply campaigns (daily caps do the limiting)
 
 async function pollTick() {
   try {
@@ -40,6 +42,21 @@ async function scoreTick() {
   }
 }
 
+// The only path in this app that sends without a per-letter click.
+// Campaigns are opt-in per search, capped per day, and pause on the
+// first error — see src/autoapply.js for the rails.
+async function autoApplyTick() {
+  try {
+    const results = await runAllAutoApply();
+    for (const r of results) {
+      if (r.sent) console.log(`auto-apply: ${r.sent} skickade för "${r.search}"`);
+      if (r.paused) console.log(`auto-apply: "${r.search}" pausad`);
+    }
+  } catch (err) {
+    console.error('autoApply:', err.message);
+  }
+}
+
 async function followupTick() {
   try {
     await checkFollowups();
@@ -56,9 +73,11 @@ console.log('jobbflo worker starting');
 pollTick();
 scoreTick();
 followupTick();
+autoApplyTick();
 setInterval(pollTick, POLL_EVERY);
 setInterval(scoreTick, SCORE_EVERY);
 setInterval(followupTick, FOLLOWUP_EVERY);
+setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');

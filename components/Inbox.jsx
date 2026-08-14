@@ -63,7 +63,7 @@ function LiveDot({ pulsed }) {
   );
 }
 
-export default function Inbox({ onFindSimilar }) {
+export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [threads, setThreads] = useState([]);
   const [stats, setStats] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -77,10 +77,10 @@ export default function Inbox({ onFindSimilar }) {
 
   const load = useCallback(async () => {
     try {
-      setThreads(await api('/api/inbox'));
+      setThreads(await api(`/api/inbox?source=${source}`));
       setStats(await api('/api/stats'));
     } catch (e) { setError(e.message); }
-  }, []);
+  }, [source]);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
@@ -155,9 +155,9 @@ export default function Inbox({ onFindSimilar }) {
     <div className="inbox">
       <div className="thread-list">
         <div className="inbox-head">
-          <div className="idx">03 / Ansökningar</div>
+          <div className="idx">{source === 'auto' ? '04 / Automatiska ansökningar' : '03 / Ansökningar'}</div>
           <h2>
-            Inkorg
+            {source === 'auto' ? 'Auto-inkorg' : 'Inkorg'}
             <LiveDot pulsed={pulsed} />
           </h2>
           <div className="inbox-filters">
