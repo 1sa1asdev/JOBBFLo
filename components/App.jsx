@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useRowAlign } from '../lib/useRowAlign.js';
 import Library from './Library.jsx';
 import Chat from './Chat.jsx';
 import ResultsList from './ResultsList.jsx';
@@ -50,6 +51,10 @@ export default function App() {
   }, { interval: 5000 });
 
   const activeSearch = searches.find((s) => s.id === activeSearchId) || null;
+
+  // keep the rules continuous across the pane dividers as the view,
+  // the selected search or the window size changes
+  useRowAlign([workspace, view, activeSearchId, searches.length]);
 
   function openAd(adId) {
     setActiveAdId(adId);

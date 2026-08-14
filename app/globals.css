@@ -178,6 +178,7 @@
     border-bottom:2px solid var(--line);background:var(--sidebar);
   }
   .topnav .brand{
+    width:214px;flex-shrink:0;box-sizing:border-box;
     padding:0 16px;font-family:'IBM Plex Mono',monospace;
     font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
     border-right:2px solid var(--line);align-self:stretch;display:flex;align-items:center;
@@ -540,12 +541,12 @@
     text-transform:uppercase;padding:8px 13px;min-height:34px;cursor:pointer;}
   .new-results button:hover{background:var(--flag);color:var(--paper);border-color:var(--flag);}
 
-  .col-labels{display:grid;grid-template-columns:60px 1fr 210px 104px;
+  .col-labels{display:grid;grid-template-columns:60px 1fr 210px 128px;
     border-bottom:1px solid var(--line);padding:8px 24px;font-size:9px;letter-spacing:.08em;
     color:var(--mute);text-transform:uppercase;flex-shrink:0;font-family:'IBM Plex Mono',monospace;}
 
   .list-scroll{flex:1;overflow-y:auto;}
-  .card{display:grid;grid-template-columns:60px 1fr 210px 104px;
+  .card{display:grid;grid-template-columns:60px 1fr 210px 128px;
     border-bottom:1px solid var(--line);padding:15px 24px;cursor:pointer;}
   .card:hover{background:var(--card-hover);}
   .card.is-new{background:#F2EAD6;}
@@ -586,8 +587,9 @@
   .meta-col .row b{color:var(--ink);font-weight:600;text-align:right;}
   .meta-col .expiry.soon,.meta-col .expiry.soon b{color:var(--flag);}
 
-  .action-col{display:flex;align-items:center;justify-content:flex-end;}
+  .action-col{display:flex;align-items:center;justify-content:flex-end;min-width:0;}
   .open-btn{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     border:1px solid var(--line);background:var(--ink);color:var(--paper);
     padding:10px 13px;min-height:38px;cursor:pointer;font-family:'IBM Plex Mono',monospace;}
   .open-btn:hover{background:var(--flag);border-color:var(--flag);}
@@ -813,12 +815,14 @@
   /* ================= RESPONSIVE ================= */
   @media (max-width:1180px){
     .library{width:180px;}
-    .col-labels,.card{grid-template-columns:54px 1fr 180px 96px;padding-left:18px;padding-right:18px;}
+    .topnav .brand{width:180px;}
+    .col-labels,.card{grid-template-columns:54px 1fr 180px 122px;padding-left:18px;padding-right:18px;}
     .list-header,.crumb,.draft-head,.toolbar,.gate,.new-results{padding-left:18px;padding-right:18px;}
     .pane-head,.pane-scroll{padding-left:18px;padding-right:18px;}
   }
   @media (max-width:1000px){
     .library{display:none;}
+    .topnav .brand{width:auto;}
     .thread-list{width:38%;min-width:250px;}
     .col-labels,.card{grid-template-columns:52px 1fr 168px;}
     .col-labels .lbl-action{display:none;}
@@ -1056,3 +1060,37 @@
 .sc-acts .btn{flex:1;padding:7px 8px;min-height:32px;font-size:9px;}
 
 @media (max-width:760px){ .search-del{opacity:1;} }
+
+/* ================= CROSS-PANE ROW ALIGNMENT =================
+   The three panes are separated by vertical rules, so each pane's
+   horizontal rules must land at the SAME y as its neighbours' —
+   otherwise the lines visibly jog where they meet the divider.
+   Measured before: 14px jog at the chat|stage divider, 2px at
+   library|chat, 5px along the bottom bar.
+
+   These heights make the rows align by construction instead of by
+   coincidence, so editing one pane's padding can't silently break it.
+   Desktop only — the panes stack on mobile, where alignment is moot. */
+@media (min-width:761px){
+  :root{
+    --row-head:76px;    /* chat-header  ==  list-header            */
+    --row-tools:90px;   /* chat-tools; library-header spans both   */
+    --row-foot:74px;    /* chat-input   ==  profile-link           */
+  }
+  .chat-header,
+  .list-header      { min-height:var(--row-head); box-sizing:border-box; }
+  .chat-tools       { min-height:var(--row-tools); box-sizing:border-box; }
+  .library-header   { min-height:calc(var(--row-head) + var(--row-tools));
+                      box-sizing:border-box; }
+  .chat-input,
+  .profile-link     { min-height:var(--row-foot); box-sizing:border-box; }
+
+  /* letter view: the stage's first block is the breadcrumb, which sits
+     beside the same chat header */
+  .crumb            { min-height:var(--row-head); box-sizing:border-box; }
+
+  /* inbox is its own two-pane split with its own divider */
+  :root{ --row-head-inbox:104px; }
+  .inbox-head,
+  .tv-head          { min-height:var(--row-head-inbox); box-sizing:border-box; }
+}
