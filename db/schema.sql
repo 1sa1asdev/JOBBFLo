@@ -126,23 +126,41 @@ CREATE INDEX ads_deadline ON ads(deadline) WHERE removed_at IS NULL;
 -- ------------------------------------------------------------
 -- match_results: PER-SEARCH. same ad scores differently
 -- in different searches, and that's correct.
+--
+-- A row is created the moment layer 1 selects the ad, with score
+-- NULL meaning "queued, not judged yet". That split is what lets the
+-- UI list jobs a second after the user asks instead of waiting out a
+-- whole batch of LLM calls — see db/migrations/011_pending_matches.
+-- It does not weaken the per-search rule: still one row per
+-- (search x ad), and the pending row IS the row that later gets its
+-- score, not a second one.
 -- ------------------------------------------------------------
 CREATE TABLE match_results (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   search_id       uuid NOT NULL REFERENCES searches(id) ON DELETE CASCADE,
   ad_id           uuid NOT NULL REFERENCES ads(id) ON DELETE CASCADE,
 
-  score           int NOT NULL CHECK (score BETWEEN 0 AND 100),
-  summary         text NOT NULL,              -- one-line reasoning shown in list
+  -- NULL until judged. The CHECK still constrains a real score:
+  -- with NULL it evaluates to NULL, which a CHECK accepts.
+  score           int CHECK (score BETWEEN 0 AND 100),
+  summary         text,                       -- one-line reasoning shown in list
   matched         jsonb NOT NULL DEFAULT '[]',-- [{quote, why}] -> ad-text highlights
   flags           jsonb NOT NULL DEFAULT '[]',-- [{quote, why}] -> feeds skills-gap report
   lead_project_id uuid REFERENCES projects(id),
 
-  scored_at       timestamptz NOT NULL DEFAULT now(),
+  queued_at       timestamptz NOT NULL DEFAULT now(),
+  scored_at       timestamptz,                -- NULL while queued
+  queue_rank      real,                       -- prefilter confidence; drains best-first
+  attempts        int NOT NULL DEFAULT 0,     -- one bad ad must not wedge the queue
+  last_error      text,
   UNIQUE (search_id, ad_id)                   -- never score the same ad twice per search
 );
 
 CREATE INDEX match_results_score ON match_results(search_id, score DESC);
+-- the drain hits this constantly; partial so it stays tiny
+CREATE INDEX match_results_pending
+  ON match_results (search_id, queue_rank DESC NULLS LAST)
+  WHERE score IS NULL;
 
 -- ------------------------------------------------------------
 -- applications: PER-(USER, AD). this UNIQUE is the whole fix.
@@ -293,6 +311,10 @@ SELECT
   m.score,
   m.summary,
   m.flags,
+  (m.score IS NULL) AS pending,   -- "not judged yet", not "judged as 0"
+  m.queued_at,
+  m.attempts,
+  m.last_error,
   app.status      AS application_status,
   app.sent_at,
   app.origin_search_id,

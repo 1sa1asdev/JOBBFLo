@@ -55,7 +55,7 @@ if (search) {
 // layer 1 backfill from JobSearch, then layer 2 scoring of exactly
 // those ads (JobStream only streams changes going forward)
 console.log('');
-const results = await scanSearch(search.id, { limit: 15, fetchLimit: 50 });
+const { results } = await scanSearch(search.id, { limit: 15, fetchLimit: 50 });
 
 console.log(`\n${'—'.repeat(60)}`);
 for (const r of results.sort((a, b) => b.score - a.score)) {

@@ -111,11 +111,16 @@ async function loadContext(adId, { searchId = null } = {}) {
     `SELECT * FROM projects WHERE profile_id = $1 AND is_active`, [profile.id]
   );
 
-  // best match_result for this ad, any search — for quotes + lead project
+  // Best match_result for this ad, any search — for quotes + lead
+  // project. score IS NOT NULL is load-bearing: a queued-but-unjudged
+  // row has no quotes, and Postgres sorts NULLs FIRST under DESC, so
+  // without it the pending row would outrank every real score and the
+  // letter would be written off nothing.
   const { rows: [match] } = await pool.query(
     `SELECT m.*, p.name AS lead_project_name
      FROM match_results m LEFT JOIN projects p ON p.id = m.lead_project_id
-     WHERE m.ad_id = $1 ORDER BY m.score DESC LIMIT 1`, [adId]
+     WHERE m.ad_id = $1 AND m.score IS NOT NULL
+     ORDER BY m.score DESC LIMIT 1`, [adId]
   );
 
   return { profile, projects, ad, match };

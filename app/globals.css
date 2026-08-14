@@ -885,6 +885,15 @@
 .loading-note{padding:30px;text-align:center;font-family:'IBM Plex Mono',monospace;
   font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em;}
 
+  /* ---- a queued ad: found, not judged yet ---- */
+  /* Deliberately understated. These are real ads the user can open
+     and read right now; the missing score is the only thing pending,
+     so the card must not look broken or like a loading skeleton. */
+  .card.unscored .score-num.waiting{display:flex;align-items:center;justify-content:center;
+    height:34px;color:var(--mute);}
+  .card.unscored .reasoning .rmute{color:var(--mute);}
+  .card.unscored .main-col .job-title{color:var(--ink);}
+
   /* ---- waiting: three dots, one bounce at a time ---- */
   /* currentColor so it works in a --mute note and an --ink chat line
      alike. The peak lands at 30% of the cycle and each dot is offset

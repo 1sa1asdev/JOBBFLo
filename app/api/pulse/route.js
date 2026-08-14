@@ -23,11 +23,17 @@ export async function GET(req) {
 
   let search = null;
   if (searchId) {
+    // Two counters, because queueing and scoring move independently:
+    // `total` jumps when layer 1 finds ads, `scored` ticks up one at a
+    // time as the queue drains. A score arrives as an UPDATE, so
+    // counting rows alone would never notice it — and count(score)
+    // skips NULLs, which is exactly the pending set.
     const { rows: [s] } = await pool.query(
-      `SELECT count(*) AS scored, max(extract(epoch from scored_at)) AS last_scored
+      `SELECT count(*) AS total, count(score) AS scored,
+              max(extract(epoch from scored_at)) AS last_scored
        FROM match_results WHERE search_id = $1`, [searchId]
     );
-    search = `${s.scored}:${Math.round(Number(s.last_scored) || 0)}`;
+    search = `${s.total}:${s.scored}:${Math.round(Number(s.last_scored) || 0)}`;
   }
 
   // one opaque string — the client only cares whether it changed

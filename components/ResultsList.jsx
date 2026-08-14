@@ -62,6 +62,8 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setScanning(true);
     setError(null);
     try {
+      // returns once the ads are queued, not once they are judged —
+      // the queued cards show up immediately and fill in as scores land
       await api(`/api/searches/${search.id}/scan`, { method: 'POST' });
       await load();
       onSearchChanged();
@@ -81,6 +83,8 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   }
 
   const visible = (rows || []).filter((r) => !r.suppressed);
+  const pendingCount = visible.filter((r) => r.pending && r.attempts < 3).length;
+  const scoredCount = visible.length - visible.filter((r) => r.pending).length;
   const expiringDrafts = visible.filter(
     (r) => r.application_status === 'drafted' && daysUntil(r.deadline) != null && daysUntil(r.deadline) <= 2
   );
@@ -96,7 +100,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         <div>
           <h2>Matchningar</h2>
           <div className="sub">
-            <b>{visible.length}</b> bedömda annonser — {search.last_scanned_at ? `senast skannad ${timeAgo(search.last_scanned_at)}` : 'ej skannad än'}
+            <b>{scoredCount}</b> bedömda{pendingCount > 0 && <> · <b>{pendingCount}</b> i kö</>} — {search.last_scanned_at ? `senast skannad ${timeAgo(search.last_scanned_at)}` : 'ej skannad än'}
             {freshAt && Date.now() - freshAt < 4000 && <span className="fresh-flash"> · nya resultat</span>}
           </div>
         </div>
@@ -121,7 +125,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
             </button>
           </div>
           <button className="btn" onClick={scanNow} disabled={scanning}>
-            {scanning ? 'Skannar…' : 'Skanna nu'}
+            {scanning ? <>Hämtar<Dots label="Hämtar annonser" /></> : 'Skanna nu'}
           </button>
         </div>
       </div>
@@ -146,7 +150,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
       <div className="list-scroll">
         {rows === null && <div className="loading-note">Laddar<Dots /></div>}
         {rows !== null && !visible.length && (
-          <div className="loading-note">Inga bedömda annonser än — skanna eller vänta på nästa auto-skanning</div>
+          <div className="loading-note">Inga annonser än — skanna eller vänta på nästa auto-skanning</div>
         )}
         {visible.map((r) => {
           const chip = statusChip(r);
@@ -154,11 +158,22 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           // one ad often flags the same tag twice ("Erfarenhet" for both
           // a years requirement and a seniority title) — dedupe for display
           const flags = [...new Set((r.flags || []).map((f) => f.tag).filter(Boolean))];
+          // found by layer 1, no score yet — the ad itself is complete
+          // and readable, only the judgement is outstanding
+          const failed = r.pending && r.attempts >= 3;
           return (
-            <div key={r.ad_id} className="card" onClick={() => onOpenAd(r.ad_id)}>
+            <div key={r.ad_id} className={`card${r.pending ? ' unscored' : ''}`} onClick={() => onOpenAd(r.ad_id)}>
               <div className="score-col">
-                <div className={`score-num ${scoreClass(r.score)}`}>{r.score}</div>
-                <div className={`score-bar ${scoreClass(r.score)}`} style={{ '--pct': `${r.score}%` }} />
+                {r.pending ? (
+                  <div className="score-num waiting" aria-label={failed ? 'Kunde inte bedömas' : 'Väntar på bedömning'}>
+                    {failed ? '—' : <Dots label="Bedöms" />}
+                  </div>
+                ) : (
+                  <>
+                    <div className={`score-num ${scoreClass(r.score)}`}>{r.score}</div>
+                    <div className={`score-bar ${scoreClass(r.score)}`} style={{ '--pct': `${r.score}%` }} />
+                  </>
+                )}
               </div>
               <div className="main-col">
                 <div className="title-row">
@@ -171,7 +186,13 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                     {flags.map((t) => <span key={t} className="tag">{t.toUpperCase()}</span>)}
                   </div>
                 )}
-                <div className="reasoning"><b>Bedömning:</b> {r.summary}</div>
+                <div className="reasoning">
+                  {r.pending
+                    ? (failed
+                        ? <span className="rmute"><b>Kunde inte bedömas</b> — {r.last_error || 'modellen svarade inte'}</span>
+                        : <span className="rmute">Annonsen är hämtad — bedömning pågår</span>)
+                    : <><b>Bedömning:</b> {r.summary}</>}
+                </div>
               </div>
               <div className="meta-col">
                 <div className="row"><span>Publicerad</span><b>{fmtDate(r.published_at)}</b></div>

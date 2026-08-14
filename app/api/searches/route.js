@@ -54,14 +54,15 @@ export async function POST(req) {
       : `Filter satta via JobSearch API: ${Object.entries(filters).map(([k, v]) => `${k}=${v}`).join(' · ') || 'inga — bred sökning'}. Resten bedöms mot annonstexten.`]
   );
 
-  // first scan in the background; UI polls results
-  (async () => {
-    try {
-      await scanSearch(search.id, { limit: 20 });
-    } catch (err) {
-      console.error(`scan ${search.id}:`, err.message);
-    }
-  })();
+  // Queue the first batch before responding — roughly a second of
+  // Arbetsförmedlingen plus local prefiltering — so the new search
+  // already has jobs in it when the UI switches to it. Scoring
+  // drains behind the response.
+  try {
+    await scanSearch(search.id, { limit: 20, background: true });
+  } catch (err) {
+    console.error(`scan ${search.id}:`, err.message);
+  }
 
   return NextResponse.json(search, { status: 201 });
 }
