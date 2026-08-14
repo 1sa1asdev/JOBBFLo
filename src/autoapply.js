@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { draftLetter } from './letters.js';
+import { renderCampaignLetter } from './campaign.js';
 import { sendApplication, attachmentsFor } from './mailer.js';
 
 // ------------------------------------------------------------
@@ -80,6 +80,20 @@ export async function runAutoApply(searchId, { dryRun = false } = {}) {
   if (!search) return { sent: 0, skipped: [], reason: 'sökningen finns inte' };
   if (!dryRun && !search.auto_apply_enabled) return { sent: 0, skipped: [], reason: 'avstängd' };
 
+  // the whole point of a campaign: ONE letter the user has read.
+  // Editing the letter clears the approval, so this also stops a
+  // campaign that was changed but not re-read.
+  if (!search.campaign_letter?.trim()) {
+    const reason = 'inget kampanjbrev skrivet än';
+    if (!dryRun) await log({ searchId, outcome: 'skipped', detail: reason });
+    return { sent: 0, skipped: [], reason };
+  }
+  if (!search.campaign_letter_approved_at) {
+    const reason = 'brevet är inte godkänt — läs och godkänn det först';
+    if (!dryRun) { await pause(searchId, reason); await log({ searchId, outcome: 'skipped', detail: reason }); }
+    return { sent: 0, skipped: [], reason };
+  }
+
   // an application without the CV the ad asked for is worse than none
   if (!search.cv_bytes) {
     const reason = 'inget CV-dokument att bifoga — ladda upp CV som fil';
@@ -109,7 +123,21 @@ export async function runAutoApply(searchId, { dryRun = false } = {}) {
       continue;
     }
     try {
-      const app = await draftLetter(c.ad_id, { originSearchId: searchId });
+      const { rows: [ad] } = await pool.query(
+        `SELECT title, employer, municipality FROM ads WHERE id = $1`, [c.ad_id]);
+      const subject = renderCampaignLetter(search.campaign_subject, ad);
+      const body = renderCampaignLetter(search.campaign_letter, ad);
+
+      // store the exact text that goes out, so the inbox shows what
+      // the employer actually received
+      const { rows: [app] } = await pool.query(
+        `INSERT INTO applications (ad_id, profile_id, origin_search_id, status,
+           subject, letter_text, letter_version, sent_by)
+         VALUES ($1,$2,$3,'drafted',$4,$5,1,'auto')
+         ON CONFLICT (profile_id, ad_id) DO UPDATE SET
+           subject = EXCLUDED.subject, letter_text = EXCLUDED.letter_text
+         RETURNING *`,
+        [c.ad_id, search.profile_id, searchId, subject, body]);
 
       // belt and braces: never send a letter with no CV attached
       const files = await attachmentsFor(app.id);
@@ -121,7 +149,6 @@ export async function runAutoApply(searchId, { dryRun = false } = {}) {
       }
 
       await sendApplication(app.id, { to: c.apply_email });
-      await pool.query(`UPDATE applications SET sent_by = 'auto' WHERE id = $1`, [app.id]);
       await log({ searchId, adId: c.ad_id, applicationId: app.id, score: c.score,
                   outcome: 'sent', detail: `${c.employer} <${c.apply_email}>` });
       results.sent++;

@@ -9,6 +9,8 @@ export async function GET() {
   const { rows: searches } = await pool.query(
     `SELECT s.id, s.name, s.auto_apply_enabled, s.auto_apply_min_score,
             s.auto_apply_daily_limit, s.auto_apply_paused_reason,
+            s.criteria_text, s.campaign_letter_approved_at,
+            (s.campaign_letter IS NOT NULL) AS has_letter,
             (SELECT count(*)::int FROM applications a
              WHERE a.origin_search_id = s.id AND a.sent_by = 'auto') AS sent_total,
             (SELECT count(*)::int FROM applications a

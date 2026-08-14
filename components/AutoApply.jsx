@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, fmtDate, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import Inbox from './Inbox.jsx';
+import CampaignLetter from './CampaignLetter.jsx';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -12,11 +13,15 @@ import Inbox from './Inbox.jsx';
 // would go out next, the cap, and a log of everything already sent.
 // ------------------------------------------------------------
 export default function AutoApply({ onFindSimilar }) {
-  const [view, setView] = useState('campaigns');   // campaigns | inbox
+  const [view, setView] = useState('campaigns');   // campaigns | letter | inbox
+  const [letterFor, setLetterFor] = useState(null);   // search being written for
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [dry, setDry] = useState({});              // searchId -> dry-run result
+  const [creating, setCreating] = useState(false);
+  const [newCriteria, setNewCriteria] = useState('');
+  const [newName, setNewName] = useState('');
 
   const load = useCallback(async () => {
     try { setData(await api('/api/autoapply')); }
@@ -46,6 +51,22 @@ export default function AutoApply({ onFindSimilar }) {
     setBusy(null);
   }
 
+  async function createCampaign() {
+    if (!newCriteria.trim() || busy) return;
+    setBusy('new'); setError(null);
+    try {
+      const s = await api('/api/autoapply/new', {
+        method: 'POST', body: { name: newName, criteria: newCriteria },
+      });
+      setCreating(false); setNewCriteria(''); setNewName('');
+      await load();
+      // straight to writing the letter — a campaign is useless without one
+      setLetterFor(s);
+      setView('letter');
+    } catch (e) { setError(e.message); }
+    setBusy(null);
+  }
+
   if (!data) return <div className="loading-note">{error || 'Laddar…'}</div>;
 
   const noCv = !data.cv;
@@ -57,6 +78,10 @@ export default function AutoApply({ onFindSimilar }) {
         <button role="tab" aria-selected={view === 'campaigns'} onClick={() => setView('campaigns')}>
           Kampanjer
         </button>
+        <button role="tab" aria-selected={view === 'letter'}
+          onClick={() => { setView('letter'); if (!letterFor) setLetterFor(data?.searches?.[0] || null); }}>
+          Kampanjbrev
+        </button>
         <button role="tab" aria-selected={view === 'inbox'} onClick={() => setView('inbox')}>
           Auto-inkorg
         </button>
@@ -64,17 +89,63 @@ export default function AutoApply({ onFindSimilar }) {
 
       {view === 'inbox' ? (
         <Inbox source="auto" onFindSimilar={onFindSimilar} />
+      ) : view === 'letter' ? (
+        <div className="cl-shell">
+          <div className="cl-picker">
+            {(data?.searches || []).map((s2) => (
+              <button
+                key={s2.id}
+                className={`cl-pick${letterFor?.id === s2.id ? ' active' : ''}`}
+                onClick={() => setLetterFor(s2)}
+              >
+                {s2.name}
+              </button>
+            ))}
+          </div>
+          <CampaignLetter search={letterFor} onChanged={load} />
+        </div>
       ) : (
         <div className="auto-body">
           <div className="auto-head">
             <div className="idx">04 / Automatisk ansökan</div>
-            <h2>Kampanjer</h2>
+            <div className="auto-title-row">
+              <h2>Kampanjer</h2>
+              <button className="btn primary" onClick={() => setCreating(!creating)}>
+                {creating ? 'Avbryt' : '+ Ny kampanj'}
+              </button>
+            </div>
             <p className="auto-lede">
               En kampanj ansöker åt dig utan att fråga varje gång. Du godkänner
               <b> regeln</b> — inte breven. Bara annonser som själva publicerar en
               ansökningsadress används, och bara när ett CV finns att bifoga.
             </p>
           </div>
+
+          {creating && (
+            <div className="auto-new">
+              <label>
+                <span>Vilka annonser ska kampanjen gälla?</span>
+                <textarea
+                  className="txt-area" rows={3}
+                  placeholder="T.ex. junior frontendroller i Stockholm med React, inget krav på flera års erfarenhet"
+                  value={newCriteria} onChange={(e) => setNewCriteria(e.target.value)}
+                />
+              </label>
+              <label>
+                <span>Namn (valfritt)</span>
+                <input className="txt-input" type="text" placeholder="Frontend Stockholm"
+                  value={newName} onChange={(e) => setNewName(e.target.value)} />
+              </label>
+              <p className="hint">
+                Kampanjen skapas avstängd och utan brev. Nästa steg är att skriva
+                kampanjbrevet tillsammans med AI:n — inget skickas innan du godkänt det.
+              </p>
+              <button className="btn primary" disabled={busy === 'new' || !newCriteria.trim()}
+                onClick={createCampaign}>
+                {busy === 'new' ? 'Skapar…' : 'Skapa kampanj →'}
+              </button>
+            </div>
+          )}
 
           {noCv && (
             <div className="auto-warn">
@@ -100,7 +171,8 @@ export default function AutoApply({ onFindSimilar }) {
                     </div>
                     <button
                       className={`auto-toggle${s.auto_apply_enabled ? ' on' : ''}`}
-                      disabled={busy === s.id || (noCv && !s.auto_apply_enabled)}
+                      title={!s.campaign_letter_approved_at ? 'Skriv och godkänn kampanjbrevet först' : ''}
+                      disabled={busy === s.id || (!s.auto_apply_enabled && (noCv || !s.campaign_letter_approved_at))}
                       onClick={() => update(s.id, { enabled: !s.auto_apply_enabled })}
                       aria-pressed={s.auto_apply_enabled}
                     >
@@ -108,6 +180,14 @@ export default function AutoApply({ onFindSimilar }) {
                     </button>
                   </div>
 
+                  {!s.campaign_letter_approved_at && (
+                    <div className="auto-needletter">
+                      Inget godkänt kampanjbrev.{' '}
+                      <button className="linkish" onClick={() => { setLetterFor(s); setView('letter'); }}>
+                        Skriv brevet →
+                      </button>
+                    </div>
+                  )}
                   {s.auto_apply_paused_reason && (
                     <div className="auto-paused">⏸ Pausad: {s.auto_apply_paused_reason}</div>
                   )}
