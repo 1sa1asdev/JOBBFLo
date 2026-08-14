@@ -26,7 +26,13 @@ Tillgängliga filter:
 Svara ENDAST med JSON, ingen förklaring, inga kodstaket:
 {"filters": {...}, "unmapped": ["kriterier som inte går att uttrycka som filter"]}
 
-Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.`;
+Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.
+
+VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
+- remote: sätt ENDAST om kandidaten kräver helt distansarbete. "Hybrid är okej",
+  "kan pendla", "helst distans" är önskemål → lägg i "unmapped", inte som filter.
+- employment-type och experience-required: utelämna om det inte är ett uttryckligt krav.
+Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedöma än 0.`;
 
 export async function parseCriteria(criteriaText) {
   return llmJson({
@@ -105,6 +111,23 @@ ${ad.description}`;
 }
 
 // ------------------------------------------------------------
+// Enforce the verbatim-quote invariant. matched[].quote and
+// flags[].quote drive ad-text highlighting; a paraphrased quote
+// highlights nothing and the evidence link jumps nowhere — a
+// silent UI break. Models comply ~93% of the time, so verify
+// here instead of trusting: mark each quote `verbatim` so the UI
+// can render non-matching ones as plain text, and keep the item
+// (a flag's `tag` still feeds the skills-gap report).
+// ------------------------------------------------------------
+export function verifyQuotes(items, adText) {
+  const hay = (adText || '').toLowerCase();
+  return (items || []).map((it) => ({
+    ...it,
+    verbatim: Boolean(it?.quote && hay.includes(String(it.quote).toLowerCase())),
+  }));
+}
+
+// ------------------------------------------------------------
 // score every unscored ad for a search.
 // ads are global; match_results are per-search — so an ad
 // already scored for search A still gets scored for search B.
@@ -154,6 +177,8 @@ export async function scoreSearch(searchId, { limit = 20, adIds = null } = {}) {
       });
 
       const leadProject = projects.find((p) => p.name === r.lead_project);
+      r.matched = verifyQuotes(r.matched, ad.description);
+      r.flags = verifyQuotes(r.flags, ad.description);
 
       await pool.query(
         `INSERT INTO match_results (search_id, ad_id, score, summary, matched, flags, lead_project_id)

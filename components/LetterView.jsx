@@ -116,6 +116,8 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     ...(match?.matched || []).map((m, i) => ({ ...m, id: `src-m${i}`, neg: false })),
     ...(match?.flags || []).map((f, i) => ({ ...f, id: `src-f${i}`, neg: true })),
   ];
+  // highlighting only makes sense for quotes that are actually in the text
+  const highlightable = spans.filter((s) => s.verbatim !== false);
 
   function jump(id) {
     const el = document.getElementById(id);
@@ -238,10 +240,20 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                   <div className="evidence">
                     <span className="elabel">Belägg ur annonsen — klicka för att se i källan</span>
                     {spans.map((s) => (
-                      <button key={s.id} className={s.neg ? 'neg' : ''} onClick={() => jump(s.id)}>
-                        ”{s.quote}”
-                        <i>{s.neg ? '⚑ ' : ''}{s.why}</i>
-                      </button>
+                      // only verbatim quotes exist in the ad text, so only
+                      // those can be jumped to; the rest render as plain
+                      // text rather than as links that go nowhere
+                      s.verbatim === false ? (
+                        <span key={s.id} className={`evidence-flat${s.neg ? ' neg' : ''}`}>
+                          {s.quote}
+                          <i>{s.neg ? '⚑ ' : ''}{s.why} · omskrivet, ej ordagrant</i>
+                        </span>
+                      ) : (
+                        <button key={s.id} className={s.neg ? 'neg' : ''} onClick={() => jump(s.id)}>
+                          ”{s.quote}”
+                          <i>{s.neg ? '⚑ ' : ''}{s.why}</i>
+                        </button>
+                      )
                     ))}
                   </div>
                 )}
@@ -264,7 +276,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                 <span><i style={{ background: '#F0DCD4', borderBottom: '2px solid var(--flag)' }} /> Flaggat</span>
               </div>
               {paragraphs.map((p, i) => (
-                <p key={i}>{markParagraph(p, spans, (id) => jumpIds.push(id))}</p>
+                <p key={i}>{markParagraph(p, highlightable, (id) => jumpIds.push(id))}</p>
               ))}
             </div>
           </div>

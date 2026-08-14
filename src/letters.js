@@ -9,13 +9,22 @@ import { llmJson } from './llm.js';
 
 const LETTER_SYSTEM = `Du skriver personliga brev för en jobbsökande, på svenska.
 
+BREVETS STRUKTUR — följ exakt, annars är brevet oanvändbart:
+  Hej,
+  <stycke 1: vem du är och vilken roll du söker>
+  <stycke 2: konkret projekt/erfarenhet som svarar mot annonsens krav>
+  <stycke 3: kort avslutning>
+  Vänliga hälsningar,
+  <kandidatens namn>
+
 Regler:
-- Kort: 150–250 ord. Inga floskler ("passionerad", "driven", "brinner för").
+- Kort: 150–250 ord. Inga floskler ("passionerad", "driven", "brinner för",
+  "övertygad om att mina färdigheter", "bidra till att stärka ert team").
 - Konkret: nämn projekt och erfarenheter, inte adjektiv.
 - Utgå från kandidatens ton-instruktioner om sådana finns.
 - Svara på det annonsen faktiskt efterfrågar — använd de citerade kraven.
 - Ljug aldrig. Påstå inget som inte har stöd i CV:t eller projekten.
-- Avsluta med "Vänliga hälsningar," och kandidatens namn.
+- Hälsningsfras i början och avslutning med namn är OBLIGATORISKA.
 
 Svara ENDAST med JSON, inga kodstaket:
 {"subject": "Ansökan: <tjänstetitel>", "body": "brevet med \\n\\n mellan stycken", "change_note": "en mening om vad du gjorde"}`;
@@ -51,6 +60,29 @@ ${ad.description}
 ## KRAV SOM MATCHADE (citera-bara belägg ur annonsen)
 ${matched || '(inga sparade)'}
 ${match?.lead_project_name ? `\n## LYFT FRAM I FÖRSTA HAND\nProjektet "${match.lead_project_name}"` : ''}`;
+}
+
+// ------------------------------------------------------------
+// Structural guarantee. Smaller models drop the greeting or the
+// sign-off maybe 1 letter in 3, and this app SENDS these — a
+// letter ending mid-thought would go to a real employer. The
+// prompt asks; this enforces.
+// ------------------------------------------------------------
+const GREETING_RE = /^\s*(hej|hejsan|god dag|till|bäste|bästa)\b/i;
+const CLOSING_RE = /(vänliga hälsningar|med vänlig hälsning|hälsningar|mvh|bästa hälsningar)\s*,?/i;
+
+export function ensureLetterShape(body, name) {
+  let text = String(body || '').trim().replace(/\n{3,}/g, '\n\n');
+
+  if (!GREETING_RE.test(text)) text = `Hej,\n\n${text}`;
+
+  if (!CLOSING_RE.test(text)) {
+    text = `${text}\n\nVänliga hälsningar,\n${name || ''}`.trimEnd();
+  } else if (name && !text.toLowerCase().includes(String(name).toLowerCase())) {
+    // closing present but the name was dropped after it
+    text = `${text}\n${name}`;
+  }
+  return text;
 }
 
 async function loadContext(adId) {
@@ -93,6 +125,7 @@ export async function draftLetter(adId, { originSearchId = null } = {}) {
     system: LETTER_SYSTEM,
     messages: [{ role: 'user', content: letterContext(ctx) }],
   });
+  draft.body = ensureLetterShape(draft.body, ctx.profile.name);
 
   const { rows: [app] } = await pool.query(
     `INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text, letter_version)
@@ -139,6 +172,7 @@ export async function reviseLetter(applicationId, instruction) {
       { role: 'user', content: `Revidera brevet enligt: ${instruction}\nSvara med samma JSON-format, inklusive "change_note".` },
     ],
   });
+  draft.body = ensureLetterShape(draft.body, ctx.profile.name);
   const version = app.letter_version + 1;
 
   await pool.query(

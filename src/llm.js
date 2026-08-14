@@ -27,26 +27,43 @@ export function invalidateLlmConfig() {
   cached = null;
 }
 
+// Any provider can be configured from the environment:
+//   GROQ_API_KEY / GROQ_KEY, MISTRAL_API_KEY, DEEPSEEK_API_KEY, …
+// LLM_PROVIDER picks which one wins when several keys are present;
+// otherwise the first provider in registry order that has a key.
+// Model overrides: LLM_MODEL_SMART / LLM_MODEL_FAST (or the
+// provider-specific OPENROUTER_MODEL_SMART style).
+function envKeyFor(id) {
+  const upper = id.toUpperCase();
+  const v = process.env[`${upper}_API_KEY`] || process.env[`${upper}_KEY`];
+  return v?.trim() || null;
+}
+
+function envConfigFor(id) {
+  const preset = PROVIDERS[id];
+  if (!preset) return null;
+  const apiKey = envKeyFor(id);
+  if (!apiKey && id !== 'ollama') return null;
+  const upper = id.toUpperCase();
+  return {
+    provider: id,
+    apiKey: apiKey || 'ollama',
+    smart: process.env[`${upper}_MODEL_SMART`] || process.env.LLM_MODEL_SMART || preset.smart,
+    fast: process.env[`${upper}_MODEL_FAST`] || process.env.LLM_MODEL_FAST || preset.fast,
+    baseUrl: process.env[`${upper}_BASE_URL`] || preset.baseUrl,
+    source: 'env',
+  };
+}
+
 function envConfig() {
-  if (process.env.OPENROUTER_API_KEY) {
-    return {
-      provider: 'openrouter',
-      apiKey: process.env.OPENROUTER_API_KEY,
-      smart: process.env.OPENROUTER_MODEL_SMART || PROVIDERS.openrouter.smart,
-      fast: process.env.OPENROUTER_MODEL_FAST || PROVIDERS.openrouter.fast,
-      baseUrl: PROVIDERS.openrouter.baseUrl,
-      source: 'env',
-    };
+  const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
+  if (explicit) {
+    const cfg = envConfigFor(explicit);
+    if (cfg) return cfg;
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return {
-      provider: 'anthropic',
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      smart: PROVIDERS.anthropic.smart,
-      fast: PROVIDERS.anthropic.fast,
-      baseUrl: null,
-      source: 'env',
-    };
+  for (const id of Object.keys(PROVIDERS)) {
+    const cfg = envConfigFor(id);
+    if (cfg) return cfg;
   }
   return null;
 }

@@ -191,13 +191,20 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
 // JobSearch: used for the FIRST fill of a new search (backfill),
 // since JobStream only gives you changes going forward.
 // ------------------------------------------------------------
-export async function backfillSearch(rawFilters = {}, limit = 100) {
-  // names -> taxonomy concept IDs. Skipping this silently returns
-  // zero hits (the API doesn't error on an unknown name).
-  const filters = await resolveFilters(rawFilters);
+// Filters most likely to over-narrow, dropped first when a query
+// comes back empty. Layer 1 is an LLM guessing at an API: it will
+// sometimes turn "hybrid är okej" into remote=true and match nothing.
+// An empty result is the worst failure mode here — it's
+// indistinguishable from "no such jobs exist" — so broaden and retry.
+const BROADENING_LADDER = [
+  ['remote', 'employment-type'],
+  ['experience-required'],
+  ['occupation-field', 'occupation-group'],
+  ['municipality'],
+];
 
+function buildQuery(filters, limit) {
   const params = new URLSearchParams({ limit: String(Math.min(limit, 100)) });
-
   if (filters.q) params.set('q', filters.q);
   for (const key of ['occupation-field', 'occupation-group', 'municipality', 'region',
                      'employment-type', 'experience-required', 'remote', 'published-after']) {
@@ -205,14 +212,34 @@ export async function backfillSearch(rawFilters = {}, limit = 100) {
     if (val === undefined || val === null) continue;
     for (const v of [].concat(val)) params.append(key, String(v));
   }
+  return params;
+}
 
+async function runQuery(params) {
   const url = `${JOBSEARCH}?${params}`;
   console.log(`→ ${url}`);
-
   const res = await fetch(url, { headers: { accept: 'application/json' } });
   if (!res.ok) throw new Error(`JobSearch ${res.status}: ${await res.text()}`);
+  return res.json();
+}
 
-  const body = await res.json();
+export async function backfillSearch(rawFilters = {}, limit = 100) {
+  // names -> taxonomy concept IDs. Skipping this silently returns
+  // zero hits (the API doesn't error on an unknown name).
+  let filters = await resolveFilters(rawFilters);
+
+  let body = await runQuery(buildQuery(filters, limit));
+
+  for (const dropKeys of BROADENING_LADDER) {
+    if ((body.total?.value ?? 0) > 0) break;
+    const present = dropKeys.filter((k) => filters[k] !== undefined && filters[k] !== null);
+    if (!present.length) continue;
+    filters = { ...filters };
+    for (const k of present) delete filters[k];
+    console.log(`  0 träffar — släpper ${present.join(', ')} och söker bredare`);
+    body = await runQuery(buildQuery(filters, limit));
+  }
+
   const client = await pool.connect();
   try {
     const ids = [];

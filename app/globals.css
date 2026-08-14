@@ -960,3 +960,9 @@
 .llm-test.fail{border:1px solid var(--flag);color:var(--flag);background:#F0DCD4;}
 .llm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
 .llm-gdpr{border-left:2px solid var(--flag);padding-left:10px;margin-top:14px;}
+
+/* evidence whose quote is not verbatim in the ad — not clickable */
+.evidence-flat{display:block;border:1px dashed var(--tag-border);border-left:3px solid var(--tag-border);
+  padding:7px 10px;margin-bottom:6px;font-size:11px;line-height:1.4;color:var(--mute);}
+.evidence-flat.neg{border-left-color:var(--flag);}
+.evidence-flat i{font-style:normal;font-size:10px;display:block;margin-top:2px;}
