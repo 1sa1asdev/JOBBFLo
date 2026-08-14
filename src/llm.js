@@ -145,12 +145,22 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
     const err = new Error(`${res.status} ${body}`);
     err.status = res.status;
     err.transient = res.status === 429 || res.status >= 500;
-    // honour Retry-After / the reset header rather than blind backoff
-    const retry = res.headers.get('retry-after')
-      || res.headers.get('x-ratelimit-reset-tokens');
-    if (retry) err.retryAfterMs = /ms$/.test(retry)
-      ? parseFloat(retry)
-      : Math.min(parseFloat(retry) * 1000 || 2000, 30_000);
+    // How long to wait. The body is the most reliable source —
+    // Groq answers a 429 with "Please try again in 6.938s" while
+    // its x-ratelimit-reset-tokens header still reads "235ms",
+    // which made an immediate retry burn the whole chain.
+    const inBody = body.match(/try again in ([\d.]+)\s*(ms|s|m)?/i);
+    const header = res.headers.get('retry-after') || res.headers.get('x-ratelimit-reset-tokens');
+    let waitMs = null;
+    if (inBody) {
+      const n = parseFloat(inBody[1]);
+      waitMs = inBody[2] === 'ms' ? n : inBody[2] === 'm' ? n * 60_000 : n * 1000;
+    } else if (header) {
+      waitMs = /ms$/.test(header) ? parseFloat(header) : parseFloat(header) * 1000;
+    }
+    // never retry a rate limit faster than a second — that just
+    // spends another request against the same exhausted bucket
+    err.retryAfterMs = Math.min(Math.max(waitMs || 5000, 1000), 60_000);
     throw err;
   }
 
@@ -186,8 +196,25 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
 // A per-day account quota is account-wide, so rotating models
 // can't help — fail fast instead of hammering the API.
 let quotaBlockedUntil = 0;
-const isDailyQuota = (msg) =>
-  /free-models-per-day|per-day|daily limit|quota exceeded|requests per day|RPD/i.test(msg);
+
+// An ACCOUNT-wide daily cap (OpenRouter) means no model will work,
+// so fail fast. A PER-MODEL daily cap (Groq gives each model its own
+// tokens-per-day budget) means the others are still fine — skip just
+// that model and carry on down the chain. Conflating the two is why
+// an exhausted llama-3.3-70b looked like "no credits left" when
+// gpt-oss-120b still had its full budget.
+const isAccountQuota = (msg) => /free-models-per-day|quota exceeded/i.test(msg);
+const isModelDayQuota = (msg) => /per day|TPD|RPD|daily limit/i.test(msg);
+
+const modelBlocked = new Map();          // model -> timestamp
+const modelIsBlocked = (m) => (modelBlocked.get(m) || 0) > Date.now();
+
+function blockModel(model, msg) {
+  const m = msg.match(/try again in (?:(\d+)m)?\s*([\d.]+)s/i);
+  const ms = m ? ((Number(m[1] || 0) * 60) + parseFloat(m[2])) * 1000 : 60 * 60 * 1000;
+  modelBlocked.set(model, Date.now() + Math.min(ms, 24 * 60 * 60 * 1000));
+  return Math.round(ms / 60000);
+}
 
 // A per-MINUTE limit is the opposite: waiting fixes it. Free tiers
 // are generous per day but tight per minute (Groq: 1000 req/day but
@@ -252,6 +279,7 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
   for (let round = 0; round < 3; round++) {
     if (round > 0) await sleep(2000);
     for (const model of models) {
+      if (modelIsBlocked(model)) continue;   // daily budget spent
       try {
         // pace BEFORE spending, so a burst scan doesn't trip the
         // per-minute ceiling and look like an exhausted account
@@ -261,15 +289,33 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
           : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
         return validate ? validate(text) : text;
       } catch (err) {
-        if (isDailyQuota(err.message)) {
+        if (isAccountQuota(err.message)) {
           quotaBlockedUntil = Date.now() + 30 * 60 * 1000;
           throw new Error(`Dagskvoten hos ${cfg.provider} är slut — byt leverantör i Profil, lägg till credits, eller vänta.`);
+        }
+        // this model is done for the day; the next one in the chain
+        // has its own budget
+        if (isModelDayQuota(err.message)) {
+          const mins = blockModel(model, err.message);
+          problems.push(`${model}: dagskvot slut (~${mins} min kvar)`);
+          continue;
         }
         // per-minute limit: waiting fixes it, so wait rather than
         // burning through the rest of the chain
         if (isPerMinute(err.message) || err.status === 429) {
           recordSpend(model, need);          // assume it counted
-          await sleep(Math.min(err.retryAfterMs || 5000, 30_000));
+          await sleep(Math.min(err.retryAfterMs || 5000, 60_000));
+          // a per-minute limit is not the model's fault — retry it
+          // rather than falling through to a weaker one
+          try {
+            await waitForBudget(model, need);
+            const text = cfg.provider === 'anthropic'
+              ? await callAnthropic({ ...cfg, model, system, messages, maxTokens })
+              : await callOpenAICompatible({ ...cfg, model, system, messages, maxTokens });
+            return validate ? validate(text) : text;
+          } catch (retryErr) {
+            problems.push(`${model} (omförsök): ${retryErr.message.slice(0, 60)}`);
+          }
         }
         problems.push(`${model}: ${err.message.slice(0, 80)}`);
         if (err.status === 401 || err.status === 403) {
