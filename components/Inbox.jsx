@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useNotify } from '../lib/useNotify.js';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
@@ -74,13 +75,16 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [pulsed, setPulsed] = useState(null); // timestamp of last live update
+  const notify = useNotify();
 
   const load = useCallback(async () => {
     try {
-      setThreads(await api(`/api/inbox?source=${source}`));
+      const rows = await api(`/api/inbox?source=${source}`);
+      setThreads(rows);
+      notify.notifyFrom(rows);
       setStats(await api('/api/stats'));
     } catch (e) { setError(e.message); }
-  }, [source]);
+  }, [source, notify]);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
@@ -159,6 +163,17 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
           <h2>
             {source === 'auto' ? 'Auto-inkorg' : 'Inkorg'}
             <LiveDot pulsed={pulsed} />
+            <button
+              className={`notify-toggle${notify.enabled ? ' on' : ''}`}
+              onClick={notify.toggle}
+              title={notify.permission === 'denied'
+                ? 'Notiser är blockerade i webbläsarens inställningar'
+                : notify.enabled ? 'Notiser på — klicka för att stänga av'
+                : 'Få en notis när en arbetsgivare svarar'}
+              disabled={notify.permission === 'denied'}
+            >
+              {notify.enabled ? '🔔' : '🔕'}
+            </button>
           </h2>
           <div className="inbox-filters">
             {[['all', 'Alla'], ['unread', 'Att göra'], ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']].map(([k, label]) => (

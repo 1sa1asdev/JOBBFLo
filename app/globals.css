@@ -1233,3 +1233,9 @@
   font-family:'IBM Plex Mono',monospace;font-size:10px;padding:7px 9px;}
 .cl-file-x{background:none;border:none;color:var(--mute);cursor:pointer;font-size:10px;padding:0 2px;}
 .cl-file-x:hover{color:var(--flag);}
+.notify-toggle{background:none;border:1px solid var(--tag-border);cursor:pointer;
+  margin-left:6px;width:26px;height:22px;font-size:11px;line-height:1;vertical-align:middle;
+  display:inline-flex;align-items:center;justify-content:center;}
+.notify-toggle.on{border-color:var(--ok);}
+.notify-toggle:disabled{opacity:.4;cursor:not-allowed;}
+.notify-toggle:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
