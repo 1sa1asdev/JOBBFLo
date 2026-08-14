@@ -22,6 +22,7 @@ export default function AutoApply({ onFindSimilar }) {
   const [creating, setCreating] = useState(false);
   const [newCriteria, setNewCriteria] = useState('');
   const [newName, setNewName] = useState('');
+  const [confirmDel, setConfirmDel] = useState(null);
 
   const load = useCallback(async () => {
     try { setData(await api('/api/autoapply')); }
@@ -63,6 +64,19 @@ export default function AutoApply({ onFindSimilar }) {
       // straight to writing the letter — a campaign is useless without one
       setLetterFor(s);
       setView('letter');
+    } catch (e) { setError(e.message); }
+    setBusy(null);
+  }
+
+  async function removeCampaign(searchId) {
+    setBusy(searchId); setError(null);
+    try {
+      // soft delete, same as the library: sent applications keep their
+      // back-reference instead of breaking
+      await api(`/api/searches/${searchId}`, { method: 'DELETE' });
+      setConfirmDel(null);
+      if (letterFor?.id === searchId) setLetterFor(null);
+      await load();
     } catch (e) { setError(e.message); }
     setBusy(null);
   }
@@ -169,6 +183,13 @@ export default function AutoApply({ onFindSimilar }) {
                         {s.sent_total} skickade totalt · {s.sent_today} idag
                       </span>
                     </div>
+                    <div className="auto-head-acts">
+                    <button
+                      className="auto-del"
+                      title={`Ta bort ${s.name}`}
+                      aria-label={`Ta bort kampanjen ${s.name}`}
+                      onClick={() => setConfirmDel(confirmDel === s.id ? null : s.id)}
+                    >✕</button>
                     <button
                       className={`auto-toggle${s.auto_apply_enabled ? ' on' : ''}`}
                       title={!s.campaign_letter_approved_at ? 'Skriv och godkänn kampanjbrevet först' : ''}
@@ -178,7 +199,25 @@ export default function AutoApply({ onFindSimilar }) {
                     >
                       {s.auto_apply_enabled ? 'PÅ' : 'AV'}
                     </button>
+                    </div>
                   </div>
+
+                  {confirmDel === s.id && (
+                    <div className="auto-confirm">
+                      <span>Ta bort <b>{s.name}</b>?</span>
+                      <span className="ac-note">
+                        Kampanjen och sökningen döljs. Redan skickade ansökningar och
+                        deras svar finns kvar i Auto-inkorgen.
+                      </span>
+                      <div className="ac-acts">
+                        <button className="btn" onClick={() => setConfirmDel(null)}>Avbryt</button>
+                        <button className="btn primary" disabled={busy === s.id}
+                          onClick={() => removeCampaign(s.id)}>
+                          {busy === s.id ? 'Tar bort…' : 'Ta bort'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {!s.campaign_letter_approved_at && (
                     <div className="auto-needletter">

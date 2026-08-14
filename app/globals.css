@@ -1189,3 +1189,14 @@
 .auto-new label{display:block;margin-bottom:11px;}
 .auto-new label span{display:block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
   letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-bottom:5px;}
+.auto-head-acts{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.auto-del{width:30px;height:30px;background:none;border:1px solid var(--tag-border);
+  color:var(--mute);cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;
+  display:flex;align-items:center;justify-content:center;}
+.auto-del:hover{border-color:var(--flag);color:var(--flag);background:var(--paper);}
+.auto-del:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.auto-confirm{border:1px solid var(--flag);background:#F0DCD4;padding:10px 12px;margin-bottom:10px;}
+.auto-confirm > span{display:block;font-size:11.5px;line-height:1.45;color:var(--ink);}
+.auto-confirm .ac-note{font-size:10px;color:var(--mute);margin-top:4px;}
+.ac-acts{display:flex;gap:7px;margin-top:9px;}
+.ac-acts .btn{padding:7px 12px;min-height:32px;font-size:9.5px;}
