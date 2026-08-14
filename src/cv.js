@@ -27,23 +27,43 @@ export async function extractCvText(buffer, filename = '') {
   }
 
   if (ext === 'pdf') {
-    // pdf-parse v2 exposes a PDFParse class, not a default function
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: buffer });
-    const { text: raw } = await parser.getText();
+    // NOTE: pdf-parse/pdfjs must stay OUT of the Next bundle
+    // (serverExternalPackages) — bundling breaks them at runtime with
+    // "Object.defineProperty called on non-object".
+    let raw;
+    try {
+      // pdf-parse v2 exposes a PDFParse class, not a default function
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: buffer });
+      ({ text: raw } = await parser.getText());
+    } catch (err) {
+      const m = err.message || '';
+      if (/password|encrypt/i.test(m)) {
+        throw new Error('PDF:en är lösenordsskyddad — spara en olåst kopia och försök igen.');
+      }
+      if (/invalid pdf|structure/i.test(m)) {
+        throw new Error('filen ser inte ut som en giltig PDF — är den helt nedladdad? Prova att spara om den, eller klistra in texten.');
+      }
+      throw new Error(`kunde inte läsa PDF:en (${m.slice(0, 80)}) — klistra in texten istället.`);
+    }
     // it appends per-page markers like "-- 1 of 3 --"
     const text = tidy(String(raw || '').replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, ''));
     if (!text) {
-      throw new Error('kunde inte läsa text ur PDF:en — är den inskannad som bild? Klistra in texten manuellt istället.');
+      throw new Error('hittade ingen text i PDF:en — är den inskannad som bild? Klistra in texten manuellt istället.');
     }
     return text;
   }
 
   if (ext === 'docx') {
-    const mammoth = await import('mammoth');
-    const { value } = await mammoth.extractRawText({ buffer });
+    let value;
+    try {
+      const mammoth = await import('mammoth');
+      ({ value } = await mammoth.extractRawText({ buffer }));
+    } catch (err) {
+      throw new Error(`kunde inte läsa DOCX-filen (${(err.message || '').slice(0, 80)}) — spara som PDF eller klistra in texten.`);
+    }
     const text = tidy(value);
-    if (!text) throw new Error('kunde inte läsa text ur DOCX-filen');
+    if (!text) throw new Error('hittade ingen text i DOCX-filen');
     return text;
   }
 
