@@ -15,6 +15,9 @@ export default function CampaignLetter({ search, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const bodyRef = useRef(null);
+  const [files, setFiles] = useState(null);
+  const [upErr, setUpErr] = useState(null);
+  const fileRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!search?.id) return;
@@ -22,7 +25,13 @@ export default function CampaignLetter({ search, onChanged }) {
     catch (e) { setError(e.message); }
   }, [search?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadFiles = useCallback(async () => {
+    if (!search?.id) return;
+    try { setFiles(await api(`/api/autoapply/attachments?search=${search.id}`)); }
+    catch { /* shown by the panel */ }
+  }, [search?.id]);
+
+  useEffect(() => { load(); loadFiles(); }, [load, loadFiles]);
   useEffect(() => { bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight); }, [data, busy]);
 
   async function send(instruction) {
@@ -48,6 +57,30 @@ export default function CampaignLetter({ search, onChanged }) {
       await load();
       onChanged?.();
     } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  async function upload(file) {
+    if (!file) return;
+    setUpErr(null); setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('searchId', search.id);
+      const res = await fetch('/api/autoapply/attachments', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'uppladdningen misslyckades');
+      await loadFiles();
+    } catch (e) { setUpErr(e.message); }
+    setBusy(false);
+  }
+
+  async function removeFile(id) {
+    setBusy(true);
+    try {
+      await fetch(`/api/autoapply/attachments?id=${id}`, { method: 'DELETE' });
+      await loadFiles();
+    } catch (e) { setUpErr(e.message); }
     setBusy(false);
   }
 
@@ -144,6 +177,33 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
               </div>
             </div>
           )}
+        </div>
+
+        <div className="cl-files">
+          <span className="cl-files-title">Bilagor som följer med varje mejl</span>
+          <div className="cl-file-list">
+            {files?.cv
+              ? <span className="cl-file locked">
+                  <span className="x">CV</span>{files.cv.filename}
+                  <i>{Math.round(files.cv.bytes / 1024)} kB · från Profil</i>
+                </span>
+              : <span className="cl-file missing">Inget CV — ladda upp i Profil</span>}
+            {(files?.files || []).map((f) => (
+              <span className="cl-file" key={f.id}>
+                <span className="x">{(f.filename.split('.').pop() || '').toUpperCase().slice(0, 4)}</span>
+                {f.filename}
+                <i>{Math.round(f.size_bytes / 1024)} kB{f.global ? ' · alla utskick' : ''}</i>
+                <button className="cl-file-x" title="Ta bort" onClick={() => removeFile(f.id)}>✕</button>
+              </span>
+            ))}
+          </div>
+          <input ref={fileRef} type="file" style={{ display: 'none' }}
+            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
+            onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+          <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>
+            + Lägg till bilaga
+          </button>
+          {upErr && <div className="err-note" style={{ margin: '8px 0 0' }}>{upErr}</div>}
         </div>
 
         {letter && (

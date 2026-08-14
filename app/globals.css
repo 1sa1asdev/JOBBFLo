@@ -1216,3 +1216,20 @@
 .profile-shell{flex:1;display:flex;min-height:0;}
 .profile-shell .profile-view{flex:1;}
 @media (max-width:760px){ .tp-label{display:none;} .topnav-profile{padding:0 12px;} }
+
+/* kampanjens bilagor */
+.cl-files{flex-shrink:0;border-top:1px solid var(--line);background:var(--paper);padding:11px 24px;}
+.cl-files-title{display:block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-bottom:8px;}
+.cl-file-list{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px;}
+.cl-file{display:flex;align-items:center;gap:7px;border:1px solid var(--tag-border);
+  padding:5px 8px;font-size:11px;color:var(--ink);background:var(--panel);}
+.cl-file .x{width:26px;height:22px;flex-shrink:0;border:1px solid var(--line);background:var(--paper);
+  display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;
+  font-size:7.5px;font-weight:700;}
+.cl-file i{font-style:normal;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--mute);}
+.cl-file.locked{border-style:dashed;}
+.cl-file.missing{border-color:var(--flag);color:var(--flag);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;padding:7px 9px;}
+.cl-file-x{background:none;border:none;color:var(--mute);cursor:pointer;font-size:10px;padding:0 2px;}
+.cl-file-x:hover{color:var(--flag);}

@@ -47,7 +47,7 @@ export async function attachmentsFor(applicationId) {
        COALESCE(s.cv_file, p.cv_file)         AS cv_file,
        COALESCE(s.cv_filename, p.cv_filename) AS cv_filename,
        COALESCE(s.cv_mime, p.cv_mime)         AS cv_mime,
-       p.id AS profile_id
+       p.id AS profile_id, a.origin_search_id
      FROM applications a
      JOIN profile p  ON p.id = a.profile_id
      LEFT JOIN searches s ON s.id = a.origin_search_id
@@ -65,10 +65,15 @@ export async function attachmentsFor(applicationId) {
     });
   }
 
+  // profile-wide extras (search_id NULL) plus anything attached to
+  // the campaign this application came from
   const { rows: extra } = await pool.query(
-    `SELECT filename, mime, bytes FROM attachments
-     WHERE profile_id = $1 AND include_by_default ORDER BY created_at`,
-    [row.profile_id]
+    `SELECT a.filename, a.mime, a.bytes FROM attachments a
+     WHERE a.profile_id = $1
+       AND a.include_by_default
+       AND (a.search_id IS NULL OR a.search_id = $2)
+     ORDER BY a.created_at`,
+    [row.profile_id, row.origin_search_id || null]
   );
   for (const f of extra) {
     files.push({ filename: f.filename, content: f.bytes, contentType: f.mime || undefined });
