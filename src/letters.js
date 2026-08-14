@@ -131,7 +131,7 @@ export async function draftLetter(adId, { originSearchId = null } = {}) {
   if (existing.rows[0]?.letter_text) return existing.rows[0];
 
   const draft = await llmJson({
-    tier: 'smart',
+    tier: 'write',
     maxTokens: 2000,
     system: LETTER_SYSTEM,
     messages: [{ role: 'user', content: letterContext(ctx) }],
@@ -174,7 +174,7 @@ export async function reviseLetter(applicationId, instruction) {
   const ctx = await loadContext(app.ad_id, { searchId: app.origin_search_id });
 
   const draft = await llmJson({
-    tier: 'smart',
+    tier: 'write',
     maxTokens: 2000,
     system: LETTER_SYSTEM,
     messages: [

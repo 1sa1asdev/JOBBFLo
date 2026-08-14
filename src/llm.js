@@ -11,8 +11,16 @@ import { decryptSecret } from './secrets.js';
 // so there are only two transports here.
 //
 // Callers only use llmText()/llmJson() with a tier:
-//   'smart' — scoring, letters, criteria chat (nuance)
-//   'fast'  — reply classification (latency budget ~1s)
+//   'bulk'  — scoring. ~90% of all tokens, so this is what decides
+//             the monthly bill; a cheap model is fine here.
+//   'write' — letters, revisions, replies, criteria chat. Low volume
+//             but user-facing prose, so worth a good model.
+//   'fast'  — reply classification (latency budget ~1s).
+// 'smart' is kept as an alias for 'write' so older config still works.
+//
+// Splitting bulk from write is what makes a good model affordable:
+// measured at ~1500 scorings vs ~150 writes per month, paying
+// Sonnet rates for scoring costs 8x more than paying them for prose.
 // ------------------------------------------------------------
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,6 +58,10 @@ function envConfigFor(id) {
     apiKey: apiKey || 'ollama',
     smart: process.env[`${upper}_MODEL_SMART`] || process.env.LLM_MODEL_SMART || preset.smart,
     fast: process.env[`${upper}_MODEL_FAST`] || process.env.LLM_MODEL_FAST || preset.fast,
+    // bulk (scoring) and write (prose) can point at different models —
+    // both fall back to `smart`, so existing setups behave unchanged
+    bulk: process.env[`${upper}_MODEL_BULK`] || process.env.LLM_MODEL_BULK || preset.bulk || null,
+    write: process.env[`${upper}_MODEL_WRITE`] || process.env.LLM_MODEL_WRITE || preset.write || null,
     baseUrl: process.env[`${upper}_BASE_URL`] || preset.baseUrl,
     source: 'env',
   };
@@ -75,7 +87,8 @@ export async function llmConfig({ fresh = false } = {}) {
   try {
     const { pool } = await import('./db.js');
     const { rows: [p] } = await pool.query(
-      `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast, llm_base_url
+      `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
+              llm_model_bulk, llm_model_write, llm_base_url
        FROM profile WHERE llm_provider IS NOT NULL LIMIT 1`
     );
     if (p?.llm_provider) {
@@ -87,6 +100,8 @@ export async function llmConfig({ fresh = false } = {}) {
           apiKey: apiKey || 'ollama',
           smart: p.llm_model_smart || preset.smart,
           fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
+          bulk: p.llm_model_bulk || preset.bulk || null,
+          write: p.llm_model_write || preset.write || null,
           baseUrl: p.llm_base_url || preset.baseUrl,
           source: 'user',
         };
@@ -172,7 +187,10 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
   }
 
   // model chain: comma-separated values allow "paid first, free fallback"
-  const models = String(tier === 'fast' ? cfg.fast : cfg.smart)
+  const forTier = tier === 'fast' ? (cfg.fast || cfg.bulk || cfg.smart)
+    : tier === 'bulk' ? (cfg.bulk || cfg.smart)
+    : (cfg.write || cfg.smart);
+  const models = String(forTier || '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   if (!models.length) throw new Error(`Ingen modell angiven för ${tier}-nivån.`);
 

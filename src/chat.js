@@ -29,7 +29,7 @@ export async function chatTurn(searchId, userMessage) {
   );
 
   const { criteria, reply } = await llmJson({
-    tier: 'smart',
+    tier: 'write',
     maxTokens: 1000,
     system: MERGE_SYSTEM,
     messages: [{

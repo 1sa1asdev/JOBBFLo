@@ -36,7 +36,7 @@ Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedö
 
 export async function parseCriteria(criteriaText) {
   return llmJson({
-    tier: 'smart',
+    tier: 'bulk',
     maxTokens: 1000,
     system: FILTER_SYSTEM,
     messages: [{ role: 'user', content: criteriaText }],
@@ -103,7 +103,7 @@ ${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
 ${ad.description}`;
 
   return llmJson({
-    tier: 'smart',
+    tier: 'bulk',
     maxTokens: 2000,
     system: SCORE_SYSTEM,
     messages: [{ role: 'user', content: input }],

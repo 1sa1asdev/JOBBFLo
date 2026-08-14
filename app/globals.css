@@ -1098,3 +1098,4 @@
 /* attachments row: visible state when nothing will be attached */
 .attach.none{color:var(--flag);}
 .attach .file.none{border-color:var(--flag);color:var(--flag);}
+.tier-note{font-style:normal;text-transform:none;letter-spacing:0;color:var(--mute);opacity:.8;}

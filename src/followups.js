@@ -40,7 +40,7 @@ export async function checkFollowups() {
   for (const app of due) {
     try {
       const body = await llmText({
-        tier: 'smart',
+        tier: 'write',
         maxTokens: 500,
         system: FOLLOWUP_SYSTEM,
         messages: [{

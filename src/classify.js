@@ -48,7 +48,7 @@ export async function draftReply(applicationId, inboundEmailId) {
   if (!email || !app) return null;
 
   const raw = await llmText({
-    tier: 'smart',
+    tier: 'write',
     maxTokens: 1000,
     system: REPLY_SYSTEM,
     messages: [{
@@ -101,7 +101,7 @@ export async function generateInterviewPrep(applicationId) {
   if (!app) return null;
 
   const prep = await llmJson({
-    tier: 'smart',
+    tier: 'write',
     maxTokens: 1500,
     system: PREP_SYSTEM,
     messages: [{

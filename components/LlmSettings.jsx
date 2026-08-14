@@ -8,6 +8,8 @@ export default function LlmSettings() {
   const [apiKey, setApiKey] = useState('');
   const [smart, setSmart] = useState('');
   const [fast, setFast] = useState('');
+  const [bulk, setBulk] = useState('');
+  const [write, setWrite] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [test, setTest] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -20,6 +22,8 @@ export default function LlmSettings() {
       setProvider(d.current.provider || '');
       setSmart(d.current.model_smart || '');
       setFast(d.current.model_fast || '');
+      setBulk(d.current.model_bulk || '');
+      setWrite(d.current.model_write || '');
       setBaseUrl(d.current.base_url || '');
     }).catch((e) => setError(e.message));
   }, []);
@@ -34,6 +38,8 @@ export default function LlmSettings() {
     // prefill the provider's defaults so the fields are never blank
     setSmart(p?.smart || '');
     setFast(p?.fast || '');
+    setBulk(p?.bulk || '');
+    setWrite(p?.write || '');
     setBaseUrl('');
   }
 
@@ -53,7 +59,8 @@ export default function LlmSettings() {
     try {
       const r = await api('/api/settings/llm', {
         method: 'PUT',
-        body: { provider, api_key: apiKey, model_smart: smart, model_fast: fast, base_url: baseUrl },
+        body: { provider, api_key: apiKey, model_smart: smart, model_fast: fast,
+                model_bulk: bulk, model_write: write, base_url: baseUrl },
       });
       setApiKey('');
       setSaved(true);
@@ -66,7 +73,7 @@ export default function LlmSettings() {
     setBusy('clear');
     try {
       await api('/api/settings/llm', { method: 'DELETE' });
-      setProvider(''); setApiKey(''); setSmart(''); setFast(''); setBaseUrl('');
+      setProvider(''); setApiKey(''); setSmart(''); setFast(''); setBulk(''); setWrite(''); setBaseUrl('');
       setTest(null); setSaved(false);
       setData(await api('/api/settings/llm'));
     } catch (e) { setError(e.message); }
@@ -137,17 +144,29 @@ export default function LlmSettings() {
 
           <div className="two-col">
             <label>
-              <span>Modell — poäng &amp; brev</span>
-              <input className="txt-input" type="text" value={smart} onChange={(e) => setSmart(e.target.value)} />
+              <span>Modell — poängsättning <i className="tier-note">~90% av kostnaden</i></span>
+              <input className="txt-input" type="text" placeholder={smart || 'billig modell'}
+                value={bulk} onChange={(e) => setBulk(e.target.value)} />
             </label>
             <label>
-              <span>Modell — snabb (klassificering)</span>
+              <span>Modell — brev &amp; svar <i className="tier-note">läses av dig</i></span>
+              <input className="txt-input" type="text" placeholder={smart || 'bra modell'}
+                value={write} onChange={(e) => setWrite(e.target.value)} />
+            </label>
+            <label>
+              <span>Modell — klassificering <i className="tier-note">snabb</i></span>
               <input className="txt-input" type="text" value={fast} onChange={(e) => setFast(e.target.value)} />
+            </label>
+            <label>
+              <span>Reservmodell <i className="tier-note">används om fälten ovan är tomma</i></span>
+              <input className="txt-input" type="text" value={smart} onChange={(e) => setSmart(e.target.value)} />
             </label>
           </div>
           <p className="hint">
-            Flera modeller kan anges kommaseparerat — de provas i tur och ordning.
-            Bra för “betald först, gratis som reserv”.
+            Poängsättningen står för ~90% av tokens men tål en billig modell; breven är få
+            men är det du faktiskt läser. Att dela dem är skillnaden mellan ca 20 kr och
+            ca 200 kr i månaden. Flera modeller kan anges kommaseparerat — de provas i tur
+            och ordning, bra för “betald först, gratis som reserv”.
           </p>
 
           {test && (
