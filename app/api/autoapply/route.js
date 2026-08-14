@@ -46,7 +46,7 @@ export async function GET() {
 
 // change a campaign's rule
 export async function PATCH(req) {
-  const { searchId, enabled, min_score, daily_limit } = await req.json();
+  const { searchId, enabled, min_score, daily_limit, clear_campaign } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
 
   const sets = [];
@@ -63,6 +63,11 @@ export async function PATCH(req) {
   if (daily_limit !== undefined) {
     vals.push(Math.max(1, Math.min(20, Number(daily_limit))));
     sets.push(`auto_apply_daily_limit = $${vals.length}`);
+  }
+  // remove the campaign without touching the search it rides on
+  if (clear_campaign) {
+    sets.push(`campaign_letter = NULL`, `campaign_subject = NULL`,
+              `campaign_letter_approved_at = NULL`, `auto_apply_paused_reason = NULL`);
   }
   if (!sets.length) return NextResponse.json({ error: 'inget att ändra' }, { status: 400 });
 

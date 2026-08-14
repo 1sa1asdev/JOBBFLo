@@ -68,12 +68,19 @@ export default function AutoApply({ onFindSimilar }) {
     setBusy(null);
   }
 
+  // A campaign IS a search underneath, so deleting the search here
+  // would destroy the user's saved search, its criteria and every
+  // scored ad — for someone who only meant to stop a campaign.
+  // Removing a campaign therefore clears the campaign, and the
+  // search survives. Deleting the search itself stays in the library,
+  // where the consequence is obvious.
   async function removeCampaign(searchId) {
     setBusy(searchId); setError(null);
     try {
-      // soft delete, same as the library: sent applications keep their
-      // back-reference instead of breaking
-      await api(`/api/searches/${searchId}`, { method: 'DELETE' });
+      await api('/api/autoapply', {
+        method: 'PATCH',
+        body: { searchId, enabled: false, clear_campaign: true },
+      });
       setConfirmDel(null);
       if (letterFor?.id === searchId) setLetterFor(null);
       await load();
@@ -186,8 +193,8 @@ export default function AutoApply({ onFindSimilar }) {
                     <div className="auto-head-acts">
                     <button
                       className="auto-del"
-                      title={`Ta bort ${s.name}`}
-                      aria-label={`Ta bort kampanjen ${s.name}`}
+                      title={`Ta bort kampanjen för ${s.name} (sökningen behålls)`}
+                      aria-label={`Ta bort kampanjen för ${s.name}`}
                       onClick={() => setConfirmDel(confirmDel === s.id ? null : s.id)}
                     >✕</button>
                     <button
@@ -204,10 +211,11 @@ export default function AutoApply({ onFindSimilar }) {
 
                   {confirmDel === s.id && (
                     <div className="auto-confirm">
-                      <span>Ta bort <b>{s.name}</b>?</span>
+                      <span>Ta bort kampanjen för <b>{s.name}</b>?</span>
                       <span className="ac-note">
-                        Kampanjen och sökningen döljs. Redan skickade ansökningar och
-                        deras svar finns kvar i Auto-inkorgen.
+                        Kampanjbrevet och reglerna raderas och automatiken stängs av.
+                        Sökningen, dess annonser och redan skickade ansökningar
+                        påverkas inte — sökningen tas bort i Bibliotek.
                       </span>
                       <div className="ac-acts">
                         <button className="btn" onClick={() => setConfirmDel(null)}>Avbryt</button>
