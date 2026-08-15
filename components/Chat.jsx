@@ -4,6 +4,7 @@ import { api } from '../lib/api.js';
 import ChatTools from './ChatTools.jsx';
 import CvUpload from './CvUpload.jsx';
 import Dots from './Dots';
+import ApplyFilterAsk from './ApplyFilterAsk.jsx';
 
 // One pane, two conversations: search criteria (per saved search,
 // persisted in search_messages) and letter revision (per draft).
@@ -129,6 +130,10 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
             {m.content}
           </div>
         ))}
+        {!isLetter && !creatingSearch && search?.id && !busy
+          && search.apply_filter == null && (
+          <ApplyFilterAsk search={search} onChanged={onSearchChanged} />
+        )}
         {busy && <div className="sys-note">tänker<Dots label="Tänker" /></div>}
         {error && <div className="sys-note">fel: {error}</div>}
       </div>

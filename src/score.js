@@ -195,6 +195,9 @@ export async function queueSearch(searchId, { fetchLimit = 50, limit = 20 } = {}
   // global pool (every job in Sweden), which is exactly what layer
   // 1's cheap narrowing exists to prevent. Ads stay global; only the
   // candidate set is per-search.
+  // apply_filter is enforced HERE, before anything is queued, because
+  // the saving is the scoring call itself. Filtering the list at
+  // display time would look the same and cost the same as no filter.
   const { rows: ads } = await pool.query(
     `SELECT a.* FROM ads a
      LEFT JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1
@@ -204,8 +207,13 @@ export async function queueSearch(searchId, { fetchLimit = 50, limit = 20 } = {}
        AND na.fingerprint IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
        AND ($2::uuid[] IS NULL OR a.id = ANY($2))
+       AND CASE $3::text
+             WHEN 'email'    THEN a.apply_email IS NOT NULL
+             WHEN 'external' THEN a.apply_email IS NULL AND a.apply_url IS NOT NULL
+             ELSE true
+           END
      ORDER BY a.published_at DESC NULLS LAST`,
-    [searchId, adIds]
+    [searchId, adIds, search.apply_filter || 'any']
   );
 
   const profileTerms = buildProfileTerms({
@@ -218,6 +226,9 @@ export async function queueSearch(searchId, { fetchLimit = 50, limit = 20 } = {}
 
   if (skipped.length) {
     console.log(`  förfilter: hoppar över ${skipped.length} av ${ads.length} (${skipped.slice(0, 3).map((s) => s.reason).join(', ')}…)`);
+  }
+  if ((search.apply_filter || 'any') !== 'any') {
+    console.log(`  ansökningssätt: ${search.apply_filter} — bortfiltrerade innan bedömning`);
   }
 
   // queue_rank carries the prefilter's confidence so the drain can

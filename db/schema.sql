@@ -66,6 +66,16 @@ CREATE TABLE searches (
   api_filters     jsonb NOT NULL DEFAULT '{}',-- parsed layer-1 filters
 
   email_alias     text,                       -- din+frontend@gmail.com
+
+  -- Which application methods are worth a scoring call: email | any |
+  -- external. Enforced at QUEUE time in src/score.js, before any LLM
+  -- call — filtering the list afterwards would cost exactly the same
+  -- as no filter. NULL means "user not asked yet" and reads as 'any',
+  -- which is what lets the copilot ask exactly once per search.
+  -- Campaigns are created as 'email': auto-apply can only send to an
+  -- address, so judging link-only ads buys unusable verdicts.
+  apply_filter    text CHECK (apply_filter IN ('email','any','external')),
+
   scan_enabled    boolean NOT NULL DEFAULT true,
   scan_interval   interval NOT NULL DEFAULT '1 hour',
   last_scanned_at timestamptz,

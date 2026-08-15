@@ -42,6 +42,17 @@ export async function PATCH(req, { params }) {
   if ('remote_ok' in body) {
     vals.push(body.remote_ok); sets.push(`remote_ok = $${vals.length}`);
   }
+  // Which application methods are worth scoring. Validated here rather
+  // than trusted: the column has a CHECK, and a 500 from a constraint
+  // violation is a worse answer than a 400.
+  if ('apply_filter' in body) {
+    if (!['email', 'any', 'external'].includes(body.apply_filter)) {
+      return NextResponse.json(
+        { error: `okänt ansökningssätt: ${body.apply_filter}` }, { status: 400 }
+      );
+    }
+    vals.push(body.apply_filter); sets.push(`apply_filter = $${vals.length}`);
+  }
   if (!sets.length) return NextResponse.json({ error: 'nothing to update' }, { status: 400 });
 
   const { rows: [search] } = await pool.query(

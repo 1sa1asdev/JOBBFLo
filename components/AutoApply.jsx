@@ -140,6 +140,8 @@ export default function AutoApply({ onFindSimilar }) {
               En kampanj ansöker åt dig utan att fråga varje gång. Du godkänner
               <b> regeln</b> — inte breven. Bara annonser som själva publicerar en
               ansökningsadress används, och bara när ett CV finns att bifoga.
+              Kampanjer bedömer därför bara mejlannonser — övriga går inte att
+              skicka till, så de kostar inget att hoppa över.
             </p>
           </div>
 

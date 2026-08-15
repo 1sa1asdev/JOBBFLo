@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import CvUpload from './CvUpload.jsx';
+import { APPLY_FILTERS } from '../lib/applyFilter.js';
 
 // ------------------------------------------------------------
 // The strip above the criteria chat: location + CV.
@@ -63,6 +64,18 @@ export default function ChatTools({ search, onChanged, onCvChanged }) {
     return () => clearTimeout(t);
   }, [value, search?.id, search?.location]);
 
+  // Changing this changes which ads future scans pay to judge. It does
+  // not re-score what is already there — those calls are already spent.
+  async function saveApplyFilter(id) {
+    if (!search?.id || (search.apply_filter || 'any') === id) return;
+    setSaving(true);
+    try {
+      await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { apply_filter: id } });
+      onChanged?.();
+    } catch { /* surfaced by the list on next poll */ }
+    setSaving(false);
+  }
+
   if (!search?.id) return null;
 
   const usingTailored = cv?.active === 'search';
@@ -96,6 +109,23 @@ export default function ChatTools({ search, onChanged, onCvChanged }) {
           <button className="ct-clear" title="Rensa ort" onClick={() => saveLocation('')}>✕</button>
         )}
         {saving && <span className="ct-saving">sparar…</span>}
+      </div>
+
+      <div className="ct-row">
+        <span className="ct-label">Ansökan</span>
+        <div className="ct-seg" role="group" aria-label="Ansökningssätt">
+          {APPLY_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              title={f.hint}
+              aria-pressed={(search.apply_filter || 'any') === f.id}
+              onClick={() => saveApplyFilter(f.id)}
+            >
+              {f.short}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="ct-row">
