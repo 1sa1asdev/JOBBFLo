@@ -895,7 +895,11 @@
   .apply-ask .aa-opt span{display:block;font-size:10.5px;line-height:1.45;color:var(--mute);}
   .apply-ask .aa-err{margin-top:8px;font-size:10px;color:var(--flag);}
 
+  .applyseg{display:flex;align-items:center;gap:7px;}
+  .applyseg .as-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--mute);white-space:nowrap;}
   .ct-seg{display:flex;border:1px solid var(--tag-border);overflow:hidden;}
+  .ct-seg button:disabled{opacity:.5;cursor:default;}
   .ct-seg button{background:none;border:none;border-right:1px solid var(--tag-border);
     cursor:pointer;padding:5px 10px;font-family:'IBM Plex Mono',monospace;
     font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}

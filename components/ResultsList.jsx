@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import Dots from './Dots';
+import ApplyFilterSeg from './ApplyFilterSeg.jsx';
 
 function scoreClass(s) { return s >= 75 ? 'strong' : s < 45 ? 'flagged' : ''; }
 
@@ -105,6 +106,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           </div>
         </div>
         <div className="header-controls">
+          <ApplyFilterSeg search={search} onChanged={onSearchChanged} />
           <div className={`autoscan${search.scan_enabled ? '' : ' paused'}`}>
             <span className="dot" />
             <label htmlFor="scanInterval">Auto-skanning</label>
