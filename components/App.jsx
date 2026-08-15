@@ -100,8 +100,11 @@ export default function App() {
     }
   }
 
-  async function createSearch(criteria) {
-    const search = await api('/api/searches', { method: 'POST', body: { criteria } });
+  async function createSearch(criteria, applyFilter) {
+    const search = await api('/api/searches', {
+      method: 'POST',
+      body: { criteria, apply_filter: applyFilter || null },
+    });
     setCreatingSearch(false);
     await loadSearches();
     setActiveSearchId(search.id);

@@ -5,6 +5,7 @@ import ChatTools from './ChatTools.jsx';
 import CvUpload from './CvUpload.jsx';
 import Dots from './Dots';
 import ApplyFilterAsk from './ApplyFilterAsk.jsx';
+import { APPLY_FILTERS } from '../lib/applyFilter.js';
 
 // One pane, two conversations: search criteria (per saved search,
 // persisted in search_messages) and letter revision (per draft).
@@ -15,6 +16,10 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
   const [error, setError] = useState(null);
   const [letterLog, setLetterLog] = useState([]);
   const [cv, setCv] = useState(null);
+  // Chosen before the search exists, then handed to the create call.
+  // Asking after creation would mean the first scan had already paid
+  // to judge ads this answer excludes.
+  const [newApplyFilter, setNewApplyFilter] = useState(null);
   const bodyRef = useRef(null);
 
   const isLetter = mode === 'letter';
@@ -43,6 +48,8 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
     if (isLetter) setLetterLog([]);
   }, [isLetter, letterState?.application?.id]);
 
+  useEffect(() => { if (creatingSearch) setNewApplyFilter(null); }, [creatingSearch]);
+
   useEffect(() => {
     bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight);
   }, [messages, letterLog, busy]);
@@ -55,7 +62,7 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
     setBusy(true);
     try {
       if (creatingSearch) {
-        await onCreateSearch(content);
+        await onCreateSearch(content, newApplyFilter);
       } else if (isLetter) {
         if (!letterState?.application) throw new Error('inget utkast att revidera än');
         setLetterLog((l) => [...l, { role: 'user', content }]);
@@ -115,7 +122,28 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
 
       <div className="chat-body" ref={bodyRef}>
         {creatingSearch && (
-          <div className="sys-note">Beskriv med egna ord vad du söker — roller, ort, undantag</div>
+          <>
+            <div className="sys-note">Beskriv med egna ord vad du söker — roller, ort, undantag</div>
+            <div className="msg ai apply-ask">
+              <span className="who">COPILOT</span>
+              Först: hur vill du kunna söka jobben? Det avgör vilka annonser jag
+              bedömer — bara ungefär var femte går att söka via mejl, resten via
+              arbetsgivarens eget system. Du kan ändra det efteråt under Matchningar.
+              <div className="aa-opts">
+                {APPLY_FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    className={`aa-opt${newApplyFilter === f.id ? ' picked' : ''}`}
+                    aria-pressed={newApplyFilter === f.id}
+                    onClick={() => setNewApplyFilter(f.id)}
+                  >
+                    <b>{f.label}</b>
+                    <span>{f.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
         )}
         {isLetter && !letterLog.length && (
           <div className="sys-note">

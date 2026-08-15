@@ -18,9 +18,13 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { name, criteria } = await req.json();
+  const { name, criteria, apply_filter } = await req.json();
   if (!criteria?.trim()) {
     return NextResponse.json({ error: 'criteria krävs' }, { status: 400 });
+  }
+
+  if (apply_filter != null && !['email', 'any', 'external'].includes(apply_filter)) {
+    return NextResponse.json({ error: `okänt ansökningssätt: ${apply_filter}` }, { status: 400 });
   }
 
   const { rows: [profile] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
@@ -38,9 +42,12 @@ export async function POST(req) {
   }
 
   const { rows: [search] } = await pool.query(
-    `INSERT INTO searches (profile_id, name, criteria_text, api_filters)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters)]
+    // Set before the first scan on purpose: asking afterwards would
+    // mean that scan had already paid to judge ads the answer excludes.
+    `INSERT INTO searches (profile_id, name, criteria_text, api_filters, apply_filter)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
+     apply_filter || null]
   );
 
   await pool.query(
