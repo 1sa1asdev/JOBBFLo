@@ -76,6 +76,13 @@ CREATE TABLE searches (
   -- address, so judging link-only ads buys unusable verdicts.
   apply_filter    text CHECK (apply_filter IN ('email','any','external')),
 
+  -- Finding is free, so a search walks its whole JobSearch result set
+  -- instead of re-reading page one. The cursor advances each scan and
+  -- wraps to 0 when exhausted, picking up newly published ads.
+  fetch_offset    int NOT NULL DEFAULT 0,
+  fetch_total     int,
+  fetch_done_at   timestamptz,
+
   scan_enabled    boolean NOT NULL DEFAULT true,
   scan_interval   interval NOT NULL DEFAULT '1 hour',
   last_scanned_at timestamptz,
@@ -159,6 +166,11 @@ CREATE TABLE match_results (
   lead_project_id uuid REFERENCES projects(id),
 
   queued_at       timestamptz NOT NULL DEFAULT now(),
+  -- Two human gates before any spend. Favouriting says "interesting"
+  -- and is free; requesting a score is a separate, deliberate act on
+  -- specific ads and is the ONLY thing src/score.js will act on.
+  shortlisted_at     timestamptz,             -- user favourited it
+  score_requested_at timestamptz,             -- user asked for a verdict
   scored_at       timestamptz,                -- NULL while queued
   queue_rank      real,                       -- prefilter confidence; drains best-first
   attempts        int NOT NULL DEFAULT 0,     -- one bad ad must not wedge the queue

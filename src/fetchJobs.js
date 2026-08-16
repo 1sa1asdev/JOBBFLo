@@ -203,14 +203,29 @@ const BROADENING_LADDER = [
   ['municipality'],
 ];
 
-function buildQuery(filters, limit) {
+function buildQuery(filters, limit, offset = 0) {
   const params = new URLSearchParams({ limit: String(Math.min(limit, 100)) });
+  // JobSearch pages with offset and accepts it up to 2000. Without it
+  // every scan re-read the first page forever: a search with 330 hits
+  // could only ever reach 50 of them, and the other 280 were not
+  // "unscored" but unreachable.
+  if (offset > 0) params.set('offset', String(Math.min(offset, 2000)));
   if (filters.q) params.set('q', filters.q);
   for (const key of ['occupation-field', 'occupation-group', 'municipality', 'region',
                      'employment-type', 'experience-required', 'remote', 'published-after']) {
     const val = filters[key];
     if (val === undefined || val === null) continue;
-    for (const v of [].concat(val)) params.append(key, String(v));
+    for (const v of [].concat(val)) {
+      // An empty value is not "no filter" to JobSearch — it is a filter
+      // that matches nothing, so `employment-type=` returns 0 hits and
+      // sends every scan down the broadening ladder. That wasted a
+      // request per scan, and once pagination existed it was worse:
+      // broadening restarts at offset 0, so a search carrying one blank
+      // filter could never advance past page one.
+      const str = String(v).trim();
+      if (!str) continue;
+      params.append(key, str);
+    }
   }
   return params;
 }
@@ -223,12 +238,14 @@ async function runQuery(params) {
   return res.json();
 }
 
-export async function backfillSearch(rawFilters = {}, limit = 100) {
+// Returns { ids, total, offset } so the caller can page through the
+// whole result set instead of re-reading the first page each scan.
+export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
   // names -> taxonomy concept IDs. Skipping this silently returns
   // zero hits (the API doesn't error on an unknown name).
   let filters = await resolveFilters(rawFilters);
 
-  let body = await runQuery(buildQuery(filters, limit));
+  let body = await runQuery(buildQuery(filters, limit, offset));
 
   for (const dropKeys of BROADENING_LADDER) {
     if ((body.total?.value ?? 0) > 0) break;
@@ -237,7 +254,9 @@ export async function backfillSearch(rawFilters = {}, limit = 100) {
     filters = { ...filters };
     for (const k of present) delete filters[k];
     console.log(`  0 träffar — släpper ${present.join(', ')} och söker bredare`);
-    body = await runQuery(buildQuery(filters, limit));
+    // broadening changes the result set, so restart from the top
+    body = await runQuery(buildQuery(filters, limit, 0));
+    offset = 0;
   }
 
   const client = await pool.connect();
@@ -247,8 +266,9 @@ export async function backfillSearch(rawFilters = {}, limit = 100) {
       const { id } = await upsertAd(client, mapAd(raw));
       ids.push(id);
     }
-    console.log(`  ${ids.length} ads stored (${body.total?.value ?? '?'} total matches)`);
-    return ids;
+    const total = body.total?.value ?? null;
+    console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches)`);
+    return { ids, total, offset };
   } finally {
     client.release();
   }

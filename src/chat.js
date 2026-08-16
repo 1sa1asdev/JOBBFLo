@@ -53,7 +53,7 @@ export async function chatTurn(searchId, userMessage) {
   // stale scores: criteria changed, so re-score this search's pool.
   // match_results are per-search, so this touches nothing else.
   await pool.query(`DELETE FROM match_results WHERE search_id = $1`, [searchId]);
-  scanSearch(searchId, { limit: 30, background: true }).catch((e) =>
+  scanSearch(searchId, { pages: 2 }).catch((e) =>
     console.error(`rescan ${searchId}:`, e.message)
   );
 

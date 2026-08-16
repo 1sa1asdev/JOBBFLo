@@ -914,6 +914,35 @@
   .ct-seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
   .ct-seg button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
 
+  /* ---- shortlist-first: the three views and the candidate card ---- */
+  .view-tabs{display:flex;align-items:center;gap:0;border-bottom:1px solid var(--line);
+    padding:0 24px;flex-shrink:0;}
+  .view-tabs button{background:none;border:none;cursor:pointer;padding:9px 14px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+    border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .view-tabs button:hover{color:var(--ink);}
+  .view-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink);}
+  .view-tabs button i{font-style:normal;opacity:.6;margin-left:3px;}
+  .view-tabs .score-all{margin-left:auto;border:1px solid var(--ink);color:var(--ink);
+    padding:5px 11px;margin-bottom:5px;}
+  .view-tabs .score-all:hover{background:var(--ink);color:var(--paper);}
+
+  /* The star is free, the Bedöm button is not. They are deliberately
+     the two ends of the card so a click can't be mistaken for the
+     other — starring costs nothing, judging spends a model call. */
+  .card .star{background:none;border:none;cursor:pointer;font-size:22px;line-height:1;
+    color:var(--tag-border);padding:4px 6px;}
+  .card .star:hover{color:var(--ink);}
+  .card .star.on{color:var(--flag);}
+  .card .star:disabled{opacity:.4;cursor:default;}
+  .card .open-btn.judge{border-color:var(--ink);color:var(--ink);font-weight:700;}
+  .card .open-btn.judge:hover{background:var(--ink);color:var(--paper);}
+  .cand-facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;}
+  .cand-facts span{font-family:'IBM Plex Mono',monospace;font-size:9px;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+    border:1px solid var(--tag-border);padding:2px 6px;}
+
   /* ---- a queued ad: found, not judged yet ---- */
   /* Deliberately understated. These are real ads the user can open
      and read right now; the missing score is the only thing pending,

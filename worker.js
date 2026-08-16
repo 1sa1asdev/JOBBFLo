@@ -44,24 +44,28 @@ async function scoreTick() {
   }
 }
 
-// The queue's owner. A request handler that queues ads also kicks off
-// its own drain, but that drain dies with the process — a dev-server
-// reload or a Vercel function returning leaves rows pending forever.
-// This tick is what guarantees a queued ad eventually gets a score,
-// so the fire-and-forget above is an optimisation, not the mechanism.
+// Finishes scoring the user explicitly asked for. A request handler
+// kicks off its own drain, but that drain dies with the process — a
+// dev-server reload leaves requested rows unscored. This tick is what
+// guarantees a REQUESTED ad eventually gets its verdict.
+//
+// It must never pick up plain candidates: the pool can hold thousands
+// of ads nobody asked about, and draining those is precisely the spend
+// this branch exists to prevent.
 async function drainTick() {
   try {
     const { rows: backlog } = await pool.query(
       `SELECT s.id, s.name, count(*) AS pending
        FROM match_results m
        JOIN searches s ON s.id = m.search_id AND s.deleted_at IS NULL
-       WHERE m.score IS NULL AND m.attempts < $1
+       WHERE m.score_requested_at IS NOT NULL   -- candidates are NOT a backlog
+         AND m.score IS NULL AND m.attempts < $1
        GROUP BY s.id, s.name
        ORDER BY count(*) DESC`,
       [MAX_SCORE_ATTEMPTS]
     );
     for (const s of backlog) {
-      console.log(`drain: ${s.pending} obedömda i "${s.name}"`);
+      console.log(`drain: ${s.pending} begärda bedömningar i "${s.name}"`);
       await scorePending(s.id, { limit: 20 })
         .catch((e) => console.error(`drain ${s.name}:`, e.message));
     }

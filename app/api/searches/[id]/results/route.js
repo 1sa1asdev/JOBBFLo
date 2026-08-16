@@ -15,9 +15,18 @@ export async function GET(_req, { params }) {
   // Scored rows sort first by score, then the queue in the order it
   // will actually drain, so a card never jumps position when its
   // score lands unless the score itself moves it.
+  // Candidates carry no score, so the user judges them from the ad
+  // itself: title, employer, place, deadline, the occupation label
+  // Arbetsförmedlingen already assigned, and a short snippet. All of
+  // that is free — it arrived with the ad. `snippet` is capped in SQL
+  // so a 6 kB description doesn't ride along 400 times.
   const { rows } = await pool.query(
     `SELECT r.*, m.matched, m.scored_at, m.lead_project_id, m.queue_rank,
        a.published_at, a.apply_email, a.apply_url, a.employer_type, a.fingerprint,
+       a.raw->'occupation'->>'label'          AS occupation,
+       a.raw->'working_hours_type'->>'label'  AS working_hours,
+       a.raw->'employment_type'->>'label'     AS employment_type,
+       left(regexp_replace(a.description, '\\s+', ' ', 'g'), 260) AS snippet,
        app.id AS application_id
      FROM search_results r
      JOIN match_results m ON m.search_id = r.search_id AND m.ad_id = r.ad_id

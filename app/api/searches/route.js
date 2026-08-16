@@ -66,7 +66,7 @@ export async function POST(req) {
   // already has jobs in it when the UI switches to it. Scoring
   // drains behind the response.
   try {
-    await scanSearch(search.id, { limit: 20, background: true });
+    await scanSearch(search.id, { pages: 2 });
   } catch (err) {
     console.error(`scan ${search.id}:`, err.message);
   }

@@ -184,11 +184,40 @@ async function loadSearchContext(searchId, { needCv = true } = {}) {
 // mean showing the user hundreds of ads that silently vanish once
 // a model got to them.
 // ------------------------------------------------------------
-export async function queueSearch(searchId, { fetchLimit = 50, limit = 20 } = {}) {
+export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pages = 1 } = {}) {
   const { search } = await loadSearchContext(searchId);
 
   const { backfillSearch } = await import('./fetchJobs.js');
-  const adIds = await backfillSearch(search.api_filters || {}, fetchLimit);
+
+  // Walk the result set instead of re-reading page one. Each scan
+  // advances the cursor; when it passes the reported total it wraps to
+  // 0 so the next scan picks up newly published ads. Finding is free,
+  // so paging deep costs one HTTP request per page and nothing else.
+  let offset = search.fetch_offset || 0;
+  let total = search.fetch_total ?? null;
+  const adIds = [];
+
+  for (let page = 0; page < pages; page++) {
+    const res = await backfillSearch(search.api_filters || {}, fetchLimit, offset);
+    adIds.push(...res.ids);
+    if (res.total != null) total = res.total;
+    offset = res.offset + res.ids.length;
+
+    // exhausted: either the API returned a short page or we passed the
+    // total or JobSearch's offset ceiling
+    if (!res.ids.length || (total != null && offset >= total) || offset >= 2000) {
+      offset = 0;
+      await pool.query(
+        `UPDATE searches SET fetch_done_at = now() WHERE id = $1`, [searchId]
+      );
+      break;
+    }
+  }
+
+  await pool.query(
+    `UPDATE searches SET fetch_offset = $2, fetch_total = $3 WHERE id = $1`,
+    [searchId, offset, total]
+  );
 
   // Restricted to the ads layer 1 actually selected for THIS search.
   // Without that restriction we'd queue the newest ads in the whole
@@ -231,29 +260,41 @@ export async function queueSearch(searchId, { fetchLimit = 50, limit = 20 } = {}
     console.log(`  ansökningssätt: ${search.apply_filter} — bortfiltrerade innan bedömning`);
   }
 
-  // queue_rank carries the prefilter's confidence so the drain can
-  // judge the most promising ads first — on a slow model the user
-  // watches the list fill from the top, not in arrival order.
-  let queued = 0;
-  for (const { ad, score } of candidates.slice(0, limit)) {
+  // Every survivor is stored as a CANDIDATE — shortlisted_at NULL,
+  // score NULL. No model has seen any of them and none will until the
+  // user shortlists it. `limit` therefore defaults to null (no cap):
+  // the old cap of 20 existed because each queued ad meant an LLM
+  // call, and that is no longer true.
+  //
+  // queue_rank still carries the prefilter's confidence, now used to
+  // order the candidate list rather than a scoring queue.
+  const admit = limit == null ? candidates : candidates.slice(0, limit);
+  let found = 0;
+  for (const { ad, score } of admit) {
     const { rowCount } = await pool.query(
       `INSERT INTO match_results (search_id, ad_id, queue_rank)
        VALUES ($1, $2, $3)
        ON CONFLICT (search_id, ad_id) DO NOTHING`,
       [searchId, ad.id, score]
     );
-    queued += rowCount;
+    found += rowCount;
   }
 
   await pool.query(`UPDATE searches SET last_scanned_at = now() WHERE id = $1`, [searchId]);
-  console.log(`queued ${queued} ads for "${search.name}" (${skipped.length} förfiltrerade)`);
-  return { queued, skipped: skipped.length, seen: ads.length };
+  const depth = total != null ? ` — ${offset || total}/${total} genomsökt` : '';
+  console.log(`found ${found} candidates for "${search.name}" (${skipped.length} förfiltrerade)${depth}`);
+  return { found, skipped: skipped.length, seen: ads.length, total, offset };
 }
 
 // ------------------------------------------------------------
-// DRAIN — the slow half. Judges queued ads best-first, writing
-// each score the moment it arrives so the UI fills in one card at
-// a time rather than all at once at the end.
+// SCORE — the only part that costs money, and the only part gated
+// on a human decision. It judges ads the user EXPLICITLY asked to
+// have scored and nothing else: the WHERE clause below is the whole
+// point of this branch.
+//
+// Note it keys on score_requested_at, not shortlisted_at. Favouriting
+// is free; a favourites tab where favouriting silently triggered a
+// model call would just move the old problem behind a click.
 //
 // Failures increment `attempts` instead of vanishing: one ad the
 // model chokes on must not wedge the queue, and three strikes
@@ -296,18 +337,19 @@ async function drainQueue(searchId, { limit }) {
      JOIN ads a ON a.id = m.ad_id
      LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint
      WHERE m.search_id = $1
+       AND m.score_requested_at IS NOT NULL  -- the gate: no explicit request, no spend
        AND m.score IS NULL
        AND m.attempts < $3
        AND a.removed_at IS NULL
        AND na.fingerprint IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
-     ORDER BY m.queue_rank DESC NULLS LAST, a.published_at DESC NULLS LAST
+     ORDER BY m.score_requested_at, a.published_at DESC NULLS LAST
      LIMIT $2`,
     [searchId, limit, MAX_SCORE_ATTEMPTS]
   );
 
   if (!ads.length) return [];
-  console.log(`scoring ${ads.length} queued ads for "${search.name}"`);
+  console.log(`scoring ${ads.length} requested ads for "${search.name}"`);
   const results = [];
 
   for (const ad of ads) {
@@ -350,29 +392,17 @@ async function drainQueue(searchId, { limit }) {
 }
 
 // ------------------------------------------------------------
-// One scan = layer 1 (narrow via the API, queue) then layer 2
-// (judge what came back). The two must be chained: scoring a
-// candidate set layer 1 didn't produce is what makes the funnel
-// leak.
+// A scan now FINDS ONLY. It costs one HTTP request per page and no
+// model calls at all, so it can page deep into the result set and
+// store every match as a candidate.
 //
-// Callers that can afford to wait (the worker, scripts/tryit) get
-// the full synchronous run. Request handlers pass background:true
-// to return as soon as the ads are queued and let the drain
-// continue after the response — the whole point of the split.
+// Scoring is not part of a scan any more. It happens when the user
+// asks for it on specific ads (POST /api/searches/:id/score), which
+// is the entire point of this branch: the expensive step sits behind
+// a human decision instead of in front of one.
 // ------------------------------------------------------------
-export async function scanSearch(searchId, { limit = 20, fetchLimit = 50, background = false } = {}) {
-  const queue = await queueSearch(searchId, { fetchLimit, limit });
-
-  if (background) {
-    // deliberately not awaited; failures are logged, not thrown at
-    // a response that has already been sent
-    scorePending(searchId, { limit })
-      .catch((e) => console.error(`bakgrundsbedömning ${searchId}:`, e.message));
-    return queue;
-  }
-
-  const scored = await scorePending(searchId, { limit });
-  return { ...queue, scored: scored.length, results: scored };
+export async function scanSearch(searchId, { fetchLimit = 100, pages = 1, limit = null } = {}) {
+  return queueSearch(searchId, { fetchLimit, pages, limit });
 }
 
 // ------------------------------------------------------------

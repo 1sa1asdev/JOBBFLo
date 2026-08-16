@@ -61,7 +61,7 @@ export async function POST(req) {
   // fill the queue in the background so the letter step has real ads
   // to preview against
   (async () => {
-    try { await scanSearch(search.id, { limit: 20, background: true }); }
+    try { await scanSearch(search.id, { pages: 2 }); }
     catch (err) { console.error(`campaign scan ${search.id}:`, err.message); }
   })();
 

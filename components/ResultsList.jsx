@@ -25,6 +25,10 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState(null);
   const [freshAt, setFreshAt] = useState(null);
+  // Alla = the free candidate pool, Favoriter = what you starred,
+  // Bedomda = what you actually paid to have judged.
+  const [view, setView] = useState('alla');
+  const [busyAd, setBusyAd] = useState(null);
 
   const load = useCallback(async () => {
     if (!search?.id) { setRows(null); return; }
@@ -72,6 +76,33 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setScanning(false);
   }
 
+  // Free. Never enqueues a model call — that is the entire point of
+  // keeping this separate from scoring.
+  async function toggleStar(adId, on) {
+    setBusyAd(adId);
+    try {
+      await api(`/api/searches/${search.id}/shortlist`, {
+        method: 'PATCH', body: { ad_id: adId, shortlisted: on },
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
+  // The only button in the app that spends money on scoring, and it
+  // spends it on exactly the ads named here.
+  async function requestScore(adIds) {
+    if (!adIds.length) return;
+    setBusyAd(adIds[0]);
+    try {
+      await api(`/api/searches/${search.id}/score`, {
+        method: 'POST', body: { ad_ids: adIds },
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
   if (creatingSearch) {
     return (
       <div className="stage-view" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -83,9 +114,14 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     return <div className="loading-note">Välj eller skapa en sökning</div>;
   }
 
-  const visible = (rows || []).filter((r) => !r.suppressed);
-  const pendingCount = visible.filter((r) => r.pending && r.attempts < 3).length;
-  const scoredCount = visible.length - visible.filter((r) => r.pending).length;
+  const all = (rows || []).filter((r) => !r.suppressed);
+  const favourites = all.filter((r) => r.shortlisted);
+  const scored = all.filter((r) => !r.pending);
+  const candidates = all.filter((r) => !r.shortlisted && r.pending);
+  const visible = view === 'favoriter' ? favourites : view === 'bedomda' ? scored : candidates;
+
+  const pendingCount = all.filter((r) => r.score_requested && r.pending && r.attempts < 3).length;
+  const scoredCount = scored.length;
   const expiringDrafts = visible.filter(
     (r) => r.application_status === 'drafted' && daysUntil(r.deadline) != null && daysUntil(r.deadline) <= 2
   );
@@ -101,7 +137,8 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         <div>
           <h2>Matchningar</h2>
           <div className="sub">
-            <b>{scoredCount}</b> bedömda{pendingCount > 0 && <> · <b>{pendingCount}</b> i kö</>} — {search.last_scanned_at ? `senast skannad ${timeAgo(search.last_scanned_at)}` : 'ej skannad än'}
+            <b>{candidates.length}</b> hittade · <b>{favourites.length}</b> favoriter · <b>{scoredCount}</b> bedömda{pendingCount > 0 && <> · <b>{pendingCount}</b> i kö</>}
+            {' — '}{search.last_scanned_at ? `senast hämtad ${timeAgo(search.last_scanned_at)}` : 'ej hämtad än'}
             {freshAt && Date.now() - freshAt < 4000 && <span className="fresh-flash"> · nya resultat</span>}
           </div>
         </div>
@@ -143,6 +180,24 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
 
       {error && <div className="err-note">{error}</div>}
 
+      <div className="view-tabs" role="tablist" aria-label="Vy">
+        {[['alla', 'Hittade', candidates.length],
+          ['favoriter', 'Favoriter', favourites.length],
+          ['bedomda', 'Bedömda', scoredCount]].map(([id, label, n]) => (
+          <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}>
+            {label} <i>{n}</i>
+          </button>
+        ))}
+        {view === 'favoriter' && favourites.some((r) => r.pending && !r.score_requested) && (
+          <button
+            className="score-all"
+            onClick={() => requestScore(favourites.filter((r) => r.pending && !r.score_requested).map((r) => r.ad_id))}
+          >
+            Bedöm alla {favourites.filter((r) => r.pending && !r.score_requested).length} →
+          </button>
+        )}
+      </div>
+
       <div className="col-labels">
         <div>Poäng</div><div>Annons</div>
         <div className="lbl-meta">Detaljer</div>
@@ -152,7 +207,11 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
       <div className="list-scroll">
         {rows === null && <div className="loading-note">Laddar<Dots /></div>}
         {rows !== null && !visible.length && (
-          <div className="loading-note">Inga annonser än — skanna eller vänta på nästa auto-skanning</div>
+          <div className="loading-note">
+            {view === 'favoriter' ? 'Inga favoriter än — stjärnmärk annonser under Hittade'
+              : view === 'bedomda' ? 'Inga bedömda än — favoritmärk annonser och tryck Bedöm'
+              : 'Inga annonser än — hämta eller vänta på nästa auto-hämtning'}
+          </div>
         )}
         {visible.map((r) => {
           const chip = statusChip(r);
@@ -163,11 +222,27 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           // found by layer 1, no score yet — the ad itself is complete
           // and readable, only the judgement is outstanding
           const failed = r.pending && r.attempts >= 3;
+          // Three distinct card states now, not two:
+          //   unjudged  — no score, none requested. Read the ad yourself.
+          //   waiting   — you asked for a score, it is being written.
+          //   scored    — the number is in.
+          const waiting = r.pending && r.score_requested && !failed;
+          const unjudged = r.pending && !r.score_requested;
           return (
             <div key={r.ad_id} className={`card${r.pending ? ' unscored' : ''}`} onClick={() => onOpenAd(r.ad_id)}>
               <div className="score-col">
-                {r.pending ? (
-                  <div className="score-num waiting" aria-label={failed ? 'Kunde inte bedömas' : 'Väntar på bedömning'}>
+                {unjudged ? (
+                  <button
+                    className={`star${r.shortlisted ? ' on' : ''}`}
+                    title={r.shortlisted ? 'Ta bort från favoriter' : 'Spara som favorit (kostar inget)'}
+                    aria-pressed={Boolean(r.shortlisted)}
+                    disabled={busyAd === r.ad_id}
+                    onClick={(e) => { e.stopPropagation(); toggleStar(r.ad_id, !r.shortlisted); }}
+                  >
+                    {r.shortlisted ? '★' : '☆'}
+                  </button>
+                ) : r.pending ? (
+                  <div className="score-num waiting" aria-label={failed ? 'Kunde inte bedömas' : 'Bedöms'}>
                     {failed ? '—' : <Dots label="Bedöms" />}
                   </div>
                 ) : (
@@ -189,12 +264,21 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                   </div>
                 )}
                 <div className="reasoning">
-                  {r.pending
-                    ? (failed
-                        ? <span className="rmute"><b>Kunde inte bedömas</b> — {r.last_error || 'modellen svarade inte'}</span>
-                        : <span className="rmute">Annonsen är hämtad — bedömning pågår</span>)
-                    : <><b>Bedömning:</b> {r.summary}</>}
+                  {failed
+                    ? <span className="rmute"><b>Kunde inte bedömas</b> — {r.last_error || 'modellen svarade inte'}</span>
+                    : waiting
+                      ? <span className="rmute">Bedömning pågår</span>
+                      : unjudged
+                        ? <span className="rmute">{r.snippet || 'Ingen annonstext'}</span>
+                        : <><b>Bedömning:</b> {r.summary}</>}
                 </div>
+                {unjudged && (
+                  <div className="cand-facts">
+                    {r.occupation && <span>{r.occupation}</span>}
+                    {r.working_hours && <span>{r.working_hours}</span>}
+                    {r.employment_type && <span>{r.employment_type}</span>}
+                  </div>
+                )}
               </div>
               <div className="meta-col">
                 <div className="row"><span>Publicerad</span><b>{fmtDate(r.published_at)}</b></div>
@@ -205,9 +289,20 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 <div className="row"><span>Ansökan</span><b>{r.apply_email ? 'MEJL' : r.ats_vendor ? r.ats_vendor.toUpperCase() : 'LÄNK'}</b></div>
               </div>
               <div className="action-col">
-                <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
-                  {r.application_status ? 'Visa →' : 'Skriv brev →'}
-                </button>
+                {unjudged ? (
+                  <button
+                    className="open-btn judge"
+                    disabled={busyAd === r.ad_id}
+                    title="Skickar den här annonsen till modellen — detta är det enda som kostar"
+                    onClick={(e) => { e.stopPropagation(); requestScore([r.ad_id]); }}
+                  >
+                    Bedöm →
+                  </button>
+                ) : (
+                  <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
+                    {r.application_status ? 'Visa →' : 'Skriv brev →'}
+                  </button>
+                )}
               </div>
             </div>
           );

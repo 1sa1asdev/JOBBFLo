@@ -10,7 +10,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(_req, { params }) {
   const { id } = await params;
   try {
-    const queue = await scanSearch(id, { limit: 20, background: true });
+    // find-only: pages through JobSearch and stores candidates. No
+    // model is called, so this is safe to run as often as you like.
+    const queue = await scanSearch(id, { pages: 3 });
     return NextResponse.json(queue);
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
