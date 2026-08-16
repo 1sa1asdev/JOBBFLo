@@ -914,6 +914,13 @@
   .ct-seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
   .ct-seg button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
 
+  .dropped-note{margin:10px 24px;border:1px solid var(--flag);border-left:3px solid var(--flag);
+    color:var(--ink);background:var(--panel);padding:9px 12px;font-size:11px;line-height:1.5;}
+  .dropped-note b{color:var(--flag);}
+  .scroll-sentinel{padding:18px;text-align:center;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
+  .scroll-sentinel.end{opacity:.6;}
+
   /* ---- shortlist-first: the three views and the candidate card ---- */
   .view-tabs{display:flex;align-items:center;gap:0;border-bottom:1px solid var(--line);
     padding:0 24px;flex-shrink:0;}

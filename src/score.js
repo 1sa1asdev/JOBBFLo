@@ -195,12 +195,14 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
   // so paging deep costs one HTTP request per page and nothing else.
   let offset = search.fetch_offset || 0;
   let total = search.fetch_total ?? null;
+  let dropped = [];
   const adIds = [];
 
   for (let page = 0; page < pages; page++) {
     const res = await backfillSearch(search.api_filters || {}, fetchLimit, offset);
     adIds.push(...res.ids);
     if (res.total != null) total = res.total;
+    if (res.dropped?.length) dropped = res.dropped;
     offset = res.offset + res.ids.length;
 
     // exhausted: either the API returned a short page or we passed the
@@ -214,19 +216,37 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
     }
   }
 
+  // Persist the broadening decision, don't just record it. A filter the
+  // API rejects makes EVERY scan fall down the ladder, and the ladder
+  // restarts at offset 0 — so leaving the bad key in api_filters pins
+  // the cursor to page one forever. Strip it once; the warning banner
+  // keeps the user informed that it was dropped.
+  if (dropped.length) {
+    const cleaned = { ...(search.api_filters || {}) };
+    for (const k of dropped) delete cleaned[k];
+    await pool.query(
+      `UPDATE searches SET api_filters = $2 WHERE id = $1`,
+      [searchId, JSON.stringify(cleaned)]
+    );
+  }
+
   await pool.query(
-    `UPDATE searches SET fetch_offset = $2, fetch_total = $3 WHERE id = $1`,
-    [searchId, offset, total]
+    `UPDATE searches SET fetch_offset = $2, fetch_total = $3,
+       dropped_filters = COALESCE($4, dropped_filters) WHERE id = $1`,
+    [searchId, offset, total, dropped.length ? dropped : null]
   );
 
   // Restricted to the ads layer 1 actually selected for THIS search.
-  // Without that restriction we'd queue the newest ads in the whole
-  // global pool (every job in Sweden), which is exactly what layer
-  // 1's cheap narrowing exists to prevent. Ads stay global; only the
+  // Without that restriction we'd store the newest ads in the whole
+  // global pool (every job in Sweden). Ads stay global; only the
   // candidate set is per-search.
-  // apply_filter is enforced HERE, before anything is queued, because
-  // the saving is the scoring call itself. Filtering the list at
-  // display time would look the same and cost the same as no filter.
+  //
+  // apply_filter is NOT applied here any more. It was a find-time
+  // exclusion because every stored ad used to cost a scoring call, so
+  // hiding the 78% you cannot email saved real money. On this branch
+  // nothing is scored until you ask, so excluding at find time buys
+  // nothing and only hides jobs from the list you browse. It is a
+  // display filter now — see the results route.
   const { rows: ads } = await pool.query(
     `SELECT a.* FROM ads a
      LEFT JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1
@@ -236,29 +256,21 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
        AND na.fingerprint IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
        AND ($2::uuid[] IS NULL OR a.id = ANY($2))
-       AND CASE $3::text
-             WHEN 'email'    THEN a.apply_email IS NOT NULL
-             WHEN 'external' THEN a.apply_email IS NULL AND a.apply_url IS NOT NULL
-             ELSE true
-           END
      ORDER BY a.published_at DESC NULLS LAST`,
-    [searchId, adIds, search.apply_filter || 'any']
+    [searchId, adIds]
   );
 
   const profileTerms = buildProfileTerms({
     criteriaText: search.criteria_text, cvText: search.cv_text,
     apiFilters: search.api_filters || {},
   });
+  // The prefilter no longer REJECTS anything either — it only ranks.
+  // Its job was to keep ads away from a scorer that ran automatically.
+  // Nothing runs automatically now, and a candidate list that quietly
+  // drops ads is the thing the user is browsing to avoid.
   const triaged = ads.map((ad) => ({ ad, ...prefilterAd(ad, profileTerms) }));
-  const candidates = triaged.filter((t) => t.keep).sort((a, b) => b.score - a.score);
-  const skipped = triaged.filter((t) => !t.keep);
-
-  if (skipped.length) {
-    console.log(`  förfilter: hoppar över ${skipped.length} av ${ads.length} (${skipped.slice(0, 3).map((s) => s.reason).join(', ')}…)`);
-  }
-  if ((search.apply_filter || 'any') !== 'any') {
-    console.log(`  ansökningssätt: ${search.apply_filter} — bortfiltrerade innan bedömning`);
-  }
+  const candidates = triaged.sort((a, b) => b.score - a.score);
+  const skipped = [];
 
   // Every survivor is stored as a CANDIDATE — shortlisted_at NULL,
   // score NULL. No model has seen any of them and none will until the

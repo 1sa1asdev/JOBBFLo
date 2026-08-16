@@ -29,13 +29,26 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   // Bedomda = what you actually paid to have judged.
   const [view, setView] = useState('alla');
   const [busyAd, setBusyAd] = useState(null);
+  const [counts, setCounts] = useState({ hittade: 0, favoriter: 0, bedomda: 0, iKon: 0 });
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinel = useRef(null);
+  const scrollBox = useRef(null);
+  const PAGE = 60;
 
+  // Reloads page 0 for the current view. Scrolling appends via loadMore.
   const load = useCallback(async () => {
     if (!search?.id) { setRows(null); return; }
     try {
-      setRows(await api(`/api/searches/${search.id}/results`));
+      const apply = search.apply_filter || 'any';
+      const d = await api(`/api/searches/${search.id}/results?view=${view}&apply=${apply}&limit=${PAGE}&offset=0`);
+      setRows(d.rows);
+      setCounts(d.counts);
+      setTotal(d.total);
+      setHasMore(d.hasMore);
     } catch (e) { setError(e.message); }
-  }, [search?.id]);
+  }, [search?.id, view, search?.apply_filter]);
 
   useEffect(() => { setError(null); load(); }, [load]);
 
@@ -54,6 +67,56 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
 
   // reset the beacon when switching searches
   useEffect(() => { version.current = null; }, [search?.id]);
+
+  const loadMore = useCallback(async () => {
+    if (!search?.id || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const apply = search.apply_filter || 'any';
+      const d = await api(
+        `/api/searches/${search.id}/results?view=${view}&apply=${apply}&limit=${PAGE}&offset=${rows?.length || 0}`
+      );
+      // de-dupe on ad_id: a concurrent scan can insert rows above the
+      // current offset and shift the window, which would otherwise
+      // repeat an ad on the seam between pages
+      setRows((prev) => {
+        const seen = new Set((prev || []).map((r) => r.ad_id));
+        return [...(prev || []), ...d.rows.filter((r) => !seen.has(r.ad_id))];
+      });
+      setTotal(d.total);
+      setHasMore(d.hasMore);
+    } catch (e) { setError(e.message); }
+    setLoadingMore(false);
+  }, [search?.id, view, search?.apply_filter, rows?.length, hasMore, loadingMore]);
+
+  // Infinite scroll via a plain scroll listener, deliberately NOT
+  // IntersectionObserver. IO delivers no callbacks while the document
+  // is hidden, which is the same class of trap as requestAnimationFrame
+  // — this project has now been bitten by it four times. Scroll events
+  // fire regardless of visibility, so this works in a background tab
+  // and, just as importantly, can actually be tested in one.
+  useEffect(() => {
+    const box = scrollBox.current;
+    if (!box || !hasMore) return undefined;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      setTimeout(() => { ticking = false; }, 150);
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 400) loadMore();
+    };
+    box.addEventListener('scroll', onScroll, { passive: true });
+    return () => box.removeEventListener('scroll', onScroll);
+  }, [loadMore, hasMore]);
+
+  // If a page doesn't fill the container there is nothing to scroll, so
+  // the handler above can never fire and the list would stall short of
+  // the total. Top it up until the box overflows or the set runs out.
+  useEffect(() => {
+    const box = scrollBox.current;
+    if (!box || !hasMore || loadingMore) return;
+    if (box.scrollHeight <= box.clientHeight + 40) loadMore();
+  }, [rows, hasMore, loadingMore, loadMore]);
 
   async function toggleScan() {
     await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { scan_enabled: !search.scan_enabled } });
@@ -114,14 +177,11 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     return <div className="loading-note">Välj eller skapa en sökning</div>;
   }
 
-  const all = (rows || []).filter((r) => !r.suppressed);
-  const favourites = all.filter((r) => r.shortlisted);
-  const scored = all.filter((r) => !r.pending);
-  const candidates = all.filter((r) => !r.shortlisted && r.pending);
-  const visible = view === 'favoriter' ? favourites : view === 'bedomda' ? scored : candidates;
-
-  const pendingCount = all.filter((r) => r.score_requested && r.pending && r.attempts < 3).length;
-  const scoredCount = scored.length;
+  // The server already filtered to the active view, so `rows` IS the
+  // visible page. Counts come from the server too — a client-side count
+  // would only ever describe the page, not the set.
+  const visible = rows || [];
+  const unscoredFavs = visible.filter((r) => r.pending && !r.score_requested);
   const expiringDrafts = visible.filter(
     (r) => r.application_status === 'drafted' && daysUntil(r.deadline) != null && daysUntil(r.deadline) <= 2
   );
@@ -137,8 +197,12 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         <div>
           <h2>Matchningar</h2>
           <div className="sub">
-            <b>{candidates.length}</b> hittade · <b>{favourites.length}</b> favoriter · <b>{scoredCount}</b> bedömda{pendingCount > 0 && <> · <b>{pendingCount}</b> i kö</>}
+            visar <b>{visible.length}</b> av <b>{total}</b>{counts.iKon > 0 && <> · <b>{counts.iKon}</b> i kö</>}
             {' — '}{search.last_scanned_at ? `senast hämtad ${timeAgo(search.last_scanned_at)}` : 'ej hämtad än'}
+            {counts.hittadeUtanFilter > counts.hittade
+              ? ` · ${counts.hittadeUtanFilter - counts.hittade} dolda av ansökningsfiltret`
+              : ''}
+            {search.fetch_total ? ` · ${search.fetch_total} träffar hos AF` : ''}
             {freshAt && Date.now() - freshAt < 4000 && <span className="fresh-flash"> · nya resultat</span>}
           </div>
         </div>
@@ -180,20 +244,26 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
 
       {error && <div className="err-note">{error}</div>}
 
+      {/* A requirement JobSearch rejected is indistinguishable from a
+          filter that does nothing — unless we say so. */}
+      {search.dropped_filters?.length > 0 && (
+        <div className="dropped-note">
+          ⚠ <b>{search.dropped_filters.join(', ')}</b> gav noll träffar hos Arbetsförmedlingen
+          och användes inte — resultatet är bredare än du bad om.
+        </div>
+      )}
+
       <div className="view-tabs" role="tablist" aria-label="Vy">
-        {[['alla', 'Hittade', candidates.length],
-          ['favoriter', 'Favoriter', favourites.length],
-          ['bedomda', 'Bedömda', scoredCount]].map(([id, label, n]) => (
+        {[['alla', 'Hittade', counts.hittade],
+          ['favoriter', 'Favoriter', counts.favoriter],
+          ['bedomda', 'Bedömda', counts.bedomda]].map(([id, label, n]) => (
           <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}>
             {label} <i>{n}</i>
           </button>
         ))}
-        {view === 'favoriter' && favourites.some((r) => r.pending && !r.score_requested) && (
-          <button
-            className="score-all"
-            onClick={() => requestScore(favourites.filter((r) => r.pending && !r.score_requested).map((r) => r.ad_id))}
-          >
-            Bedöm alla {favourites.filter((r) => r.pending && !r.score_requested).length} →
+        {view === 'favoriter' && unscoredFavs.length > 0 && (
+          <button className="score-all" onClick={() => requestScore(unscoredFavs.map((r) => r.ad_id))}>
+            Bedöm alla {unscoredFavs.length} →
           </button>
         )}
       </div>
@@ -204,7 +274,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         <div className="lbl-action" style={{ textAlign: 'right' }}>Åtgärd</div>
       </div>
 
-      <div className="list-scroll">
+      <div className="list-scroll" ref={scrollBox}>
         {rows === null && <div className="loading-note">Laddar<Dots /></div>}
         {rows !== null && !visible.length && (
           <div className="loading-note">
@@ -307,6 +377,14 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
             </div>
           );
         })}
+        {hasMore && (
+          <div ref={sentinel} className="scroll-sentinel">
+            {loadingMore ? <>Hämtar fler<Dots label="Hämtar fler" /></> : `${total - visible.length} till`}
+          </div>
+        )}
+        {!hasMore && visible.length > 0 && (
+          <div className="scroll-sentinel end">Inga fler — {total} totalt</div>
+        )}
       </div>
     </div>
   );

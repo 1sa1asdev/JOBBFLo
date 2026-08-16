@@ -53,11 +53,26 @@ export async function PATCH(req, { params }) {
     }
     vals.push(body.apply_filter); sets.push(`apply_filter = $${vals.length}`);
   }
+  // Changing a filter changes the result set, so the pagination cursor
+  // is meaningless — reset it and let the next scan re-walk from the
+  // top. Without this, editing Ort saved the value but the list kept
+  // showing the old page, which reads as "the filter does nothing".
+  if ('location' in body || 'remote_ok' in body) {
+    sets.push('fetch_offset = 0', 'fetch_total = NULL', 'fetch_done_at = NULL');
+  }
+
   if (!sets.length) return NextResponse.json({ error: 'nothing to update' }, { status: 400 });
 
   const { rows: [search] } = await pool.query(
     `UPDATE searches SET ${sets.join(', ')} WHERE id = $1 AND deleted_at IS NULL RETURNING *`, vals
   );
+
+  // Re-find immediately on a filter change. Free — no model involved.
+  if ('location' in body || 'remote_ok' in body) {
+    const { scanSearch } = await import('../../../../src/score.js');
+    scanSearch(id, { pages: 2 }).catch((e) => console.error(`refetch ${id}:`, e.message));
+  }
+
   return NextResponse.json(search);
 }
 

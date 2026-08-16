@@ -246,6 +246,10 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
   let filters = await resolveFilters(rawFilters);
 
   let body = await runQuery(buildQuery(filters, limit, offset));
+  // What the ladder had to throw away to get any hits at all. Returned
+  // so the UI can say so: a requirement that is silently ignored looks
+  // exactly like a filter that does not work.
+  const dropped = [];
 
   for (const dropKeys of BROADENING_LADDER) {
     if ((body.total?.value ?? 0) > 0) break;
@@ -253,6 +257,7 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
     if (!present.length) continue;
     filters = { ...filters };
     for (const k of present) delete filters[k];
+    dropped.push(...present);
     console.log(`  0 träffar — släpper ${present.join(', ')} och söker bredare`);
     // broadening changes the result set, so restart from the top
     body = await runQuery(buildQuery(filters, limit, 0));
@@ -268,7 +273,7 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
     }
     const total = body.total?.value ?? null;
     console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches)`);
-    return { ids, total, offset };
+    return { ids, total, offset, dropped };
   } finally {
     client.release();
   }

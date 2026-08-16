@@ -82,6 +82,10 @@ CREATE TABLE searches (
   fetch_offset    int NOT NULL DEFAULT 0,
   fetch_total     int,
   fetch_done_at   timestamptz,
+  -- filters JobSearch rejected outright (0 hits) and the broadening
+  -- ladder removed. Surfaced in the UI: a silently-ignored requirement
+  -- is indistinguishable from a filter that does not work.
+  dropped_filters text[],
 
   scan_enabled    boolean NOT NULL DEFAULT true,
   scan_interval   interval NOT NULL DEFAULT '1 hour',
