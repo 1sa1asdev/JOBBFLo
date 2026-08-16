@@ -212,7 +212,8 @@ function buildQuery(filters, limit, offset = 0) {
   if (offset > 0) params.set('offset', String(Math.min(offset, 2000)));
   if (filters.q) params.set('q', filters.q);
   for (const key of ['occupation-field', 'occupation-group', 'municipality', 'region',
-                     'employment-type', 'experience-required', 'remote', 'published-after']) {
+                     'employment-type', 'worktime-extent', 'experience-required',
+                     'remote', 'published-after']) {
     const val = filters[key];
     if (val === undefined || val === null) continue;
     for (const v of [].concat(val)) {

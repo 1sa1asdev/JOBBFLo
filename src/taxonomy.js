@@ -10,7 +10,28 @@
 // ------------------------------------------------------------
 
 const TAXONOMY = 'https://taxonomy.api.jobtechdev.se/v1/taxonomy/main/concepts';
-const TYPES = ['municipality', 'region', 'occupation-field', 'occupation-group'];
+const TYPES = ['municipality', 'region', 'occupation-field', 'occupation-group',
+               'employment-type', 'worktime-extent'];
+
+// Words a candidate (or the model) actually uses, mapped to the label
+// Arbetsförmedlingen uses. "deltid" is NOT an employment-type — that
+// axis is contract length (vikariat, behovsanställning). Hours live on
+// worktime-extent, and putting one axis's concept id in the other's
+// parameter returns 0 hits rather than an error.
+const ALIASES = {
+  'worktime-extent': {
+    'part-time': 'deltid', parttime: 'deltid', 'deltidsjobb': 'deltid',
+    'deltidstjänst': 'deltid', 'extrajobb': 'deltid',
+    'full-time': 'heltid', fulltime: 'heltid', 'heltidstjänst': 'heltid',
+  },
+  'employment-type': {
+    permanent: 'tillsvidareanställning', fast: 'tillsvidareanställning',
+    'fast anställning': 'tillsvidareanställning',
+    temporary: 'tidsbegränsad anställning', vikarie: 'vikariat',
+    'sommarjobb': 'säsongsanställning', seasonal: 'säsongsanställning',
+    timanställning: 'behovsanställning', 'timmar': 'behovsanställning',
+  },
+};
 
 let cache = null;      // { [type]: Map(lowercased label -> concept id) }
 let loading = null;
@@ -66,8 +87,14 @@ export async function resolveConcept(type, value) {
   const tax = await loadTaxonomy();
   const map = tax[type];
   if (!map) return null;
-  const key = String(value).trim().toLowerCase();
-  return map.get(key) || map.get(key.replace(/s? (län|kommun)$/i, '')) || null;
+  let key = String(value).trim().toLowerCase();
+  const alias = ALIASES[type]?.[key];
+  if (alias) key = alias;
+  return map.get(key)
+    || map.get(key.replace(/s? (län|kommun)$/i, ''))
+    // labels carry parentheticals: "Tillsvidareanställning (inkl. ...)"
+    || [...map.entries()].find(([label]) => label.startsWith(key))?.[1]
+    || null;
 }
 
 // ------------------------------------------------------------
@@ -84,6 +111,8 @@ export async function resolveFilters(filters = {}) {
     ['region', 'region'],
     ['occupation-field', 'occupation-field'],
     ['occupation-group', 'occupation-group'],
+    ['employment-type', 'employment-type'],
+    ['worktime-extent', 'worktime-extent'],
   ]) {
     const raw = out[key];
     if (raw == null) continue;

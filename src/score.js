@@ -19,7 +19,12 @@ Tillgängliga filter:
   Transport, distribution, lager | Yrken med social inriktning | Yrken med teknisk inriktning
 - municipality: kommunnamn på svenska, t.ex. "Stockholm", "Göteborg", "Solna"
 - region: länsnamn, t.ex. "Stockholms län"
-- employment-type
+- worktime-extent: EXAKT "Heltid" eller "Deltid". Det är HÄR omfattning hör hemma.
+  "deltid", "deltidsjobb", "extrajobb", "några timmar i veckan" → Deltid.
+- employment-type: EXAKT ett av: Tillsvidareanställning | Tidsbegränsad anställning |
+  Vikariat | Behovsanställning | Säsongsanställning.
+  Detta är ANSTÄLLNINGSFORM, inte omfattning. Lägg ALDRIG "deltid" eller "heltid" här —
+  API:t svarar då med noll träffar utan felmeddelande.
 - experience-required: true|false
 - remote: true|false
 - published-after (ISO-datum)
@@ -41,6 +46,8 @@ VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
 - remote: sätt ENDAST om kandidaten kräver helt distansarbete. "Hybrid är okej",
   "kan pendla", "helst distans" är önskemål → lägg i "unmapped", inte som filter.
 - employment-type och experience-required: utelämna om det inte är ett uttryckligt krav.
+- Skriv aldrig engelska värden ("part-time", "permanent") — använd de svenska
+  etiketterna ovan ordagrant.
 Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedöma än 0.`;
 
 export async function parseCriteria(criteriaText) {

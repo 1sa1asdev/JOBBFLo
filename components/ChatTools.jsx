@@ -63,6 +63,18 @@ export default function ChatTools({ search, onChanged, onCvChanged }) {
     return () => clearTimeout(t);
   }, [value, search?.id, search?.location]);
 
+  // Changing this re-runs the free find step, so the list reflects the
+  // new filter immediately rather than at the next scheduled scan.
+  async function saveWorktime(val) {
+    if (!search?.id) return;
+    setSaving(true);
+    try {
+      await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { worktime: val } });
+      onChanged?.();
+    } catch { /* surfaced by the list on next poll */ }
+    setSaving(false);
+  }
+
   if (!search?.id) return null;
 
   const usingTailored = cv?.active === 'search';
@@ -96,6 +108,22 @@ export default function ChatTools({ search, onChanged, onCvChanged }) {
           <button className="ct-clear" title="Rensa ort" onClick={() => saveLocation('')}>✕</button>
         )}
         {saving && <span className="ct-saving">sparar…</span>}
+      </div>
+
+      <div className="ct-row">
+        <span className="ct-label">Omfattning</span>
+        <div className="ct-seg" role="group" aria-label="Omfattning">
+          {[[null, 'Alla'], ['Deltid', 'Deltid'], ['Heltid', 'Heltid']].map(([val, label]) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={(search.api_filters?.['worktime-extent'] || null) === val}
+              onClick={() => saveWorktime(val)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="ct-row">
