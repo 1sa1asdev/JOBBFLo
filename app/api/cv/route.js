@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
 import { extractCvText, looksLikeCv } from '../../../src/cv.js';
+import { refreshCvProfile } from '../../../src/cvprofile.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,9 @@ export async function POST(req) {
         [searchId, text, filename, bytes, mime]
       );
       if (!s) return NextResponse.json({ error: 'sökningen hittades inte' }, { status: 404 });
+      // One read of the new CV, in the background. The upload responds
+      // immediately; the profile lands a few seconds later.
+      refreshCvProfile({ searchId }).catch((e) => console.error('cv-profil:', e.message));
       return NextResponse.json({
         scope: 'search', search: s.name, filename, chars: text.length,
         attachable: Boolean(bytes),
@@ -61,6 +65,10 @@ export async function POST(req) {
       [text, filename, bytes, mime]
     );
     if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 404 });
+
+    // Understand the CV once, now, rather than re-deriving it inside
+    // every future scoring and letter call.
+    refreshCvProfile().catch((e) => console.error('cv-profil:', e.message));
 
     return NextResponse.json({
       scope: 'profile', filename, chars: text.length,

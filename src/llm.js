@@ -333,7 +333,11 @@ const estimateTokens = (system, messages, maxTokens) =>
     + messages.reduce((s, m) => s + String(m.content || '').length, 0)) / 3.6) + (maxTokens || 0);
 
 // ---------- public API ----------
-export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate, config }) {
+// `onModel` is called with "provider:model" for whichever entry in the
+// chain actually answered. Callers that persist a result need it: a CV
+// profile built by a weak fallback should be rebuilt, not trusted, and
+// without this the chain silently hides which model produced what.
+export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate, config, onModel }) {
   const cfg = config || await llmConfig();
   if (!cfg) {
     throw new Error('Ingen AI-leverantör vald — gå till Profil → AI-leverantör och lägg in en nyckel.');
@@ -382,6 +386,7 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
         const text = provider === 'anthropic'
           ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
           : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
+        onModel?.(`${provider}:${model}`);
         return validate ? validate(text) : text;
       } catch (err) {
         // local servers have no quotas — never block, never retry-chain,
@@ -416,6 +421,7 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
             const text = provider === 'anthropic'
               ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
               : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
+            onModel?.(`${provider}:${model}`);
             return validate ? validate(text) : text;
           } catch (retryErr) {
             problems.push(`${model} (omförsök): ${retryErr.message.slice(0, 60)}`);

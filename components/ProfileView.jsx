@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
 import CvUpload from './CvUpload.jsx';
+import CvProfilePanel from './CvProfilePanel.jsx';
 import Dots from './Dots';
 
 export default function ProfileView({ onClose }) {
@@ -28,8 +29,6 @@ export default function ProfileView({ onClose }) {
 
   if (!profile) return <div className="loading-note">{error || <>Laddar profil<Dots /></>}</div>;
 
-  const parsed = profile.cv_parsed || {};
-
   return (
     <div className="stage-view profile-view">
       <div className="profile-inner">
@@ -40,6 +39,11 @@ export default function ProfileView({ onClose }) {
           </div>
           <button className="close-profile" onClick={onClose}>✕ Stäng</button>
         </div>
+
+        <CvProfilePanel
+          profile={profile}
+          onChanged={() => api('/api/profile').then(setProfile).catch(() => {})}
+        />
 
         {/* First: the setting that gates scoring, letters and chat.
             Everything below is CV data, which is useless without it. */}
@@ -62,29 +66,6 @@ export default function ProfileView({ onClose }) {
               onChange={(e) => set('cv_text', e.target.value)}
             />
           </details>
-          {(parsed.tech?.length || parsed.experience?.length) && (
-            <div className="parsed">
-              <span className="ptitle">Tolkat ur ditt CV — används för matchning</span>
-              {parsed.tech?.length > 0 && (
-                <div className="prow">
-                  <span className="plabel">Teknik</span>
-                  <span className="pvals">{parsed.tech.map((t) => <span key={t} className="tag">{t.toUpperCase()}</span>)}</span>
-                </div>
-              )}
-              {parsed.experience?.length > 0 && (
-                <div className="prow">
-                  <span className="plabel">Erfarenhet</span>
-                  <span className="pvals">{parsed.experience.map((t) => <span key={t} className="tag">{t.toUpperCase()}</span>)}</span>
-                </div>
-              )}
-              {parsed.languages?.length > 0 && (
-                <div className="prow">
-                  <span className="plabel">Språk</span>
-                  <span className="pvals">{parsed.languages.map((t) => <span key={t} className="tag">{t.toUpperCase()}</span>)}</span>
-                </div>
-              )}
-            </div>
-          )}
           <p className="hint">CV-texten läses vid varje matchning och när brev genereras. Stämmer något inte? Justera fritextfältet nedan — det väger tyngre.</p>
         </div>
 

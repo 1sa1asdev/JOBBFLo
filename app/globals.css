@@ -917,6 +917,33 @@
   .dropped-note{margin:10px 24px;border:1px solid var(--flag);border-left:3px solid var(--flag);
     color:var(--ink);background:var(--panel);padding:9px 12px;font-size:11px;line-height:1.5;}
   .dropped-note b{color:var(--flag);}
+  /* ---- what the app read out of the CV ---- */
+  .cvprofile{border:1px solid var(--line);background:var(--panel);padding:16px 18px;margin-bottom:22px;}
+  .cvp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;}
+  .cvprofile h3{font-size:14px;margin-bottom:4px;}
+  .cvp-sub{font-size:11px;line-height:1.55;color:var(--mute);max-width:62ch;}
+  .cvp-sub .warn{color:var(--flag);}
+  .cvp-sub code{font-family:'IBM Plex Mono',monospace;font-size:10px;}
+  .cvp-summary{margin-top:12px;padding-top:12px;border-top:1px solid var(--tag-border);
+    display:flex;justify-content:space-between;gap:12px;font-size:12px;}
+  .cvp-summary span{font-family:'IBM Plex Mono',monospace;font-size:10px;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--mute);white-space:nowrap;}
+  .cvp-gaps{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+  .cvp-gap{font-size:10.5px;color:var(--ink);border:1px solid var(--flag);
+    border-left:3px solid var(--flag);padding:3px 8px;}
+  .cvp-label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--mute);display:block;margin:14px 0 6px;}
+  .cvp-toggle{background:none;border:none;cursor:pointer;padding:12px 0 0;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--mute);}
+  .cvp-toggle:hover{color:var(--ink);}
+  .cvp-fact{border-left:2px solid var(--ok);padding:5px 0 5px 9px;margin-bottom:7px;}
+  .cvp-fact.unverified{border-left-color:var(--flag);}
+  .cvp-fact b{display:block;font-size:12px;}
+  .cvp-fact q{display:block;font-size:10.5px;color:var(--mute);font-style:italic;
+    margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70ch;}
+  .cvp-fact em{display:block;font-size:10px;color:var(--flag);font-style:normal;margin-top:2px;}
+
   .scroll-sentinel{padding:18px;text-align:center;font-family:'IBM Plex Mono',monospace;
     font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
   .scroll-sentinel.end{opacity:.6;}

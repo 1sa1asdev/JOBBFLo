@@ -10,7 +10,8 @@ export async function GET() {
   // it — and shipped the key ciphertext to the browser for no reason.
   const { rows: [profile] } = await pool.query(
     `SELECT id, name, email, phone, city,
-            cv_filename, cv_text, cv_parsed, cv_uploaded_at,
+            cv_filename, cv_text, cv_uploaded_at,
+            cv_profile, cv_profile_at, cv_profile_model,
             about_text, tone_text, created_at, updated_at,
             (cv_file IS NOT NULL) AS cv_attachable,
             octet_length(cv_file) AS cv_bytes

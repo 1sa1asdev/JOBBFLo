@@ -30,7 +30,14 @@ CREATE TABLE profile (
   city            text,
 
   cv_filename     text,
-  cv_text         text,                       -- extracted plain text
+  cv_text         text,
+  -- The CV read ONCE by the best model available, not re-derived inside
+  -- every scoring and letter call. Every fact carries verbatim evidence
+  -- from cv_text, same invariant as the ad quotes (#5), so a misreading
+  -- is visible and correctable in one place instead of a thousand.
+  cv_profile      jsonb,
+  cv_profile_at   timestamptz,
+  cv_profile_model text,           -- a weak model's reading should be rebuilt                       -- extracted plain text
   cv_parsed       jsonb,                      -- {tech:[], experience:[], languages:[]}
 
   about_text      text,                       -- "om dig, i egna ord"

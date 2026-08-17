@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { buildProfileTerms, prefilterAd } from './prefilter.js';
+import { renderCvProfile } from './cvprofile.js';
 
 // ------------------------------------------------------------
 // LAYER 1 — natural language -> structured API filters.
@@ -113,8 +114,17 @@ export async function scoreAd({ ad, profile, projects, criteriaText }) {
     .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
     .join('\n');
 
-  const input = `## KANDIDATENS CV
-${profile.cv_text}
+  // Prefer the profile: the CV read once by the best model, structured,
+  // and about a third the tokens of the raw text. Scoring is a matching
+  // task — it wants facts, not prose — and a fixed reading means two ads
+  // are judged against the same candidate rather than against whatever
+  // the model happened to infer that call. Falls back to the raw CV
+  // when no profile has been built yet.
+  const candidateBlock = profile.cv_profile_rendered
+    || `## KANDIDATENS CV
+${profile.cv_text}`;
+
+  const input = `${candidateBlock}
 
 ## OM KANDIDATEN, I EGNA ORD
 ${profile.about_text || '(inget angivet)'}
@@ -151,11 +161,21 @@ ${adTextForScoring(ad.description)}`;
 // can render non-matching ones as plain text, and keep the item
 // (a flag's `tag` still feeds the skills-gap report).
 // ------------------------------------------------------------
-export function verifyQuotes(items, adText) {
-  const hay = (adText || '').toLowerCase();
+// Whitespace is normalised on BOTH sides before comparing. Source text
+// carries hard line wraps — PDFs especially, but ad descriptions too —
+// and a model quoting across one reproduces it with a space. That quote
+// is faithful; a raw substring test calls it invented. Measured on one
+// CV profile, this alone was 5 of 9 false rejections.
+//
+// Elision is still a failure: "…in .NET ... Completed" is not a quote,
+// and normalising whitespace does not rescue it, which is correct.
+const flatten = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+export function verifyQuotes(items, sourceText) {
+  const hay = flatten(sourceText);
   return (items || []).map((it) => ({
     ...it,
-    verbatim: Boolean(it?.quote && hay.includes(String(it.quote).toLowerCase())),
+    verbatim: Boolean(it?.quote && hay.includes(flatten(it.quote))),
   }));
 }
 
@@ -163,7 +183,8 @@ export function verifyQuotes(items, adText) {
 // tailored CV, falling back to the profile's
 async function loadSearchContext(searchId, { needCv = true } = {}) {
   const { rows: [search] } = await pool.query(
-    `SELECT s.*, COALESCE(s.cv_text, p.cv_text) AS cv_text, p.about_text
+    `SELECT s.*, COALESCE(s.cv_text, p.cv_text) AS cv_text, p.about_text,
+            COALESCE(s.cv_profile, p.cv_profile) AS cv_profile
      FROM searches s JOIN profile p ON p.id = s.profile_id
      WHERE s.id = $1`, [searchId]
   );
@@ -375,7 +396,11 @@ async function drainQueue(searchId, { limit }) {
     try {
       const r = await scoreAd({
         ad,
-        profile: { cv_text: search.cv_text, about_text: search.about_text },
+        profile: {
+          cv_text: search.cv_text,
+          about_text: search.about_text,
+          cv_profile_rendered: renderCvProfile(search.cv_profile),
+        },
         projects,
         criteriaText: search.criteria_text,
       });
