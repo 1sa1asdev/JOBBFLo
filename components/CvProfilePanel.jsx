@@ -33,7 +33,12 @@ export default function CvProfilePanel({ profile, onChanged }) {
   }
 
   const groups = [
-    ['skills', 'Kompetenser', (f) => `${f.name}${f.strength ? ` · ${f.strength}` : ''}`],
+    // Experience first: it is what a non-tech ad is matched against, and
+    // the part most likely to have been dropped by a careless reading.
+    ['experience', 'Erfarenhet', (f) =>
+      `${f.role}${f.employer ? `, ${f.employer}` : ''}${f.period ? ` · ${f.period}` : ''}`
+      + `${f.field ? ` — ${f.field}` : ''}`],
+    ['skills', 'Kompetenser', (f) => `${f.name}${f.field ? ` · ${f.field}` : ''}${f.strength ? ` · ${f.strength}` : ''}`],
     ['implicit_skills', 'Visar också', (f) => `${f.name} — ${f.why}`],
     ['domains', 'Domäner', (f) => f.name],
     ['education', 'Utbildning', (f) => `${f.what}, ${f.where}`],
