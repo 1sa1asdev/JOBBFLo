@@ -298,8 +298,19 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           //   scored    — the number is in.
           const waiting = r.pending && r.score_requested && !failed;
           const unjudged = r.pending && !r.score_requested;
+          // Application state is its own axis: an ad can be scored AND
+          // sent, and once it is sent the card must say so rather than
+          // keep offering to write the letter that is already in the
+          // employer's inbox.
+          const isSent = ['sent', 'replied', 'interview', 'rejected']
+            .includes(r.application_status);
+          const isDraft = r.application_status === 'drafted';
           return (
-            <div key={r.ad_id} className={`card${r.pending ? ' unscored' : ''}`} onClick={() => onOpenAd(r.ad_id)}>
+            <div
+              key={r.ad_id}
+              className={`card${r.pending ? ' unscored' : ''}${isSent ? ' is-sent' : ''}`}
+              onClick={() => onOpenAd(r.ad_id)}
+            >
               <div className="score-col">
                 {unjudged ? (
                   <button
@@ -334,7 +345,14 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                   </div>
                 )}
                 <div className="reasoning">
-                  {failed
+                  {isSent
+                    ? <span className="rsent">
+                        Ansökan skickad{r.sent_at ? ` ${fmtDate(r.sent_at)}` : ''}
+                        {r.application_status === 'replied' && ' — svar inne, se Inkorgen'}
+                        {r.application_status === 'interview' && ' — intervjuförfrågan, se Inkorgen'}
+                        {r.application_status === 'rejected' && ' — avslag'}
+                      </span>
+                    : failed
                     ? <span className="rmute"><b>Kunde inte bedömas</b> — {r.last_error || 'modellen svarade inte'}</span>
                     : waiting
                       ? <span className="rmute">Bedömning pågår</span>
@@ -359,18 +377,28 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 <div className="row"><span>Ansökan</span><b>{r.apply_email ? 'MEJL' : r.ats_vendor ? r.ats_vendor.toUpperCase() : 'LÄNK'}</b></div>
               </div>
               <div className="action-col">
-                {unjudged ? (
+                {isSent ? (
+                  <div className="sent-mark">
+                    <b>✓ Skickad</b>
+                    {r.sent_at && <span>{fmtDate(r.sent_at)}</span>}
+                    <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
+                      Visa →
+                    </button>
+                  </div>
+                ) : unjudged ? (
                   <button
                     className="open-btn judge"
                     disabled={busyAd === r.ad_id}
                     title="Skickar den här annonsen till modellen — detta är det enda som kostar"
                     onClick={(e) => { e.stopPropagation(); requestScore([r.ad_id]); }}
                   >
-                    Bedöm →
+                    {busyAd === r.ad_id ? <>Köar<Dots label="Köar" /></> : 'Bedöm →'}
                   </button>
+                ) : waiting ? (
+                  <button className="open-btn" disabled>Bedöms<Dots label="Bedöms" /></button>
                 ) : (
                   <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
-                    {r.application_status ? 'Visa →' : 'Skriv brev →'}
+                    {isDraft ? 'Granska utkast →' : 'Skriv brev →'}
                   </button>
                 )}
               </div>

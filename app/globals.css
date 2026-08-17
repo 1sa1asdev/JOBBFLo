@@ -944,6 +944,18 @@
     margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70ch;}
   .cvp-fact em{display:block;font-size:10px;color:var(--flag);font-style:normal;margin-top:2px;}
 
+  /* ---- an ad you have already applied to ---- */
+  /* Muted, not hidden: the row still matters (replies arrive against
+     it) but it must never look like something still to be done. */
+  .card.is-sent{background:var(--sidebar);}
+  .card.is-sent .job-title{opacity:.75;}
+  .reasoning .rsent{color:var(--ok);font-weight:600;}
+  .sent-mark{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+  .sent-mark b{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--ok);}
+  .sent-mark span{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--mute);}
+  .sent-mark .open-btn{margin-top:3px;}
+
   .scroll-sentinel{padding:18px;text-align:center;font-family:'IBM Plex Mono',monospace;
     font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
   .scroll-sentinel.end{opacity:.6;}

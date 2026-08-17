@@ -23,17 +23,33 @@ export async function GET(req) {
 
   let search = null;
   if (searchId) {
-    // Two counters, because queueing and scoring move independently:
-    // `total` jumps when layer 1 finds ads, `scored` ticks up one at a
-    // time as the queue drains. A score arrives as an UPDATE, so
-    // counting rows alone would never notice it — and count(score)
-    // skips NULLs, which is exactly the pending set.
+    // Four counters, because four things move independently:
+    //   total      layer 1 found more ads
+    //   scored     a requested verdict landed
+    //   requested  the user asked for one (button must flip to "Bedöms")
+    //   apps       an application was drafted or sent
+    //
+    // The last two are the ones this beacon used to miss. Sending writes
+    // to `applications`, not `match_results`, so the list never learned
+    // an ad had been applied to — the card kept offering "Skriv brev"
+    // for something already in the employer's inbox until a reload.
     const { rows: [s] } = await pool.query(
-      `SELECT count(*) AS total, count(score) AS scored,
-              max(extract(epoch from scored_at)) AS last_scored
-       FROM match_results WHERE search_id = $1`, [searchId]
+      `SELECT count(*) AS total,
+              count(m.score) AS scored,
+              count(m.score_requested_at) AS requested,
+              max(extract(epoch from m.scored_at)) AS last_scored,
+              count(app.id) AS apps,
+              max(extract(epoch from app.updated_at)) AS last_app
+       FROM match_results m
+       JOIN searches sr ON sr.id = m.search_id
+       LEFT JOIN applications app ON app.ad_id = m.ad_id AND app.profile_id = sr.profile_id
+       WHERE m.search_id = $1`, [searchId]
     );
-    search = `${s.total}:${s.scored}:${Math.round(Number(s.last_scored) || 0)}`;
+    search = [
+      s.total, s.scored, s.requested,
+      Math.round(Number(s.last_scored) || 0),
+      s.apps, Math.round(Number(s.last_app) || 0),
+    ].join(':');
   }
 
   // one opaque string — the client only cares whether it changed
