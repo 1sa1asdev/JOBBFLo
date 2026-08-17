@@ -944,6 +944,10 @@
     margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70ch;}
   .cvp-fact em{display:block;font-size:10px;color:var(--flag);font-style:normal;margin-top:2px;}
 
+  .stale-mark{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8.5px;
+    letter-spacing:.06em;color:var(--flag);border:1px solid var(--flag);
+    padding:1px 5px;margin-right:6px;vertical-align:1px;}
+
   /* ---- an ad you have already applied to ---- */
   /* Muted, not hidden: the row still matters (replies arrive against
      it) but it must never look like something still to be done. */

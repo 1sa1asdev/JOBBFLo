@@ -86,6 +86,12 @@ CREATE TABLE searches (
   -- Finding is free, so a search walks its whole JobSearch result set
   -- instead of re-reading page one. The cursor advances each scan and
   -- wraps to 0 when exhausted, picking up newly published ads.
+  -- When criteria_text last changed. A match_result scored before this
+  -- answered a different question — stale, not invalid, so it is kept
+  -- and flagged rather than deleted. Changing the criteria must never
+  -- destroy a favourite or a verdict the user paid for.
+  criteria_changed_at timestamptz,
+
   fetch_offset    int NOT NULL DEFAULT 0,
   fetch_total     int,
   fetch_done_at   timestamptz,

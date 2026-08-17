@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function POST(req, { params }) {
   const { id } = await params;
-  const { ad_ids } = await req.json();
+  const { ad_ids, rescore = false } = await req.json();
 
   if (!Array.isArray(ad_ids) || !ad_ids.length) {
     return NextResponse.json(
@@ -30,11 +30,16 @@ export async function POST(req, { params }) {
   // ad is a no-op rather than a second charge for the same verdict.
   const { rows } = await pool.query(
     `UPDATE match_results
-     SET score_requested_at = COALESCE(score_requested_at, now()),
-         shortlisted_at     = COALESCE(shortlisted_at, now())
-     WHERE search_id = $1 AND ad_id = ANY($2::uuid[]) AND score IS NULL
+     SET score_requested_at = now(),
+         shortlisted_at     = COALESCE(shortlisted_at, now()),
+         -- re-scoring means judging again, so the old verdict has to go;
+         -- src/score.js only picks up rows where score IS NULL
+         score   = CASE WHEN $3 THEN NULL ELSE score END,
+         summary = CASE WHEN $3 THEN NULL ELSE summary END
+     WHERE search_id = $1 AND ad_id = ANY($2::uuid[])
+       AND ($3::boolean OR score IS NULL)
      RETURNING ad_id`,
-    [id, ad_ids]
+    [id, ad_ids, rescore]
   );
 
   if (rows.length) {

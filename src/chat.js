@@ -50,9 +50,32 @@ export async function chatTurn(searchId, userMessage) {
     [searchId, reply]
   );
 
-  // stale scores: criteria changed, so re-score this search's pool.
-  // match_results are per-search, so this touches nothing else.
-  await pool.query(`DELETE FROM match_results WHERE search_id = $1`, [searchId]);
+  // Criteria changed. Clear the free candidate pool — those were found
+  // under the old filters and may not match the new ones — but NEVER
+  // touch a row the user favourited or paid to have scored. Deleting
+  // those threw away human decisions and bought verdicts alike, which
+  // is what made editing the criteria feel like it reset the search.
+  //
+  // Scores made under the old criteria are now merely stale: they stay,
+  // and `scored_at < criteria_changed_at` lets the UI say so and offer
+  // a re-score rather than deciding for the user.
+  const { rowCount: dropped } = await pool.query(
+    `DELETE FROM match_results
+     WHERE search_id = $1 AND shortlisted_at IS NULL AND score IS NULL`,
+    [searchId]
+  );
+  await pool.query(
+    `UPDATE searches SET criteria_changed_at = now(), fetch_offset = 0,
+       fetch_total = NULL, fetch_done_at = NULL
+     WHERE id = $1`, [searchId]
+  );
+  const { rows: [kept] } = await pool.query(
+    `SELECT count(*) FILTER (WHERE shortlisted_at IS NOT NULL) AS favoriter,
+            count(score) AS bedomda
+     FROM match_results WHERE search_id = $1`, [searchId]
+  );
+  console.log(`kriterier ändrade: ${dropped} kandidater rensade, `
+    + `${kept.favoriter} favoriter och ${kept.bedomda} bedömningar behållna`);
   scanSearch(searchId, { pages: 2 }).catch((e) =>
     console.error(`rescan ${searchId}:`, e.message)
   );

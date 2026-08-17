@@ -152,6 +152,20 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setBusyAd(null);
   }
 
+  // Judge again against the new criteria. Clearing the score is what
+  // puts the row back in the scoring queue; the user asked for this
+  // explicitly, so it is the one place a paid verdict is discarded.
+  async function rescore(adId) {
+    setBusyAd(adId);
+    try {
+      await api(`/api/searches/${search.id}/score`, {
+        method: 'POST', body: { ad_ids: [adId], rescore: true },
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
   // The only button in the app that spends money on scoring, and it
   // spends it on exactly the ads named here.
   async function requestScore(adIds) {
@@ -358,7 +372,14 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                       ? <span className="rmute">Bedömning pågår</span>
                       : unjudged
                         ? <span className="rmute">{r.snippet || 'Ingen annonstext'}</span>
-                        : <><b>Bedömning:</b> {r.summary}</>}
+                        : <>
+                        {r.stale && (
+                          <span className="stale-mark" title="Kriterierna ändrades efter den här bedömningen">
+                            ÄLDRE KRITERIER
+                          </span>
+                        )}
+                        <b>Bedömning:</b> {r.summary}
+                      </>}
                 </div>
                 {unjudged && (
                   <div className="cand-facts">
@@ -396,6 +417,15 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                   </button>
                 ) : waiting ? (
                   <button className="open-btn" disabled>Bedöms<Dots label="Bedöms" /></button>
+                ) : r.stale ? (
+                  <button
+                    className="open-btn judge"
+                    disabled={busyAd === r.ad_id}
+                    title="Bedöm om mot de nya kriterierna"
+                    onClick={(e) => { e.stopPropagation(); rescore(r.ad_id); }}
+                  >
+                    Bedöm om →
+                  </button>
                 ) : (
                   <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
                     {isDraft ? 'Granska utkast →' : 'Skriv brev →'}

@@ -40,10 +40,15 @@ export async function GET(req, { params }) {
        a.raw->'working_hours_type'->>'label'  AS working_hours,
        a.raw->'employment_type'->>'label'     AS employment_type,
        left(regexp_replace(a.description, '\\s+', ' ', 'g'), 260) AS snippet,
+       -- judged before the criteria last changed: the verdict stands,
+       -- but it answered a different question
+       (m.scored_at IS NOT NULL AND sr.criteria_changed_at IS NOT NULL
+        AND m.scored_at < sr.criteria_changed_at) AS stale,
        app.id AS application_id
      FROM search_results r
      JOIN match_results m ON m.search_id = r.search_id AND m.ad_id = r.ad_id
      JOIN ads a ON a.id = r.ad_id
+     JOIN searches sr ON sr.id = r.search_id
      LEFT JOIN applications app ON app.ad_id = r.ad_id
      WHERE ${where}
      ORDER BY (r.score IS NULL), r.score DESC, m.queue_rank DESC NULLS LAST,
