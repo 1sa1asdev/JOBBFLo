@@ -35,6 +35,13 @@ CREATE TABLE profile (
   -- every scoring and letter call. Every fact carries verbatim evidence
   -- from cv_text, same invariant as the ad quotes (#5), so a misreading
   -- is visible and correctable in one place instead of a thousand.
+  -- Where the user travels from, for the distance column. Resolved
+  -- against the ad pool's own coordinates (see postcode_coords), so no
+  -- geocoding service ever sees a home address.
+  home_lat        double precision,
+  home_lon        double precision,
+  home_label      text,
+
   cv_profile      jsonb,
   cv_profile_at   timestamptz,
   cv_profile_model text,           -- a weak model's reading should be rebuilt                       -- extracted plain text

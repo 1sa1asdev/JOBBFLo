@@ -948,6 +948,18 @@
     letter-spacing:.06em;color:var(--flag);border:1px solid var(--flag);
     padding:1px 5px;margin-right:6px;vertical-align:1px;}
 
+  .home-row{display:flex;gap:8px;margin-top:12px;}
+  .home-row .ct-input{flex:1;}
+  .home-msg{margin-top:8px;font-size:11px;color:var(--ok);}
+
+  /* ---- distance to the workplace ---- */
+  /* Straight-line km from the user's postcode. Computed in SQL from
+     coordinates Arbetsformedlingen ships on every ad — no map library,
+     no tile server, no geocoder, no model. */
+  .cand-facts .km{border-color:var(--ink);color:var(--ink);font-weight:700;}
+  .cand-facts .km.far{border-color:var(--flag);color:var(--flag);}
+  .cand-facts .km.unknown{border-style:dashed;color:var(--mute);font-weight:400;}
+
   /* ---- an ad you have already applied to ---- */
   /* Muted, not hidden: the row still matters (replies arrive against
      it) but it must never look like something still to be done. */

@@ -30,6 +30,8 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const [view, setView] = useState('alla');
   const [busyAd, setBusyAd] = useState(null);
   const [counts, setCounts] = useState({ hittade: 0, favoriter: 0, bedomda: 0, iKon: 0 });
+  const [home, setHome] = useState(null);
+  const [maxKm, setMaxKm] = useState(null);   // null = ingen gräns
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -38,17 +40,27 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const PAGE = 60;
 
   // Reloads page 0 for the current view. Scrolling appends via loadMore.
+  // One place that builds the query, so the first page and every
+  // scrolled page always agree on view, filters and sort.
+  const qs = useCallback((off) => new URLSearchParams({
+    view,
+    apply: search?.apply_filter || 'any',
+    limit: String(PAGE),
+    offset: String(off),
+    ...(maxKm ? { maxkm: String(maxKm), sort: 'distance' } : {}),
+  }).toString(), [view, search?.apply_filter, maxKm]);
+
   const load = useCallback(async () => {
     if (!search?.id) { setRows(null); return; }
     try {
-      const apply = search.apply_filter || 'any';
-      const d = await api(`/api/searches/${search.id}/results?view=${view}&apply=${apply}&limit=${PAGE}&offset=0`);
+      const d = await api(`/api/searches/${search.id}/results?${qs(0)}`);
       setRows(d.rows);
       setCounts(d.counts);
       setTotal(d.total);
       setHasMore(d.hasMore);
+      setHome(d.home);
     } catch (e) { setError(e.message); }
-  }, [search?.id, view, search?.apply_filter]);
+  }, [search?.id, view, search?.apply_filter, maxKm, qs]);
 
   useEffect(() => { setError(null); load(); }, [load]);
 
@@ -72,10 +84,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     if (!search?.id || loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const apply = search.apply_filter || 'any';
-      const d = await api(
-        `/api/searches/${search.id}/results?view=${view}&apply=${apply}&limit=${PAGE}&offset=${rows?.length || 0}`
-      );
+      const d = await api(`/api/searches/${search.id}/results?${qs(rows?.length || 0)}`);
       // de-dupe on ad_id: a concurrent scan can insert rows above the
       // current offset and shift the window, which would otherwise
       // repeat an ad on the seam between pages
@@ -87,7 +96,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
       setHasMore(d.hasMore);
     } catch (e) { setError(e.message); }
     setLoadingMore(false);
-  }, [search?.id, view, search?.apply_filter, rows?.length, hasMore, loadingMore]);
+  }, [search?.id, view, search?.apply_filter, maxKm, qs, rows?.length, hasMore, loadingMore]);
 
   // Infinite scroll via a plain scroll listener, deliberately NOT
   // IntersectionObserver. IO delivers no callbacks while the document
@@ -213,6 +222,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           <div className="sub">
             visar <b>{visible.length}</b> av <b>{total}</b>{counts.iKon > 0 && <> · <b>{counts.iKon}</b> i kö</>}
             {' — '}{search.last_scanned_at ? `senast hämtad ${timeAgo(search.last_scanned_at)}` : 'ej hämtad än'}
+            {maxKm && <> · <b>inom {maxKm} km</b></>}
             {counts.hittadeUtanFilter > counts.hittade
               ? ` · ${counts.hittadeUtanFilter - counts.hittade} dolda av ansökningsfiltret`
               : ''}
@@ -222,6 +232,24 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         </div>
         <div className="header-controls">
           <ApplyFilterSeg search={search} onChanged={onSearchChanged} />
+          {home && (
+            <div className="applyseg" title={`Fågelvägen från ${home.label}`}>
+              <span className="as-label">Inom</span>
+              <div className="ct-seg" role="group" aria-label="Max avstånd">
+                {[[null, 'Alla'], [2, '2 km'], [5, '5 km'], [10, '10 km'], [30, '30 km']]
+                  .map(([km, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={maxKm === km}
+                    onClick={() => setMaxKm(km)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className={`autoscan${search.scan_enabled ? '' : ' paused'}`}>
             <span className="dot" />
             <label htmlFor="scanInterval">Auto-skanning</label>
@@ -381,13 +409,24 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                         <b>Bedömning:</b> {r.summary}
                       </>}
                 </div>
-                {unjudged && (
-                  <div className="cand-facts">
-                    {r.occupation && <span>{r.occupation}</span>}
-                    {r.working_hours && <span>{r.working_hours}</span>}
-                    {r.employment_type && <span>{r.employment_type}</span>}
-                  </div>
-                )}
+                <div className="cand-facts">
+                  {/* Distance first: it is the fact most likely to rule an
+                      ad out, and it costs nothing to compute. */}
+                  {r.distance_km != null && (
+                    <span className={`km${r.distance_km > 30 ? ' far' : ''}`}>
+                      {r.distance_km} km
+                    </span>
+                  )}
+                  {home && r.distance_km == null && r.lat == null && (
+                    <span className="km unknown" title="Annonsen saknar koordinater">
+                      avstånd okänt
+                    </span>
+                  )}
+                  {r.street && <span>{r.street}</span>}
+                  {unjudged && r.occupation && <span>{r.occupation}</span>}
+                  {unjudged && r.working_hours && <span>{r.working_hours}</span>}
+                  {unjudged && r.employment_type && <span>{r.employment_type}</span>}
+                </div>
               </div>
               <div className="meta-col">
                 <div className="row"><span>Publicerad</span><b>{fmtDate(r.published_at)}</b></div>

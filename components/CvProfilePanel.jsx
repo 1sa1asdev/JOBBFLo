@@ -16,6 +16,56 @@ import Dots from './Dots';
 // than hidden. That is the same rule the ad quotes obey (CLAUDE.md #5)
 // and the reason it can be checked at all.
 // ------------------------------------------------------------
+// Where the user travels from. Resolved against the ad pool's own
+// coordinates rather than a geocoding service — a home address is the
+// most personal thing this app stores, and it never leaves the machine.
+export function HomePanel({ profile, onChanged }) {
+  const [value, setValue] = useState(profile.home_label || '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+
+  async function save() {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const d = await api('/api/profile/home', { method: 'POST', body: { home: value } });
+      setMsg(d.cleared ? 'Rensad' : `Hittad via ${d.how} (${d.basedOn} annonser)`);
+      onChanged?.();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <section className="cvprofile">
+      <div className="cvp-head">
+        <div>
+          <h3>Var du reser ifrån</h3>
+          <p className="cvp-sub">
+            Används för att räkna ut avstånd till varje jobb. Skriv ett postnummer
+            eller en ort. Slås upp mot koordinaterna som redan finns i annonserna —
+            ingen karttjänst kontaktas och adressen lämnar aldrig din dator.
+            {profile.home_label && <> Nu: <b>{profile.home_label}</b>.</>}
+          </p>
+        </div>
+      </div>
+      <div className="home-row">
+        <input
+          className="ct-input"
+          placeholder="t.ex. 118 26 eller Södermalm"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+        />
+        <button className="btn" onClick={save} disabled={busy}>
+          {busy ? <>Slår upp<Dots label="Slår upp" /></> : 'Spara'}
+        </button>
+      </div>
+      {msg && <div className="home-msg">✓ {msg}</div>}
+      {err && <div className="err-note">{err}</div>}
+    </section>
+  );
+}
+
 export default function CvProfilePanel({ profile, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);

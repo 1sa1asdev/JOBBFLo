@@ -12,6 +12,7 @@ export async function GET() {
     `SELECT id, name, email, phone, city,
             cv_filename, cv_text, cv_uploaded_at,
             cv_profile, cv_profile_at, cv_profile_model,
+            home_lat, home_lon, home_label,
             about_text, tone_text, created_at, updated_at,
             (cv_file IS NOT NULL) AS cv_attachable,
             octet_length(cv_file) AS cv_bytes
