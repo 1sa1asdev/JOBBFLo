@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import { useNotify } from '../lib/useNotify.js';
+import Dots from './Dots';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
@@ -64,6 +65,147 @@ function LiveDot({ pulsed }) {
   );
 }
 
+// ------------------------------------------------------------
+// A campaign heading in the auto-inbox.
+//
+// Auto-applied letters go out without anyone reading them first, so a
+// flat list of replies answers "what came back" but not "which of my
+// campaigns did this". Grouping is the whole point: each campaign is a
+// separate bet about what to apply for, and its replies are the only
+// evidence about whether that bet is paying off.
+//
+// The purpose is editable in place because it is exactly the thing you
+// discover was wrong — reading five off-target replies tells you the
+// criteria were off, and the fix belongs where you noticed it rather
+// than three tabs away. Saving re-runs layer 1 and re-scans; favourites
+// and paid verdicts survive (see the PATCH handler for why).
+// ------------------------------------------------------------
+function CampaignHead({ group, collapsed, onToggle, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(group.name || '');
+  const [purpose, setPurpose] = useState(group.purpose || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  // A deleted search has nothing left to edit — its threads are shown
+  // for history, not for steering.
+  const orphan = !group.id || group.deleted;
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api('/api/autoapply', {
+        method: 'PATCH',
+        body: { searchId: group.id, name, criteria: purpose },
+      });
+      // Saved, but the filters could not be rebuilt — the campaign is
+      // running on the old ones. Worth saying out loud rather than
+      // letting the editor close as if nothing happened.
+      if (r?.warning) setErr(r.warning); else setEditing(false);
+      onSaved?.();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div className={`camp-head${collapsed ? ' collapsed' : ''}`}>
+      <div className="camp-top">
+        <button className="camp-toggle" onClick={onToggle} aria-expanded={!collapsed}>
+          <span className="caret">{collapsed ? '▸' : '▾'}</span>
+          <span className="camp-name">{group.name}</span>
+          {group.deleted && <span className="camp-gone">borttagen</span>}
+          <span className="camp-count">{group.threads.length}</span>
+        </button>
+        {!orphan && (
+          <button className="camp-edit" onClick={() => setEditing(!editing)}
+            title="Ändra vad kampanjen söker efter">
+            {editing ? 'Avbryt' : 'Ändra syfte'}
+          </button>
+        )}
+      </div>
+
+      {!collapsed && (group.replies > 0 || group.paused) && (
+        <div className="camp-stats">
+          {group.replies > 0 && <span className="camp-stat">{group.replies} svar</span>}
+          {group.todo > 0 && <span className="camp-stat todo">{group.todo} att göra</span>}
+          {group.paused && <span className="camp-stat warn">Pausad: {group.paused}</span>}
+        </div>
+      )}
+
+      {editing ? (
+        <div className="camp-editor">
+          <input className="ct-input" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="Kampanjens namn" />
+          <textarea className="ct-input" rows={3} value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            placeholder="Vad kampanjen ska söka efter" />
+          <div className="camp-editor-note">
+            Sparas och söks om direkt. Favoriter och betalda bedömningar behålls —
+            bara okontrollerade kandidater från det gamla syftet rensas.
+          </div>
+          {err && <div className="err-note">{err}</div>}
+          <button className="btn" onClick={save} disabled={busy || !name.trim() || !purpose.trim()}>
+            {busy ? <>Sparar<Dots label="Sparar" /></> : 'Spara syfte'}
+          </button>
+        </div>
+      ) : (
+        !collapsed && group.purpose && <div className="camp-purpose">{group.purpose}</div>
+      )}
+    </div>
+  );
+}
+
+function ThreadItem({ t, active, onClick }) {
+  const meta = STATUS_META[t.status] || STATUS_META.sent;
+  const o = odds(t);
+  const unread = Number(t.pending_suggestions) > 0;
+  return (
+    <button
+      className={`thread-item${unread ? ' unread' : ''}`}
+      aria-current={active}
+      onClick={onClick}
+    >
+      <span className="ti-top">
+        <span className="ti-title">{t.title}</span>
+        <span className="ti-when">{timeAgo(t.last_msg_at || t.sent_at)}</span>
+      </span>
+      <span className="ti-emp">{t.employer}</span>
+      <span className="ti-foot"><span className={`st ${meta.cls}`}>{meta.label}</span></span>
+      <span className={`odds${o.done ? ' done' : ''}`}>
+        <span className="odds-top"><span>Svarschans</span><b>{o.done ? '—' : o.label}</b></span>
+        <span className={`odds-track ${oddsCls(o.pct)}`} style={{ '--odds': `${o.done ? 100 : o.pct}%` }} />
+      </span>
+    </button>
+  );
+}
+
+// Threads -> campaigns, keeping the order the inbox already sorted them
+// in (most recent activity first), so the campaign that just heard back
+// sits at the top. Applications whose search was deleted keep their own
+// group rather than vanishing: origin_search_id is ON DELETE SET NULL
+// precisely so this degrades instead of breaking.
+function groupByCampaign(threads) {
+  const map = new Map();
+  for (const t of threads) {
+    const key = t.origin_search_id || 'ingen';
+    if (!map.has(key)) {
+      map.set(key, {
+        id: t.origin_search_id || null,
+        name: t.origin_search_id ? (t.search_name || 'Namnlös kampanj') : 'Utan kampanj',
+        purpose: t.campaign_purpose || null,
+        deleted: Boolean(t.search_deleted_at),
+        paused: t.campaign_paused || null,
+        threads: [], replies: 0, todo: 0,
+      });
+    }
+    const g = map.get(key);
+    g.threads.push(t);
+    if (t.status !== 'sent') g.replies += 1;
+    if (Number(t.pending_suggestions) > 0) g.todo += 1;
+  }
+  return [...map.values()];
+}
+
 export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [threads, setThreads] = useState([]);
   const [stats, setStats] = useState(null);
@@ -75,6 +217,8 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [pulsed, setPulsed] = useState(null); // timestamp of last live update
+  const [campaign, setCampaign] = useState('all');   // auto-inbox: which campaign
+  const [collapsed, setCollapsed] = useState({});
   const notify = useNotify();
   const { notifyFrom } = notify;
 
@@ -125,6 +269,13 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     if (filter === 'ghosted') return t.status === 'ghosted';
     return true;
   });
+
+  // The auto-inbox is organised by campaign; the manual one stays flat,
+  // because a letter you wrote yourself belongs to no campaign.
+  const grouped = source === 'auto' ? groupByCampaign(filtered) : [];
+  const visible = campaign === 'all'
+    ? grouped
+    : grouped.filter((g) => String(g.id || 'ingen') === campaign);
 
   async function sendReply(body, suggestedReplyId = null) {
     if (!body?.trim() || !thread) return;
@@ -181,6 +332,23 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
               <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{label}</button>
             ))}
           </div>
+          {source === 'auto' && grouped.length > 1 && (
+            <div className="camp-bar">
+              <button aria-pressed={campaign === 'all'} onClick={() => setCampaign('all')}>
+                Alla kampanjer
+              </button>
+              {grouped.map((g) => (
+                <button
+                  key={g.id || 'ingen'}
+                  aria-pressed={campaign === String(g.id || 'ingen')}
+                  onClick={() => setCampaign(String(g.id || 'ingen'))}
+                  title={g.purpose || ''}
+                >
+                  {g.name}<span className="camp-count">{g.threads.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="stats-strip">
@@ -207,30 +375,27 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
         </div>
 
         <div className="threads">
-          {filtered.map((t) => {
-            const meta = STATUS_META[t.status] || STATUS_META.sent;
-            const o = odds(t);
-            const unread = Number(t.pending_suggestions) > 0;
+          {source === 'auto' ? visible.map((g) => {
+            const key = String(g.id || 'ingen');
+            const shut = !!collapsed[key];
             return (
-              <button
-                key={t.id}
-                className={`thread-item${unread ? ' unread' : ''}`}
-                aria-current={t.id === activeId}
-                onClick={() => setActiveId(t.id)}
-              >
-                <span className="ti-top">
-                  <span className="ti-title">{t.title}</span>
-                  <span className="ti-when">{timeAgo(t.last_msg_at || t.sent_at)}</span>
-                </span>
-                <span className="ti-emp">{t.employer}</span>
-                <span className="ti-foot"><span className={`st ${meta.cls}`}>{meta.label}</span></span>
-                <span className={`odds${o.done ? ' done' : ''}`}>
-                  <span className="odds-top"><span>Svarschans</span><b>{o.done ? '—' : o.label}</b></span>
-                  <span className={`odds-track ${oddsCls(o.pct)}`} style={{ '--odds': `${o.done ? 100 : o.pct}%` }} />
-                </span>
-              </button>
+              <div className="camp-group" key={key}>
+                <CampaignHead
+                  group={g}
+                  collapsed={shut}
+                  onToggle={() => setCollapsed((c) => ({ ...c, [key]: !shut }))}
+                  onSaved={load}
+                />
+                {!shut && g.threads.map((t) => (
+                  <ThreadItem key={t.id} t={t} active={t.id === activeId}
+                    onClick={() => setActiveId(t.id)} />
+                ))}
+              </div>
             );
-          })}
+          }) : filtered.map((t) => (
+            <ThreadItem key={t.id} t={t} active={t.id === activeId}
+              onClick={() => setActiveId(t.id)} />
+          ))}
           {!filtered.length && <div className="empty-thread">Inga ansökningar matchar filtret</div>}
         </div>
       </div>

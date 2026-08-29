@@ -4,6 +4,8 @@
 //   - one global JobStream poll on a timer (never per search)
 //   - scan queue: queues ads for searches whose scan_interval elapsed
 //   - scoring drain: judges queued ads, one score at a time
+//   - embedding: makes new ads rankable without a model call
+//   - prune: retires ads nobody touched, keeps anything with history
 //   - follow-up checker (drafts only, never sends)
 // Postgres is the only channel to the UI.
 // ------------------------------------------------------------
@@ -14,11 +16,15 @@ import { scanSearch, scorePending, MAX_SCORE_ATTEMPTS } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply } from './src/autoapply.js';
 import { runImapLoop } from './src/imap.js';
+import { embedPendingAds } from './src/embed.js';
+import { pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 
 const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
 const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
 const DRAIN_EVERY = 20 * 1000;          // judge queued ads — the user is watching these land
 const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
+const EMBED_EVERY = 60 * 1000;          // embed newly found ads, free and local
+const PRUNE_EVERY = 6 * 60 * 60 * 1000; // retire ads nobody touched
 const AUTOAPPLY_EVERY = 30 * 60 * 1000; // auto-apply campaigns (daily caps do the limiting)
 
 async function pollTick() {
@@ -74,6 +80,43 @@ async function drainTick() {
   }
 }
 
+// Embedding is the cheap half of matching: computed once per ad, then
+// every future ranking is vector arithmetic instead of a model call.
+// It runs in small batches on a short timer so new ads become rankable
+// within a minute or two of being found, rather than in one long
+// backfill that blocks everything else.
+//
+// A failure here is not worth shouting about — the ad simply stays
+// unranked and the next tick retries it — so this logs quietly unless
+// something is actually wrong.
+let embedQuiet = false;
+async function embedTick() {
+  try {
+    const n = await embedPendingAds({ limit: 64 });
+    if (n) {
+      const c = await embeddingCoverage();
+      console.log(`embed: ${n} annonser (${c.embedded}/${c.total}, ${c.pct}%)`);
+      embedQuiet = false;
+    }
+  } catch (err) {
+    if (!embedQuiet) {
+      console.error('embed:', err.message.slice(0, 130));
+      embedQuiet = true;   // say it once, not every minute
+    }
+  }
+}
+
+// Retire ads that no longer exist. Never touches one with an
+// application, a favourite or a score — see src/refresh.js for why
+// that rule is load-bearing rather than merely polite.
+async function pruneTick() {
+  try {
+    await pruneStaleAds();
+  } catch (err) {
+    console.error('prune:', err.message);
+  }
+}
+
 // The only path in this app that sends without a per-letter click.
 // Campaigns are opt-in per search, capped per day, and pause on the
 // first error — see src/autoapply.js for the rails.
@@ -125,12 +168,16 @@ console.log('jobbflo worker starting');
 pollTick();
 scoreTick();
 drainTick();
+embedTick();
+pruneTick();
 followupTick();
 autoApplyTick();
 setInterval(pollTick, POLL_EVERY);
 setInterval(scoreTick, SCORE_EVERY);
 setInterval(drainTick, DRAIN_EVERY);
 setInterval(followupTick, FOLLOWUP_EVERY);
+setInterval(embedTick, EMBED_EVERY);
+setInterval(pruneTick, PRUNE_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {

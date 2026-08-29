@@ -13,6 +13,13 @@ export async function GET(req) {
        a.followup_enabled, a.followup_days, a.followup_sent_at, a.sent_by,
        ads.title, ads.employer, ads.deadline, ads.employer_type,
        s.name AS search_name, s.deleted_at AS search_deleted_at, a.origin_search_id,
+       -- The campaign a thread belongs to, carried on every row so the
+       -- auto-inbox can group by it. A campaign's PURPOSE is its
+       -- criteria_text — the same sentence that decides which ads it
+       -- hunts — so showing it here is showing why this letter was sent.
+       s.criteria_text          AS campaign_purpose,
+       s.auto_apply_enabled     AS campaign_enabled,
+       s.auto_apply_paused_reason AS campaign_paused,
        last_msg.from_name AS last_from_name, last_msg.from_addr AS last_from_addr,
        last_msg.sent_at AS last_msg_at, last_msg.direction AS last_direction,
        left(last_msg.body_text, 120) AS last_preview,

@@ -14,7 +14,8 @@
     "start": "next start",
     "build:check": "node scripts/build-check.js",
     "restart": "node scripts/restart.js",
-    "docker:repair": "node scripts/docker-repair.js"
+    "docker:repair": "node scripts/docker-repair.js",
+    "embed": "node scripts/embed-backfill.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

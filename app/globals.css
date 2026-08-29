@@ -1394,3 +1394,72 @@
 .notify-toggle.on{border-color:var(--ok);}
 .notify-toggle:disabled{opacity:.4;cursor:not-allowed;}
 .notify-toggle:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* ================= KAMPANJGRUPPER I AUTO-INKORGEN ================= */
+  /* Replies from auto-applied letters, grouped under the campaign that
+     sent them. The heading is sticky because a campaign can hold twenty
+     threads, and losing track of which bet you are reading defeats the
+     point of grouping at all. */
+  .camp-bar{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;}
+  .camp-bar button{
+    background:none;border:1px solid var(--tag-border);padding:5px 8px;min-height:30px;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+    letter-spacing:.03em;color:var(--mute);display:flex;align-items:center;gap:6px;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .camp-bar button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .camp-bar button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  .camp-group{border-bottom:2px solid var(--line);}
+  .camp-group:last-child{border-bottom:none;}
+  .camp-head{
+    position:sticky;top:0;z-index:2;background:var(--sidebar);
+    border-bottom:1px solid var(--line);padding:9px 17px;
+  }
+  .camp-top{display:flex;align-items:center;gap:9px;}
+  .camp-toggle{
+    flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;
+    padding:0;cursor:pointer;color:var(--ink);text-align:left;min-height:26px;
+  }
+  .camp-toggle .caret{font-size:10px;color:var(--mute);flex-shrink:0;}
+  .camp-name{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .camp-count{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;
+    background:var(--ink);color:var(--paper);padding:1px 5px;flex-shrink:0;
+  }
+  .camp-bar button[aria-pressed="true"] .camp-count{background:var(--paper);color:var(--ink);}
+  .camp-edit{
+    background:none;border:1px solid var(--tag-border);padding:3px 7px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.03em;color:var(--mute);flex-shrink:0;min-height:24px;
+  }
+  .camp-edit:hover{border-color:var(--ink);color:var(--ink);}
+  .camp-edit:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  .camp-purpose{
+    font-size:10.5px;color:var(--mute);line-height:1.45;margin-top:5px;
+    padding-left:18px;border-left:2px solid var(--tag-border);
+  }
+  .camp-stats{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .camp-stat{
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+    border:1px solid var(--tag-border);padding:2px 5px;
+  }
+  .camp-stat.todo{background:var(--flag);border-color:var(--flag);color:var(--paper);}
+  .camp-stat.warn{color:var(--flag);border-color:var(--flag);}
+
+  .camp-editor{display:flex;flex-direction:column;gap:7px;margin-top:9px;}
+  .camp-editor .ct-input{width:100%;font-size:11.5px;}
+  .camp-editor textarea.ct-input{resize:vertical;line-height:1.45;}
+  .camp-editor .btn{align-self:flex-start;}
+  .camp-editor-note{font-size:9.5px;color:var(--mute);line-height:1.45;}
+  .camp-gone{
+    font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+    border:1px solid var(--tag-border);padding:1px 4px;flex-shrink:0;
+  }

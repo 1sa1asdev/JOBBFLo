@@ -46,7 +46,7 @@ export async function GET() {
 
 // change a campaign's rule
 export async function PATCH(req) {
-  const { searchId, enabled, min_score, daily_limit, clear_campaign } = await req.json();
+  const { searchId, enabled, min_score, daily_limit, clear_campaign, name, criteria } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
 
   const sets = [];
@@ -64,6 +64,49 @@ export async function PATCH(req) {
     vals.push(Math.max(1, Math.min(20, Number(daily_limit))));
     sets.push(`auto_apply_daily_limit = $${vals.length}`);
   }
+  // A campaign's NAME is how its replies are grouped in the inbox, so
+  // renaming it has to be possible without rebuilding the campaign.
+  if (name !== undefined) {
+    const n = String(name || '').trim();
+    if (!n) return NextResponse.json({ error: 'namnet får inte vara tomt' }, { status: 400 });
+    vals.push(n.slice(0, 120)); sets.push(`name = $${vals.length}`);
+  }
+
+  // The campaign's PURPOSE — what it is hunting for. Editing it re-runs
+  // layer 1, because the criteria are what produce the API filters, and
+  // stale filters would keep finding the old kind of ad.
+  //
+  // It must NOT wipe the pool the way chat.js used to: candidates found
+  // under the old criteria go, but a favourite or a paid verdict is a
+  // human decision and survives. Same rule, same reason.
+  let criteriaChanged = false;
+  let parseError = null;
+  if (criteria !== undefined) {
+    const text = String(criteria || '').trim();
+    if (!text) return NextResponse.json({ error: 'syftet får inte vara tomt' }, { status: 400 });
+    vals.push(text); sets.push(`criteria_text = $${vals.length}`);
+    sets.push(`criteria_changed_at = now()`, `fetch_offset = 0`,
+              `fetch_total = NULL`, `fetch_done_at = NULL`, `dropped_filters = NULL`);
+
+    try {
+      const { parseCriteria } = await import('../../../src/score.js');
+      const { filters } = await parseCriteria(text);
+      vals.push(JSON.stringify(filters || {}));
+      sets.push(`api_filters = $${vals.length}`);
+      criteriaChanged = true;
+    } catch (err) {
+      // No key, model down, out of credit. Do NOT substitute a crude
+      // free-text filter here: the existing api_filters are the result
+      // of a successful parse, and replacing working taxonomy filters
+      // with `{q: ...}` would quietly widen the campaign to everything.
+      // Keep the new purpose text, keep the old filters, and say so —
+      // a stale filter the user knows about beats a silent downgrade.
+      console.error('kampanjsyfte: kunde inte tolka kriterier —', err.message);
+      parseError = 'Syftet sparades, men kunde inte översättas till filter just nu — '
+        + 'kampanjen söker vidare med de gamla filtren. Spara igen när modellen svarar.';
+    }
+  }
+
   // remove the campaign without touching the search it rides on
   if (clear_campaign) {
     sets.push(`campaign_letter = NULL`, `campaign_subject = NULL`,
@@ -74,7 +117,31 @@ export async function PATCH(req) {
   const { rows: [s] } = await pool.query(
     `UPDATE searches SET ${sets.join(', ')} WHERE id = $1 AND deleted_at IS NULL RETURNING *`, vals
   );
-  return NextResponse.json(s);
+
+  // A soft-deleted search matches nothing, and returning the resulting
+  // `undefined` made this route answer every such call with an empty
+  // 500 — no status, no message, nothing to act on. The inbox links
+  // back to deleted searches by design (origin_search_id survives the
+  // delete), so this is a normal request, not an exceptional one.
+  if (!s) {
+    return NextResponse.json(
+      { error: 'Sökningen finns inte längre — kampanjen kan inte ändras.' },
+      { status: 404 }
+    );
+  }
+
+  if (criteriaChanged) {
+    const { rowCount: dropped } = await pool.query(
+      `DELETE FROM match_results
+       WHERE search_id = $1 AND shortlisted_at IS NULL AND score IS NULL`, [searchId]
+    );
+    console.log(`kampanjsyfte ändrat: ${dropped} kandidater rensade, favoriter och bedömningar behållna`);
+    // free: one API call per page, no model
+    const { scanSearch } = await import('../../../src/score.js');
+    scanSearch(searchId, { pages: 2 }).catch((e) => console.error(`kampanj-scan ${searchId}:`, e.message));
+  }
+
+  return NextResponse.json(parseError ? { ...s, warning: parseError } : s);
 }
 
 // dry run: show exactly what a campaign would send, without sending
