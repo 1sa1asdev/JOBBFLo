@@ -196,6 +196,11 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
 // sometimes turn "hybrid är okej" into remote=true and match nothing.
 // An empty result is the worst failure mode here — it's
 // indistinguishable from "no such jobs exist" — so broaden and retry.
+// JobSearch refuses offsets past 2000, so a result set larger than this
+// cannot be paged through however long we are willing to wait. Above it
+// the worktime filter has to stay on the API side.
+const RELAX_CAP = 2000;
+
 const BROADENING_LADDER = [
   ['remote', 'employment-type'],
   ['experience-required'],
@@ -246,7 +251,47 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
   // zero hits (the API doesn't error on an unknown name).
   let filters = await resolveFilters(rawFilters);
 
-  let body = await runQuery(buildQuery(filters, limit, offset));
+  // ----------------------------------------------------------
+  // "Deltid" is a preference, not a fact the data reliably carries.
+  //
+  // Of 455 restaurant ads in Stockholm, 247 say Heltid, 120 say Deltid,
+  // and 88 say NOTHING AT ALL on this axis. Asking JobSearch for
+  // worktime-extent=Deltid returns the 120 and silently discards the 88
+  // — among them "Spelledare (kvällar och helger)", "Nattreceptionist
+  // för extraarbete" and two "Chef - Extra". Those are the exact jobs
+  // the filter was meant to find, and they were invisible.
+  //
+  // The API cannot express "Deltid OR unspecified", so the only way to
+  // see the unmarked ads is to ask without the filter and sort them out
+  // here: keep the wanted extent, keep the unmarked, drop only ads that
+  // explicitly say something else. That is the same rule as the dupe
+  // check — hiding a job the user hasn't seen is the worse failure.
+  //
+  // It is not free: the relaxed set is larger, so it costs more pages.
+  // Above RELAX_CAP we keep the hard filter, because JobSearch refuses
+  // offsets past 2000 and a set that big cannot be paged through at all.
+  // Pages are free (no model runs until the user asks), so the ceiling
+  // is the API's, not the budget's.
+  // ----------------------------------------------------------
+  const wanted = [].concat(filters['worktime-extent'] ?? []).filter(Boolean);
+  let softWorktime = null;
+
+  let body;
+  if (wanted.length) {
+    const relaxed = { ...filters };
+    delete relaxed['worktime-extent'];
+    body = await runQuery(buildQuery(relaxed, limit, offset));
+    if ((body.total?.value ?? 0) <= RELAX_CAP) {
+      softWorktime = new Set(wanted);
+      filters = relaxed;
+      console.log(`  omfattning bedöms här, inte i API:t (${body.total?.value} annonser att gå igenom)`);
+    } else {
+      // too large to page through — fall back to the strict query
+      body = await runQuery(buildQuery(filters, limit, offset));
+    }
+  } else {
+    body = await runQuery(buildQuery(filters, limit, offset));
+  }
   // What the ladder had to throw away to get any hits at all. Returned
   // so the UI can say so: a requirement that is silently ignored looks
   // exactly like a filter that does not work.
@@ -268,13 +313,26 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
   const client = await pool.connect();
   try {
     const ids = [];
+    let skipped = 0;
     for (const raw of body.hits || []) {
+      // Drop only an explicit contradiction. An ad with no concept on
+      // this axis is unknown, not disqualified, and stays in.
+      if (softWorktime) {
+        const got = raw.working_hours_type?.concept_id;
+        if (got && !softWorktime.has(got)) { skipped += 1; continue; }
+      }
       const { id } = await upsertAd(client, mapAd(raw));
       ids.push(id);
     }
     const total = body.total?.value ?? null;
-    console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches)`);
-    return { ids, total, offset, dropped };
+    console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches`
+      + `${skipped ? `, ${skipped} med annan omfattning överhoppade` : ''})`);
+    // `fetched` is how far the cursor moved through the API's result
+    // set; `ids` is only what we kept. They used to be the same number,
+    // and advancing by ids.length now would re-read half of every page
+    // forever — the ads sorted out here still occupy their slot in the
+    // API's ordering.
+    return { ids, fetched: (body.hits || []).length, total, offset, dropped };
   } finally {
     client.release();
   }

@@ -231,11 +231,16 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
     adIds.push(...res.ids);
     if (res.total != null) total = res.total;
     if (res.dropped?.length) dropped = res.dropped;
-    offset = res.offset + res.ids.length;
+    // Advance by what the API served, not by what we kept. Ads filtered
+    // out on omfattning still take up their place in the result set, so
+    // counting only the keepers walked the cursor at half speed and
+    // re-read the same window every page.
+    const read = res.fetched ?? res.ids.length;
+    offset = res.offset + read;
 
     // exhausted: either the API returned a short page or we passed the
     // total or JobSearch's offset ceiling
-    if (!res.ids.length || (total != null && offset >= total) || offset >= 2000) {
+    if (!read || (total != null && offset >= total) || offset >= 2000) {
       offset = 0;
       await pool.query(
         `UPDATE searches SET fetch_done_at = now() WHERE id = $1`, [searchId]
