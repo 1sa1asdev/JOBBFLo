@@ -1463,3 +1463,6 @@
     letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
     border:1px solid var(--tag-border);padding:1px 4px;flex-shrink:0;
   }
+  /* Applications the user made through the ad's own link: tracked, but
+     there is no thread behind them. */
+  .st.ext{background:none;border:1px solid var(--tag-border);color:var(--mute);}

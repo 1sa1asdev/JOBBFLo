@@ -93,7 +93,10 @@ export async function GET(req, { params }) {
        -- but it answered a different question
        (m.scored_at IS NOT NULL AND sr.criteria_changed_at IS NOT NULL
         AND m.scored_at < sr.criteria_changed_at) AS stale,
-       app.id AS application_id
+       app.id AS application_id,
+       -- 'external' means the user applied through the ad's own link.
+       -- The card must not claim the app sent a letter it never sent.
+       app.sent_by AS sent_by
      FROM search_results r
      JOIN match_results m ON m.search_id = r.search_id AND m.ad_id = r.ad_id
      JOIN ads a ON a.id = r.ad_id

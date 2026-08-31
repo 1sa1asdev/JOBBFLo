@@ -170,7 +170,13 @@ function ThreadItem({ t, active, onClick }) {
         <span className="ti-when">{timeAgo(t.last_msg_at || t.sent_at)}</span>
       </span>
       <span className="ti-emp">{t.employer}</span>
-      <span className="ti-foot"><span className={`st ${meta.cls}`}>{meta.label}</span></span>
+      <span className="ti-foot">
+        <span className={`st ${meta.cls}`}>{meta.label}</span>
+        {/* No message_id and no thread — a reply here will arrive
+            somewhere this app cannot follow, so say so plainly rather
+            than let the empty thread read as silence from the employer. */}
+        {t.sent_by === 'external' && <span className="st ext">Via länk</span>}
+      </span>
       <span className={`odds${o.done ? ' done' : ''}`}>
         <span className="odds-top"><span>Svarschans</span><b>{o.done ? '—' : o.label}</b></span>
         <span className={`odds-track ${oddsCls(o.pct)}`} style={{ '--odds': `${o.done ? 100 : o.pct}%` }} />

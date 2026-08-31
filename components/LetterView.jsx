@@ -115,6 +115,19 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     setBusy(false);
   }
 
+  // Records an application the user made elsewhere. Deliberately not in
+  // mailer.js and deliberately not called "send" — nothing goes out.
+  async function markExternal() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/applications/${application.id}/external`, { method: 'POST', body: {} });
+      setJustSent(true);
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
   if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   const { ad, match, duplicates } = data;
@@ -316,15 +329,28 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
               : <>Annonsen saknar ansökningsväg</>}
         </div>
         {sent ? (
-          <span className="gate-status">✓ Skickad {application.sent_at ? new Date(application.sent_at).toLocaleString('sv-SE') : ''}</span>
+          <span className="gate-status">
+            {/* Never claim the app sent something it did not send. */}
+            {application.sent_by === 'external' ? '✓ Ansökt via länken ' : '✓ Skickad '}
+            {application.sent_at ? new Date(application.sent_at).toLocaleString('sv-SE') : ''}
+          </span>
         ) : (
           <>
             <div className="warn">⚠ Inget skickas utan din bekräftelse</div>
             <div className="acts">
               {!ad.apply_email && application && (
-                <button className="btn" onClick={() => navigator.clipboard.writeText(application.letter_text)}>
-                  Kopiera brev
-                </button>
+                <>
+                  <button className="btn" onClick={() => navigator.clipboard.writeText(application.letter_text)}>
+                    Kopiera brev
+                  </button>
+                  {/* Without this the letter was the end of the road for
+                      61% of favourites: applied somewhere the app cannot
+                      see, tracked nowhere, no follow-up. Nothing is sent
+                      here — it only records what already happened. */}
+                  <button className="btn" disabled={busy} onClick={markExternal}>
+                    Jag har ansökt via länken
+                  </button>
+                </>
               )}
               {ad.apply_email && (
                 <button

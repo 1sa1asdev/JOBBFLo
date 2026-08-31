@@ -494,6 +494,12 @@ export async function calibration(profileId, { minSample = 20 } = {}) {
      JOIN searches s ON s.id = m.search_id AND s.profile_id = $1
      WHERE app.status <> 'drafted'
        AND m.score IS NOT NULL   -- unjudged is not the same as low
+       -- An application the user made through the ad's own link has no
+       -- message_id and often gets answered in a thread or an ATS this
+       -- app never sees. Silence there is missing data, not a rejection,
+       -- and counting it as one would drag every band's response rate
+       -- down for a reason that has nothing to do with the score.
+       AND app.sent_by <> 'external'
      GROUP BY band ORDER BY band DESC`,
     [profileId]
   );

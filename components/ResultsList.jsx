@@ -12,7 +12,7 @@ function statusChip(r) {
   if (r.applied_via_other_search) return { cls: 'sent', label: 'Sökt via annan sökning' };
   switch (r.application_status) {
     case 'drafted': return { cls: 'drafted', label: 'Utkast' };
-    case 'sent': return { cls: 'sent', label: 'Skickad' };
+    case 'sent': return { cls: 'sent', label: r.sent_by === 'external' ? 'Ansökt via länk' : 'Skickad' };
     case 'replied': return { cls: 'fresh', label: 'Svar inne' };
     case 'interview': return { cls: 'fresh', label: 'Intervju' };
     case 'rejected': return { cls: 'sent', label: 'Avslag' };
@@ -389,7 +389,8 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 <div className="reasoning">
                   {isSent
                     ? <span className="rsent">
-                        Ansökan skickad{r.sent_at ? ` ${fmtDate(r.sent_at)}` : ''}
+                        {r.sent_by === 'external' ? 'Ansökt via annonsens länk' : 'Ansökan skickad'}
+                        {r.sent_at ? ` ${fmtDate(r.sent_at)}` : ''}
                         {r.application_status === 'replied' && ' — svar inne, se Inkorgen'}
                         {r.application_status === 'interview' && ' — intervjuförfrågan, se Inkorgen'}
                         {r.application_status === 'rejected' && ' — avslag'}
@@ -439,7 +440,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
               <div className="action-col">
                 {isSent ? (
                   <div className="sent-mark">
-                    <b>✓ Skickad</b>
+                    <b>{r.sent_by === 'external' ? '✓ Ansökt' : '✓ Skickad'}</b>
                     {r.sent_at && <span>{fmtDate(r.sent_at)}</span>}
                     <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
                       Visa →
