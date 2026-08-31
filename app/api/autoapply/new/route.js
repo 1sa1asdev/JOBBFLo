@@ -40,8 +40,8 @@ export async function POST(req) {
     // ~79% of the pool, and it is why campaigns skip the chat question.
     `INSERT INTO searches (profile_id, name, criteria_text, api_filters,
        auto_apply_enabled, auto_apply_min_score, auto_apply_daily_limit,
-       apply_filter)
-     VALUES ($1,$2,$3,$4,false,$5,$6,'email') RETURNING *`,
+       apply_filter, campaign_created_at)
+     VALUES ($1,$2,$3,$4,false,$5,$6,'email',now()) RETURNING *`,
     [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      Math.max(0, Math.min(100, Number(min_score) || 85)),
      Math.max(1, Math.min(20, Number(daily_limit) || 3))]

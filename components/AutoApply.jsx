@@ -181,6 +181,16 @@ export default function AutoApply({ onFindSimilar }) {
           {error && <div className="err-note" style={{ margin: '0 0 12px' }}>{error}</div>}
 
           <div className="auto-list">
+            {/* Before, this list showed every saved search, so it was
+                never empty and never honest. Now that it holds only real
+                campaigns it can be empty — and empty needs to say so
+                rather than look like something failed to load. */}
+            {!data.searches.length && !creating && (
+              <p className="hint">
+                Inga kampanjer än. En sökning i biblioteket blir inte en kampanj av sig
+                själv — skapa en här när du vill att appen ansöker åt dig.
+              </p>
+            )}
             {data.searches.map((s) => {
               const queue = s.candidates || [];
               const d = dry[s.id];
@@ -261,9 +271,35 @@ export default function AutoApply({ onFindSimilar }) {
                     </label>
                   </div>
 
+                  {/* The only setting here that changes what gets spent.
+                      Off, no model reads the ad text and the API filters
+                      decide alone — cheap, and blunt in exactly the way
+                      the copy says. */}
+                  <div className="auto-scoring">
+                    <label className="auto-switch">
+                      <input
+                        type="checkbox"
+                        checked={!s.auto_apply_require_score}
+                        onChange={(e) => update(s.id, { require_score: !e.target.checked })}
+                      />
+                      <span>Ansök utan att bedöma annonserna först</span>
+                    </label>
+                    <p className="hint">
+                      {s.auto_apply_require_score
+                        ? <>Varje annons bedöms av en modell innan den räknas — det är
+                            den enda delen av kampanjen som kostar tokens.</>
+                        : <><b>Inga tokens.</b> Kampanjen litar helt på sökfiltren:
+                            ingen modell läser annonstexten, så inget fångar krav som
+                            taxonomin inte uttrycker. Annonser som redan har poäng måste
+                            fortfarande nå {s.auto_apply_min_score}.</>}
+                    </p>
+                  </div>
+
                   <div className="auto-queue">
                     <span className="auto-queue-title">
-                      Näst på tur ({queue.length}) — annonser över {s.auto_apply_min_score} poäng med mejladress
+                      Näst på tur ({queue.length}) — {s.auto_apply_require_score
+                        ? <>annonser över {s.auto_apply_min_score} poäng med mejladress</>
+                        : <>annonser med mejladress som matchar filtren, bedömda eller ej</>}
                     </span>
                     {queue.length === 0 && <p className="hint">Inga annonser uppfyller regeln just nu.</p>}
                     {queue.map((c) => (

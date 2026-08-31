@@ -1487,3 +1487,11 @@
   }
   .undo-btn:hover:not(:disabled){color:var(--flag);}
   .undo-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* Whether a campaign pays for a verdict before it applies. */
+  .auto-scoring{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .auto-switch{display:flex;align-items:center;gap:9px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--ink);}
+  .auto-switch input{width:15px;height:15px;accent-color:var(--flag);cursor:pointer;flex-shrink:0;}
+  .auto-scoring .hint{margin-top:6px;}

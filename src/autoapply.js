@@ -84,7 +84,13 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
        AND a.apply_email IS NOT NULL             -- the ad invites email
        AND a.removed_at IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
-       AND r.score >= s.auto_apply_min_score
+       -- A verdict, once paid for, is never ignored: a scored ad must
+       -- clear the threshold either way. What the toggle changes is
+       -- whether an UNJUDGED ad may go out at all — with it off the API
+       -- filters are the only thing standing between the criteria and a
+       -- letter, which is cheap and blunt, and the point of the setting.
+       AND (r.score >= s.auto_apply_min_score
+            OR (NOT s.auto_apply_require_score AND r.score IS NULL))
        -- a repost carries a new ad id but the same fingerprint;
        -- applying again would be a second letter for one job
        AND NOT EXISTS (
@@ -98,7 +104,11 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
          WHERE ap2.profile_id = pr.id AND ap2.sent_by = 'auto'
            AND lower(ap2.sent_to) = lower(a.apply_email)
        )
-     ORDER BY r.score DESC, a.deadline ASC NULLS LAST
+     -- NULLS LAST is load-bearing now that unscored ads can appear here:
+     -- a plain score DESC sorts NULLs FIRST in Postgres, which would put
+     -- every unjudged ad ahead of every high-scoring one and spend the
+     -- daily limit on exactly the ads nobody vouched for.
+     ORDER BY r.score DESC NULLS LAST, a.deadline ASC NULLS LAST
      LIMIT $2`,
     [searchId, limit]
   );
