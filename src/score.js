@@ -374,8 +374,36 @@ export async function scorePending(searchId, { limit = 20 } = {}) {
   }
 }
 
+// How many more ads may be scored today, for the profile this search
+// belongs to. The budget is per day and per profile, not per search —
+// five searches draining at once must share one allowance, or the cap
+// is five times what it says.
+async function scoreBudgetLeft(searchId) {
+  const { rows: [b] } = await pool.query(
+    `SELECT p.daily_score_limit AS cap,
+       (SELECT count(*) FROM match_results m2
+        JOIN searches s2 ON s2.id = m2.search_id
+        WHERE s2.profile_id = p.id
+          AND m2.scored_at >= date_trunc('day', now())) AS used
+     FROM searches s JOIN profile p ON p.id = s.profile_id
+     WHERE s.id = $1`, [searchId]
+  );
+  if (!b) return 0;
+  return { left: Math.max(0, Number(b.cap) - Number(b.used)),
+           cap: Number(b.cap), used: Number(b.used) };
+}
+
 async function drainQueue(searchId, { limit }) {
   const { search, projects } = await loadSearchContext(searchId);
+
+  // Checked before the queue is read, so a spent budget costs one cheap
+  // count instead of a page of ads we are not allowed to judge.
+  const budget = await scoreBudgetLeft(searchId);
+  if (!budget.left) {
+    console.log(`dygnsgränsen nådd: ${budget.used}/${budget.cap} bedömda idag — inget mer bedöms förrän imorgon`);
+    return [];
+  }
+  limit = Math.min(limit, budget.left);
 
   const { rows: ads } = await pool.query(
     `SELECT a.* FROM match_results m
@@ -398,6 +426,16 @@ async function drainQueue(searchId, { limit }) {
   const results = [];
 
   for (const ad of ads) {
+    // Re-checked per ad, not just per batch. Two searches draining
+    // concurrently each hold their own advisory lock, so a batch-level
+    // clamp alone would let each take the full allowance and spend
+    // double the cap. This is the check that makes the number real.
+    const now = await scoreBudgetLeft(searchId);
+    if (!now.left) {
+      console.log(`dygnsgränsen nådd mitt i kön: ${now.used}/${now.cap} — resten väntar till imorgon`);
+      break;
+    }
+
     try {
       const r = await scoreAd({
         ad,

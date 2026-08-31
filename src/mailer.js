@@ -99,6 +99,12 @@ export async function sendApplication(applicationId, { to } = {}) {
   const recipient = to || app.apply_email;
   if (!recipient) throw new Error('annonsen saknar ansöknings-mejl — sök via länken istället');
 
+  // Deliberately NO address-duplicate check here. This function serves
+  // both paths, and applying by hand to two roles at one employer is a
+  // decision the user is entitled to make — a human is reading each
+  // letter before it goes. The address guard belongs to campaigns,
+  // where nobody is, and lives in candidatesFor and the auto-only
+  // unique index instead.
   const from = aliasFrom(app.email_alias);
   const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
 

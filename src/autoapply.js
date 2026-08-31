@@ -98,10 +98,14 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
          JOIN ads prev ON prev.id = ap.ad_id
          WHERE ap.profile_id = pr.id AND prev.fingerprint = a.fingerprint
        )
-       -- and never a second auto-mail to an address already contacted
+       -- Never a second letter to an address already written to, by
+       -- ANY route. The old version checked sent_by = 'auto' only, so a
+       -- campaign would happily mail a recruiter the user had already
+       -- contacted by hand — and a fresh ad from that recruiter carries
+       -- a new ad_id, so the per-ad guard never saw it either.
        AND NOT EXISTS (
          SELECT 1 FROM applications ap2
-         WHERE ap2.profile_id = pr.id AND ap2.sent_by = 'auto'
+         WHERE ap2.profile_id = pr.id AND ap2.sent_to IS NOT NULL
            AND lower(ap2.sent_to) = lower(a.apply_email)
        )
      -- NULLS LAST is load-bearing now that unscored ads can appear here:
@@ -197,12 +201,17 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
         continue;
       }
 
-      // one address may only ever receive one auto-sent letter. The
-      // DB enforces this too (applications_auto_one_per_address); this
-      // check just avoids creating a row that would violate it.
+      // One letter per address from a campaign — and it counts letters
+      // the USER sent by hand too, so a campaign never writes to a
+      // recruiter already contacted. (The reverse is allowed: a manual
+      // letter to an address a campaign used is the user's call.)
+      // The DB backs the auto-vs-auto half of this with
+      // applications_auto_one_per_address; this check is what catches
+      // the manual-then-auto case, which no index covers, and avoids
+      // creating a row that would violate the index anyway.
       const { rows: [dupe] } = await pool.query(
         `SELECT 1 FROM applications
-         WHERE profile_id = $1 AND sent_by = 'auto' AND id <> $2
+         WHERE profile_id = $1 AND id <> $2 AND sent_to IS NOT NULL
            AND lower(sent_to) = lower($3) LIMIT 1`,
         [search.profile_id, app.id, c.apply_email]);
       if (dupe) {
