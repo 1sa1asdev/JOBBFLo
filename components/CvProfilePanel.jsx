@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import Dots from './Dots';
 
@@ -61,6 +61,63 @@ export function HomePanel({ profile, onChanged }) {
         </button>
       </div>
       {msg && <div className="home-msg">✓ {msg}</div>}
+      {err && <div className="err-note">{err}</div>}
+    </section>
+  );
+}
+
+// ------------------------------------------------------------
+// Whether the worker is allowed to spend money embedding ads.
+//
+// Off by default. Embedding costs per ad and nothing reads the vectors
+// yet, so with no credit the only thing the 60-second tick achieved was
+// a 402 in the log every minute — and a background job that fails
+// forever is how a real failure later gets ignored.
+//
+// The vectors already paid for are kept either way. Switching this off
+// pauses the spending; it does not throw away the 17 000 ads already
+// done, which would make turning it back on cost twice.
+// ------------------------------------------------------------
+export function EmbeddingPanel() {
+  const [s, setS] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    api('/api/profile/embeddings').then(setS).catch((e) => setErr(e.message));
+  }, []);
+
+  async function toggle(next) {
+    setBusy(true); setErr(null);
+    try { setS(await api('/api/profile/embeddings', { method: 'PATCH', body: { enabled: next } })); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  if (!s) return null;
+
+  return (
+    <section className="cvprofile">
+      <div className="cvp-head">
+        <div>
+          <h3>Vektorindex för annonser</h3>
+          <p className="cvp-sub">
+            {s.enabled
+              ? <>På. Nya annonser indexeras i bakgrunden, ungefär
+                  <b> ${s.estimatedUsd.toFixed(2)}</b> för de {s.remaining.toLocaleString('sv-SE')} som
+                  återstår. Betalas per annons, en gång.</>
+              : <>Av. Ingenting indexeras och inget kostar något. Resten av appen
+                  påverkas inte — sökning, bedömning och brev använder inte
+                  vektorerna än.</>}
+            {' '}
+            {s.embedded.toLocaleString('sv-SE')} av {s.total.toLocaleString('sv-SE')} annonser
+            är redan indexerade ({s.pct}%) och behålls oavsett.
+          </p>
+        </div>
+        <button className="btn" onClick={() => toggle(!s.enabled)} disabled={busy}>
+          {busy ? <>Sparar<Dots label="Sparar" /></> : s.enabled ? 'Stäng av' : 'Slå på'}
+        </button>
+      </div>
       {err && <div className="err-note">{err}</div>}
     </section>
   );

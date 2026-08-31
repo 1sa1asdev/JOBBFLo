@@ -8,6 +8,19 @@ import { embedPendingAds, embedConfig } from '../src/embed.js';
 import { embeddingCoverage } from '../src/refresh.js';
 import { pool } from '../src/db.js';
 
+// Run by hand, so it is allowed to override the switch — but never
+// silently. Spending money because a script did not check a setting the
+// user turned off is the failure this guard exists to prevent.
+const { rows: [p] } = await pool.query(`SELECT embeddings_enabled FROM profile LIMIT 1`);
+if (!p?.embeddings_enabled && !process.argv.includes('--force')) {
+  const cov = await embeddingCoverage();
+  console.log('Vektorindexering är avstängd i Profil, så inget körs.');
+  console.log(`  ${cov.embedded} av ${cov.total} annonser är redan indexerade (${cov.pct}%).`);
+  console.log('  Slå på den i Profil, eller kör "npm run embed -- --force" en gång.');
+  await pool.end();
+  process.exit(0);
+}
+
 const cfg = embedConfig();
 console.log(`backfill via ${cfg.provider}:${cfg.model}`);
 

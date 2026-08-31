@@ -89,9 +89,17 @@ async function drainTick() {
 // A failure here is not worth shouting about — the ad simply stays
 // unranked and the next tick retries it — so this logs quietly unless
 // something is actually wrong.
+// Off by default, because it costs money per ad and nothing reads the
+// vectors yet. Checked here rather than inside embedPendingAds so the
+// switch governs the SCHEDULED spend specifically — a deliberate
+// backfill run by hand can still say otherwise.
 let embedQuiet = false;
 async function embedTick() {
   try {
+    const { rows: [p] } = await pool.query(
+      `SELECT embeddings_enabled FROM profile LIMIT 1`);
+    if (!p?.embeddings_enabled) return;
+
     const n = await embedPendingAds({ limit: 64 });
     if (n) {
       const c = await embeddingCoverage();
