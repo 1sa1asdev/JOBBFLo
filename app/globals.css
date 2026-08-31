@@ -1156,8 +1156,13 @@
 .chat-tools{flex-shrink:0;border-bottom:1px solid var(--line);background:var(--panel);padding:9px 17px;}
 .ct-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
 .ct-row:last-child{margin-bottom:0;}
+/* Wide enough for the longest label ("OMFATTNING"), not just the
+   shortest. At 26px — sized when the labels were "ORT" and "CV" —
+   anything longer overflowed its box and printed on top of the control
+   beside it. Fixed rather than auto so the three rows still line up. */
 .ct-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--mute);width:26px;flex-shrink:0;}
+  text-transform:uppercase;color:var(--mute);width:68px;flex-shrink:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .ct-input{flex:1;min-width:0;border:1px solid var(--tag-border);background:var(--paper);
   padding:6px 8px;min-height:32px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);}
 .ct-input:focus{outline:2px solid var(--flag);outline-offset:1px;}
