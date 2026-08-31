@@ -189,6 +189,31 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setBusyAd(null);
   }
 
+  // Records an application made on the employer's own site. Costs
+  // nothing, sends nothing, and needs no letter — for a link-only ad
+  // the letter is usually never used anyway.
+  async function markApplied(adId) {
+    setBusyAd(adId);
+    setError(null);
+    try {
+      await api(`/api/ads/${adId}/applied`, {
+        method: 'POST', body: { searchId: search?.id || null },
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
+  async function undoApplied(adId) {
+    setBusyAd(adId);
+    setError(null);
+    try {
+      await api(`/api/ads/${adId}/applied`, { method: 'DELETE' });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
   if (creatingSearch) {
     return (
       <div className="stage-view" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -445,6 +470,18 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                     <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
                       Visa →
                     </button>
+                    {/* Undo, because one click marked it and one click
+                        should unmark it. Refused server-side once a
+                        letter or a mail thread exists. */}
+                    {r.sent_by === 'external' && (
+                      <button
+                        className="undo-btn"
+                        disabled={busyAd === r.ad_id}
+                        onClick={(e) => { e.stopPropagation(); undoApplied(r.ad_id); }}
+                      >
+                        Ångra
+                      </button>
+                    )}
                   </div>
                 ) : unjudged ? (
                   <button
@@ -469,6 +506,22 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 ) : (
                   <button className="open-btn" onClick={(e) => { e.stopPropagation(); onOpenAd(r.ad_id); }}>
                     {isDraft ? 'Granska utkast →' : 'Skriv brev →'}
+                  </button>
+                )}
+
+                {/* Link-only ads are applied to on the employer's site,
+                    so the app never learns it happened. This is the only
+                    way such a job stops looking untouched — and it sits
+                    outside the chain above because you can apply to a job
+                    whether or not you ever had it judged. */}
+                {!isSent && !r.apply_email && r.apply_url && (
+                  <button
+                    className="applied-btn"
+                    disabled={busyAd === r.ad_id}
+                    title="Registrera att du sökt via annonsens länk — inget mejl skickas"
+                    onClick={(e) => { e.stopPropagation(); markApplied(r.ad_id); }}
+                  >
+                    {busyAd === r.ad_id ? <Dots label="Sparar" /> : '✓ Sökt'}
                   </button>
                 )}
               </div>

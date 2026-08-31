@@ -1466,3 +1466,24 @@
   /* Applications the user made through the ad's own link: tracked, but
      there is no thread behind them. */
   .st.ext{background:none;border:1px solid var(--tag-border);color:var(--mute);}
+
+  /* "Jag har sökt" — records an application made on the employer's own
+     site. Secondary to the primary action on the card: it is a record,
+     not the next step. */
+  .applied-btn{
+    margin-top:6px;font-size:9.5px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;
+    border:1px solid var(--tag-border);background:none;color:var(--mute);
+    padding:8px 11px;min-height:34px;cursor:pointer;white-space:nowrap;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  }
+  .applied-btn:hover:not(:disabled){border-color:var(--ok);color:var(--ok);}
+  .applied-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+  .applied-btn:disabled{opacity:.55;cursor:default;}
+  .undo-btn{
+    margin-top:4px;background:none;border:none;padding:2px;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);text-decoration:underline;
+  }
+  .undo-btn:hover:not(:disabled){color:var(--flag);}
+  .undo-btn:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
