@@ -5,6 +5,7 @@ import { usePoll } from '../lib/usePoll.js';
 import Inbox from './Inbox.jsx';
 import CampaignLetter from './CampaignLetter.jsx';
 import Dots from './Dots';
+import LocationPicker from './LocationPicker.jsx';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -252,6 +253,23 @@ export default function AutoApply({ onFindSimilar }) {
                     <div className="auto-paused">⏸ Pausad: {s.auto_apply_paused_reason}</div>
                   )}
 
+                  {/* A campaign can cover several places at once —
+                      Linköping and Stockholm is one campaign, not two.
+                      Same control as the search strip, because it is
+                      the same question. */}
+                  <div className="auto-locs">
+                    <LocationPicker
+                      label="Orter"
+                      value={s.location || []}
+                      onSave={async (next) => {
+                        await api(`/api/searches/${s.id}`, {
+                          method: 'PATCH', body: { location: next },
+                        });
+                        await load();
+                      }}
+                    />
+                  </div>
+
                   <div className="auto-rules">
                     <label>
                       <span>Minsta matchpoäng</span>
@@ -269,6 +287,36 @@ export default function AutoApply({ onFindSimilar }) {
                         onChange={(e) => update(s.id, { daily_limit: e.target.value })}
                       />
                     </label>
+                  </div>
+
+                  {/* Criteria the taxonomy cannot express. "Bara juniora
+                      roller" is not a filter — seniority lives in the ad's
+                      prose — so this is read by the model while it scores,
+                      as a gate rather than a preference. Which is exactly
+                      why it does nothing when scoring is off, and says so. */}
+                  <div className="auto-must">
+                    <label>
+                      <span>Absolut krav (fritext)</span>
+                      <textarea
+                        className="txt-area" rows={2}
+                        placeholder="T.ex. bara juniora utvecklarroller, inga chefsroller"
+                        defaultValue={s.must_criteria || ''}
+                        onBlur={(e) => {
+                          if ((e.target.value || '') !== (s.must_criteria || '')) {
+                            update(s.id, { must_criteria: e.target.value });
+                          }
+                        }}
+                      />
+                    </label>
+                    <p className="hint">
+                      {!s.auto_apply_require_score && s.must_criteria
+                        ? <><b className="warn">Gäller inte just nu.</b> Kravet läses av modellen
+                            när annonsen bedöms, och bedömning är avstängd nedan — slå på den
+                            för att kravet ska ha någon effekt.</>
+                        : <>Läses av modellen vid bedömningen. Uppfylls det inte får annonsen
+                            högst 15 poäng och hamnar därmed under gränsen — inget brev skickas.
+                            Går det inte att avgöra ur annonstexten räknas kravet som ej uppfyllt.</>}
+                    </p>
                   </div>
 
                   {/* The only setting here that changes what gets spent.

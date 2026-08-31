@@ -1495,3 +1495,32 @@
     letter-spacing:.04em;text-transform:uppercase;color:var(--ink);}
   .auto-switch input{width:15px;height:15px;accent-color:var(--flag);cursor:pointer;flex-shrink:0;}
   .auto-scoring .hint{margin-top:6px;}
+
+  /* ============ ORTVÄLJARE (flera orter per sökning) ============ */
+  .locpick{flex:1;min-width:0;}
+  .locpick-row{display:flex;align-items:center;gap:9px;}
+  .locpick-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+  .locchip{
+    display:inline-flex;align-items:center;gap:6px;
+    border:1px solid var(--ink);background:var(--panel);
+    padding:3px 4px 3px 8px;font-size:10.5px;
+  }
+  .locchip button{
+    background:none;border:none;cursor:pointer;color:var(--mute);
+    font-size:11px;line-height:1;padding:2px 4px;min-height:20px;
+  }
+  .locchip button:hover{color:var(--flag);}
+  .locchip button:focus-visible{outline:2px solid var(--flag);outline-offset:1px;}
+  .locpick-note{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--mute);
+    text-transform:uppercase;letter-spacing:.04em;align-self:center;
+  }
+  .auto-locs{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .auto-must{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .auto-must label{display:block;}
+  .auto-must label > span{
+    display:block;margin-bottom:5px;font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);
+  }
+  .auto-must .txt-area{width:100%;}
+  .auto-must .hint{margin-top:6px;}

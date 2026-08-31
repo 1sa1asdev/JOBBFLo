@@ -10,6 +10,7 @@ export async function GET() {
     `SELECT s.id, s.name, s.auto_apply_enabled, s.auto_apply_min_score,
             s.auto_apply_daily_limit, s.auto_apply_paused_reason,
             s.auto_apply_require_score, s.campaign_created_at,
+            s.location, s.must_criteria,
             s.criteria_text, s.campaign_letter_approved_at,
             (s.campaign_letter IS NOT NULL) AS has_letter,
             (SELECT count(*)::int FROM applications a
@@ -54,7 +55,7 @@ export async function GET() {
 // change a campaign's rule
 export async function PATCH(req) {
   const { searchId, enabled, min_score, daily_limit, clear_campaign, name, criteria,
-          require_score } = await req.json();
+          require_score, must_criteria } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
 
   const sets = [];
@@ -77,6 +78,14 @@ export async function PATCH(req) {
     vals.push(Math.max(1, Math.min(20, Number(daily_limit))));
     sets.push(`auto_apply_daily_limit = $${vals.length}`);
   }
+  // A free-text rule the model enforces while scoring. Empty string
+  // clears it — an empty rule is no rule, not a rule matching nothing.
+  if (must_criteria !== undefined) {
+    const t = String(must_criteria || '').trim();
+    vals.push(t ? t.slice(0, 600) : null);
+    sets.push(`must_criteria = $${vals.length}`);
+  }
+
   // A campaign's NAME is how its replies are grouped in the inbox, so
   // renaming it has to be possible without rebuilding the campaign.
   if (name !== undefined) {

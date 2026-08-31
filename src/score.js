@@ -109,7 +109,7 @@ function adTextForScoring(description) {
   return `${cut.slice(0, lastBreak > AD_CHARS_MAX * 0.6 ? lastBreak : AD_CHARS_MAX)}\n\n[…annonsen fortsätter]`;
 }
 
-export async function scoreAd({ ad, profile, projects, criteriaText }) {
+export async function scoreAd({ ad, profile, projects, criteriaText, mustCriteria }) {
   const projectList = projects
     .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
     .join('\n');
@@ -134,7 +134,17 @@ ${projectList || '(inga)'}
 
 ## VAD KANDIDATEN SÖKER
 ${criteriaText}
+${mustCriteria ? `
+## ABSOLUT KRAV — ANNONSEN MÅSTE UPPFYLLA DETTA
+${mustCriteria}
 
+Detta är ett villkor, inte en önskan. Uppfyller annonsen det inte:
+sätt score till högst 15, och lägg till i flags ett objekt med
+tag "ska-krav" och ett ordagrant citat ur annonsen som visar varför
+den inte uppfyller kravet. Är det omöjligt att avgöra från
+annonstexten, behandla kravet som INTE uppfyllt — en gissning här
+leder till ett brev som aldrig skulle ha skickats.
+` : ''}
 ## ANNONS
 Titel: ${ad.title}
 Arbetsgivare: ${ad.employer} (${ad.employer_type})
@@ -446,6 +456,7 @@ async function drainQueue(searchId, { limit }) {
         },
         projects,
         criteriaText: search.criteria_text,
+        mustCriteria: search.must_criteria,
       });
 
       const leadProject = projects.find((p) => p.name === r.lead_project);
