@@ -14,7 +14,10 @@ export const dynamic = 'force-dynamic';
 // letter, so nothing can go out until both are deliberately set up.
 // ------------------------------------------------------------
 export async function POST(req) {
-  const { name, criteria, min_score, daily_limit } = await req.json();
+  const {
+    name, criteria, min_score, daily_limit,
+    locations, location_ratio, worktime, must_criteria, require_score,
+  } = await req.json();
   if (!criteria?.trim()) {
     return NextResponse.json({ error: 'beskriv vilka annonser kampanjen gäller' }, { status: 400 });
   }
@@ -31,6 +34,37 @@ export async function POST(req) {
     filters = { q: criteria.slice(0, 200) };   // still search, just less precisely
   }
 
+  // An explicit pick BEATS the parse. The model reads the same prose to
+  // guess a place, and when the user has already said which places they
+  // mean, a guess can only disagree. This is the same rule the search
+  // PATCH follows, and it is why the picker exists at all.
+  const picked = [...new Set(
+    [].concat(locations ?? []).map((s) => String(s).trim()).filter(Boolean)
+  )];
+  if (picked.length) {
+    const { loadTaxonomy } = await import('../../../../src/taxonomy.js');
+    const tax = await loadTaxonomy();
+    const muni = [];
+    const reg = [];
+    for (const p of picked) {
+      // " län" is the test, not membership: the region list is
+      // EURES-wide and holds bare city names, so "Stockholm" is in
+      // both maps and would be read as a county.
+      if (/\slän$/i.test(p) && tax.region?.has(p.toLowerCase())) reg.push(p);
+      else muni.push(p);
+    }
+    delete filters.municipality;
+    delete filters.region;
+    if (muni.length) filters.municipality = muni;
+    if (reg.length) filters.region = reg;
+  }
+
+  if (worktime === 'Heltid' || worktime === 'Deltid') {
+    filters['worktime-extent'] = worktime;
+  } else if (worktime === null) {
+    delete filters['worktime-extent'];
+  }
+
   const { rows: [search] } = await pool.query(
     // apply_filter = 'email' is not a default the user can be asked
     // about here — it is the only setting that makes sense. A campaign
@@ -40,11 +74,20 @@ export async function POST(req) {
     // ~79% of the pool, and it is why campaigns skip the chat question.
     `INSERT INTO searches (profile_id, name, criteria_text, api_filters,
        auto_apply_enabled, auto_apply_min_score, auto_apply_daily_limit,
-       apply_filter, campaign_created_at)
-     VALUES ($1,$2,$3,$4,false,$5,$6,'email',now()) RETURNING *`,
+       apply_filter, campaign_created_at,
+       location, location_ratio, must_criteria, auto_apply_require_score)
+     VALUES ($1,$2,$3,$4,false,$5,$6,'email',now(),
+       $7::text[], $8::jsonb, $9, $10) RETURNING *`,
     [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      Math.max(0, Math.min(100, Number(min_score) || 85)),
-     Math.max(1, Math.min(20, Number(daily_limit) || 3))]
+     Math.max(1, Math.min(20, Number(daily_limit) || 3)),
+     picked.length ? picked : null,
+     // A ratio only means something across several places, so one place
+     // silently drops it rather than storing a split of one.
+     picked.length > 1 && location_ratio && Object.keys(location_ratio).length
+       ? JSON.stringify(location_ratio) : null,
+     String(must_criteria || '').trim() ? String(must_criteria).trim().slice(0, 600) : null,
+     require_score === undefined ? true : Boolean(require_score)]
   );
 
   await pool.query(

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 
 // ------------------------------------------------------------
@@ -20,9 +20,19 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
 
+  // /api/locations returns at most 40 municipalities and 30 regions, and
+  // filters server-side on ?q. Fetching once without a query therefore
+  // only ever offered the alphabetically-first 40 of ~290 kommuner —
+  // "Linköping" and everything past it could not be picked at all, and
+  // the refusal was silent because an unlisted name is treated as
+  // unknown. So the query goes with every keystroke.
   useEffect(() => {
-    api('/api/locations').then(setAll).catch(() => {});
-  }, []);
+    const t = setTimeout(() => {
+      api(`/api/locations${draft.trim() ? `?q=${encodeURIComponent(draft.trim())}` : ''}`)
+        .then(setAll).catch(() => {});
+    }, draft ? 160 : 0);
+    return () => clearTimeout(t);
+  }, [draft]);
 
   const picked = [].concat(value ?? []).filter(Boolean);
   const known = (s) => all.municipalities.includes(s) || all.regions.includes(s);
@@ -32,14 +42,32 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
     try { await onSave(next); } finally { setSaving(false); }
   }
 
-  function add(name) {
+  // Validated against the server, not against whatever the suggestion
+  // list happens to hold. The list is refetched per keystroke and lands
+  // ~160ms later, so committing on local state raced the fetch: pressing
+  // Enter right after typing a name checked a list that did not contain
+  // it yet and refused silently. Asking the API removes the race and
+  // canonicalises the spelling at the same time.
+  async function add(name) {
     const n = String(name || '').trim();
-    // Silently ignoring an unknown place would look identical to adding
-    // it and getting no ads, so refuse it and keep it in the box where
-    // the user can see and fix it.
-    if (!n || !known(n) || picked.includes(n)) return;
+    if (!n || picked.includes(n)) return;
+
+    let match = [...all.municipalities, ...all.regions]
+      .find((o) => o.toLowerCase() === n.toLowerCase());
+    if (!match) {
+      try {
+        const r = await api(`/api/locations?q=${encodeURIComponent(n)}`);
+        match = [...r.municipalities, ...r.regions]
+          .find((o) => o.toLowerCase() === n.toLowerCase());
+      } catch { /* offline: fall through to the refusal below */ }
+    }
+    // Refused rather than accepted-and-ignored: an unknown place is not
+    // a narrower search, it is one JobSearch matches nothing against,
+    // and leaving the text in the box is what makes that visible.
+    if (!match || picked.includes(match)) return;
+
     setDraft('');
-    commit([...picked, n]);
+    commit([...picked, match]);
   }
 
   const remove = (name) => commit(picked.filter((p) => p !== name));
@@ -47,7 +75,11 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
   // Only suggest what isn't already chosen, so the list shrinks as you
   // build it rather than offering places you've already added.
   const options = [...all.municipalities, ...all.regions].filter((o) => !picked.includes(o));
-  const listId = `locs-${label.replace(/\s+/g, '')}`;
+  // Unique per instance. Deriving the id from the label gave the wizard
+  // and the campaign card the same one, and a duplicate DOM id makes
+  // every matching input resolve to whichever datalist came first — so
+  // one picker silently drove the other's suggestions.
+  const listId = `locs-${useId().replace(/:/g, '')}`;
 
   return (
     <div className="locpick">
@@ -66,6 +98,11 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
             // value and no keystroke, so take it straight away.
             if (known(e.target.value)) add(e.target.value);
           }}
+          // Clicking away commits too. Enter alone is one keystroke away
+          // from losing what you typed, and a place that silently fails
+          // to register is the exact failure this control exists to
+          // prevent.
+          onBlur={(e) => add(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); add(e.currentTarget.value); }
             // Backspace on an empty box removes the last chip — the

@@ -6,6 +6,7 @@ import Inbox from './Inbox.jsx';
 import CampaignLetter from './CampaignLetter.jsx';
 import Dots from './Dots';
 import LocationPicker from './LocationPicker.jsx';
+import CampaignWizard from './CampaignWizard.jsx';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -91,8 +92,6 @@ export default function AutoApply({ onFindSimilar }) {
   const [error, setError] = useState(null);
   const [dry, setDry] = useState({});              // searchId -> dry-run result
   const [creating, setCreating] = useState(false);
-  const [newCriteria, setNewCriteria] = useState('');
-  const [newName, setNewName] = useState('');
   const [confirmDel, setConfirmDel] = useState(null);
 
   const load = useCallback(async () => {
@@ -123,17 +122,15 @@ export default function AutoApply({ onFindSimilar }) {
     setBusy(null);
   }
 
-  async function createCampaign() {
-    if (!newCriteria.trim() || busy) return;
+  async function createCampaign(form) {
+    if (!form.criteria?.trim() || busy) return;
     setBusy('new'); setError(null);
     try {
-      const s = await api('/api/autoapply/new', {
-        method: 'POST', body: { name: newName, criteria: newCriteria },
-      });
-      setCreating(false); setNewCriteria(''); setNewName('');
+      const s2 = await api('/api/autoapply/new', { method: 'POST', body: form });
+      setCreating(false);
       await load();
       // straight to writing the letter — a campaign is useless without one
-      setLetterFor(s);
+      setLetterFor(s2);
       setView('letter');
     } catch (e) { setError(e.message); }
     setBusy(null);
@@ -216,29 +213,12 @@ export default function AutoApply({ onFindSimilar }) {
           </div>
 
           {creating && (
-            <div className="auto-new">
-              <label>
-                <span>Vilka annonser ska kampanjen gälla?</span>
-                <textarea
-                  className="txt-area" rows={3}
-                  placeholder="T.ex. junior frontendroller i Stockholm med React, inget krav på flera års erfarenhet"
-                  value={newCriteria} onChange={(e) => setNewCriteria(e.target.value)}
-                />
-              </label>
-              <label>
-                <span>Namn (valfritt)</span>
-                <input className="txt-input" type="text" placeholder="Frontend Stockholm"
-                  value={newName} onChange={(e) => setNewName(e.target.value)} />
-              </label>
-              <p className="hint">
-                Kampanjen skapas avstängd och utan brev. Nästa steg är att skriva
-                kampanjbrevet tillsammans med AI:n — inget skickas innan du godkänt det.
-              </p>
-              <button className="btn primary" disabled={busy === 'new' || !newCriteria.trim()}
-                onClick={createCampaign}>
-                {busy === 'new' ? 'Skapar…' : 'Skapa kampanj →'}
-              </button>
-            </div>
+            <CampaignWizard
+              busy={busy === 'new'}
+              error={error}
+              onCreate={createCampaign}
+              onCancel={() => setCreating(false)}
+            />
           )}
 
           {noCv && (

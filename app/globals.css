@@ -1536,3 +1536,41 @@
   .ratio-w{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
     width:18px;text-align:right;color:var(--mute);}
   .auto-ratio .hint{margin-top:8px;}
+
+  /* ================= KAMPANJGUIDE (skapa i steg) ================= */
+  .wizard{display:flex;flex-direction:column;gap:11px;}
+  .wiz-steps{display:flex;gap:0;border:1px solid var(--line);margin-bottom:4px;flex-wrap:wrap;}
+  .wiz-step{
+    flex:1;min-width:76px;display:flex;align-items:center;justify-content:center;gap:6px;
+    background:none;border:none;border-right:1px solid var(--line);
+    padding:9px 6px;min-height:38px;cursor:pointer;color:var(--mute);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;
+  }
+  .wiz-step:last-child{border-right:none;}
+  .wiz-step.active{background:var(--ink);color:var(--paper);}
+  .wiz-step.done{color:var(--ink);}
+  .wiz-step:disabled{opacity:.4;cursor:default;}
+  .wiz-step:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+  .wiz-num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:15px;height:15px;border:1px solid currentColor;font-size:8px;flex-shrink:0;
+  }
+  .wiz-field{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .wiz-label{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--mute);width:68px;flex-shrink:0;
+  }
+  .wiz-row{display:flex;gap:11px;flex-wrap:wrap;}
+  .wiz-row label{flex:1;min-width:110px;}
+  .wiz-summary{
+    border:1px solid var(--tag-border);background:var(--panel);padding:11px 13px;
+    display:flex;flex-direction:column;gap:6px;
+  }
+  .wiz-summary div{display:flex;gap:10px;align-items:baseline;font-size:11px;}
+  .wiz-summary span{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--mute);width:82px;flex-shrink:0;
+  }
+  .wiz-summary b{font-weight:600;min-width:0;overflow-wrap:anywhere;}
+  .wiz-nav{display:flex;justify-content:space-between;gap:10px;margin-top:4px;}
