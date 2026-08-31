@@ -71,9 +71,84 @@ async function sentToday() {
 // ------------------------------------------------------------
 // Which ads qualify right now, best match first.
 // ------------------------------------------------------------
+// Which of the campaign's chosen places an ad belongs to.
+//
+// A picked name is either a kommun or a län, and the ad carries both, so
+// the test differs per pick. First match wins; an ad matching none goes
+// to a leftover bucket that is filled only after every quota is met.
+// That bucket is not hypothetical — the pool keeps ads found under
+// earlier filters, and they are still legitimate candidates.
+export function bucketFor(ad, picked) {
+  for (const place of picked) {
+    if (/\slän$/i.test(place)) {
+      if (ad.region && ad.region.toLowerCase() === place.toLowerCase()) return place;
+    } else if (ad.municipality && ad.municipality.toLowerCase() === place.toLowerCase()) {
+      return place;
+    }
+  }
+  return null;
+}
+
+// Split `limit` letters across places by weight, then fill each place
+// with its best-scoring candidates.
+//
+// Largest-remainder rather than plain rounding: with 3 letters split
+// 2:1, rounding each independently gives 2 and 1 by luck and 2 and 0 or
+// 2 and 1 depending on the arithmetic. Largest-remainder always hands
+// out exactly `limit` slots, which is what makes the daily number mean
+// something.
+//
+// A place that cannot fill its quota gives the remainder back rather
+// than wasting it — the ratio is a preference about how to spend the
+// letters, not a reason to send fewer.
+export function allocateByRatio(candidates, picked, ratio, limit) {
+  if (!ratio || !picked?.length) return candidates.slice(0, limit);
+
+  const weights = picked
+    .map((p) => [p, Number(ratio[p]) || 0])
+    .filter(([, w]) => w > 0);
+  if (!weights.length) return candidates.slice(0, limit);
+
+  const totalWeight = weights.reduce((n, [, w]) => n + w, 0);
+
+  const buckets = new Map(weights.map(([p]) => [p, []]));
+  const leftover = [];
+  for (const c of candidates) {
+    const b = bucketFor(c, weights.map(([p]) => p));
+    if (b) buckets.get(b).push(c); else leftover.push(c);
+  }
+
+  const exact = weights.map(([p, w]) => ({ place: p, want: (limit * w) / totalWeight }));
+  const quota = new Map(exact.map((e) => [e.place, Math.floor(e.want)]));
+  let slots = limit - [...quota.values()].reduce((a, b) => a + b, 0);
+  for (const e of [...exact].sort((a, b) => (b.want % 1) - (a.want % 1))) {
+    if (slots <= 0) break;
+    quota.set(e.place, quota.get(e.place) + 1);
+    slots -= 1;
+  }
+
+  const picked_out = [];
+  for (const [place, list] of buckets) {
+    picked_out.push(...list.slice(0, quota.get(place)));
+  }
+
+  // Unused slots go to whoever still has candidates, best score first.
+  if (picked_out.length < limit) {
+    const taken = new Set(picked_out.map((c) => c.ad_id));
+    const rest = [...candidates, ...leftover]
+      .filter((c) => !taken.has(c.ad_id))
+      .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    picked_out.push(...rest.slice(0, limit - picked_out.length));
+  }
+
+  return picked_out.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
 export async function candidatesFor(searchId, { limit = 10 } = {}) {
   const { rows } = await pool.query(
-    `SELECT r.ad_id, r.score, r.title, r.employer, a.apply_email, a.deadline
+    `SELECT r.ad_id, r.score, r.title, r.employer, a.apply_email, a.deadline,
+       -- needed to bucket an ad by the campaign's chosen places
+       a.municipality, a.raw->'workplace_address'->>'region' AS region
      FROM search_results r
      JOIN ads a ON a.id = r.ad_id
      JOIN searches s ON s.id = r.search_id
@@ -170,7 +245,15 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
   );
   if (room <= 0) return { sent: 0, skipped: [], reason: 'dagsgränsen nådd' };
 
-  const candidates = await candidatesFor(searchId, { limit: room });
+  // Fetch a wider pool than `room` so the ratio has something to choose
+  // between. Asking for exactly `room` rows returns the top scores
+  // globally, which in a multi-city campaign are all from the largest
+  // city — and no allocation can recover a place that was never read.
+  const pool_ = await candidatesFor(searchId, {
+    limit: search.location_ratio ? Math.max(room * 20, 100) : room,
+  });
+  const candidates = allocateByRatio(
+    pool_, search.location || [], search.location_ratio, room);
   const results = { sent: 0, sentTo: [], skipped: [], dryRun };
 
   for (const c of candidates) {

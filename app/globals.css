@@ -1524,3 +1524,10 @@
   }
   .auto-must .txt-area{width:100%;}
   .auto-must .hint{margin-top:6px;}
+  .auto-ratio{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .ratio-row{display:flex;align-items:center;gap:10px;margin-top:7px;}
+  .ratio-name{flex:0 0 40%;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ratio-row input[type=range]{flex:1;accent-color:var(--flag);min-width:0;}
+  .ratio-w{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+    width:18px;text-align:right;color:var(--mute);}
+  .auto-ratio .hint{margin-top:8px;}

@@ -14,6 +14,75 @@ import LocationPicker from './LocationPicker.jsx';
 // it has to show exactly what the rule would do: the queue that
 // would go out next, the cap, and a log of everything already sent.
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// How a campaign's daily letters are divided between its places.
+//
+// Shown only when more than one place is chosen, because with one place
+// the question does not exist. Weights are relative — 2 and 1 rather
+// than 67% and 33% — so adding a third place does not force the user to
+// rebalance the other two, and nothing has to add up to 100.
+//
+// The preview underneath is the point: a ratio is abstract, "2 brev
+// Stockholm, 1 brev Linköping" is not, and it is the same
+// largest-remainder arithmetic the sender uses.
+// ------------------------------------------------------------
+function RatioPicker({ places, ratio, dailyLimit, onSave }) {
+  const on = Boolean(ratio);
+  const weights = Object.fromEntries(places.map((p) => [p, Number(ratio?.[p]) || 1]));
+
+  // Same allocation as src/autoapply.js: floor everything, then hand the
+  // remaining slots to the largest fractions. Plain rounding drops or
+  // invents a letter, and the daily number has to be exact.
+  function preview() {
+    const total = places.reduce((n, p) => n + (weights[p] || 0), 0);
+    if (!total) return places.map((p) => [p, 0]);
+    const exact = places.map((p) => ({ p, want: (dailyLimit * (weights[p] || 0)) / total }));
+    const out = new Map(exact.map((e) => [e.p, Math.floor(e.want)]));
+    let left = dailyLimit - [...out.values()].reduce((a, b) => a + b, 0);
+    for (const e of [...exact].sort((a, b) => (b.want % 1) - (a.want % 1))) {
+      if (left <= 0) break;
+      out.set(e.p, out.get(e.p) + 1); left -= 1;
+    }
+    return places.map((p) => [p, out.get(p)]);
+  }
+
+  return (
+    <div className="auto-ratio">
+      <label className="auto-switch">
+        <input type="checkbox" checked={on}
+          onChange={(e) => onSave(e.target.checked ? weights : null)} />
+        <span>Fördela breven mellan orterna</span>
+      </label>
+
+      {on ? (
+        <>
+          {places.map((p) => (
+            <div className="ratio-row" key={p}>
+              <span className="ratio-name">{p}</span>
+              <input
+                type="range" min="0" max="10" step="1"
+                value={weights[p]}
+                onChange={(e) => onSave({ ...weights, [p]: Number(e.target.value) })}
+              />
+              <span className="ratio-w">{weights[p]}</span>
+            </div>
+          ))}
+          <p className="hint">
+            Av {dailyLimit} brev per dygn: {preview().map(([p, n]) => `${n} ${p}`).join(' · ')}.
+            Räcker inte annonserna på en ort går platserna till de andra — hellre
+            skickade brev än en exakt kvot.
+          </p>
+        </>
+      ) : (
+        <p className="hint">
+          Utan fördelning avgör poängen ensam, och då hamnar nästan alla brev
+          där det finns flest annonser.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function AutoApply({ onFindSimilar }) {
   const [view, setView] = useState('campaigns');   // campaigns | letter | inbox
   const [letterFor, setLetterFor] = useState(null);   // search being written for
@@ -288,6 +357,19 @@ export default function AutoApply({ onFindSimilar }) {
                       />
                     </label>
                   </div>
+
+                  {/* Only worth asking once there is something to split.
+                      Stockholm carries several times Linköping's volume,
+                      so without this the biggest city takes nearly every
+                      letter — by ad supply, not by choice. */}
+                  {(s.location || []).length > 1 && (
+                    <RatioPicker
+                      places={s.location}
+                      ratio={s.location_ratio}
+                      dailyLimit={s.auto_apply_daily_limit}
+                      onSave={(r) => update(s.id, { location_ratio: r })}
+                    />
+                  )}
 
                   {/* Criteria the taxonomy cannot express. "Bara juniora
                       roller" is not a filter — seniority lives in the ad's
