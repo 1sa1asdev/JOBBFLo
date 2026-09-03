@@ -265,6 +265,26 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
   // candidates fall below the threshold. The daily score budget still
   // applies; anything over it simply waits for tomorrow.
   if (search.auto_apply_require_score && !dryRun) {
+    // Which ads to spend the verdicts on. This LIMIT used to have no
+    // ORDER BY at all, so it picked whichever rows Postgres handed back
+    // — out of 600 found and 35 mailable, the 35 judged were an
+    // accident of storage order.
+    //
+    // Ranked by embedding distance when the search has a query vector:
+    // pgvector's <=> is cosine distance, so ASC is most-similar-first,
+    // and the CV+criteria vector is a far better guess at "worth paying
+    // to read" than nothing at all. Ads with no embedding sort last
+    // rather than dropping out — unranked is not disqualified, and the
+    // pool is only ~half embedded.
+    const ranked = search.query_embedding
+      ? `ORDER BY (a.embedding IS NULL),
+                  a.embedding <=> $3::vector,
+                  a.published_at DESC NULLS LAST`
+      : `ORDER BY a.published_at DESC NULLS LAST`;
+
+    const args = [searchId, Math.max(room * 5, 20)];
+    if (search.query_embedding) args.push(search.query_embedding);
+
     const { rowCount: asked } = await pool.query(
       `UPDATE match_results m SET score_requested_at = now(), queued_at = now()
        WHERE m.search_id = $1
@@ -277,11 +297,15 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
              AND a.removed_at IS NULL
              AND (a.deadline IS NULL OR a.deadline >= current_date)
              AND r.application_status IS NULL
+           ${ranked}
            LIMIT $2
          )`,
-      [searchId, Math.max(room * 5, 20)]
+      args
     );
-    if (asked) console.log(`kampanj "${search.name}": begärde bedömning av ${asked} annonser`);
+    if (asked) {
+      console.log(`kampanj "${search.name}": begärde bedömning av ${asked} annonser`
+        + (search.query_embedding ? ' (rankade efter CV-likhet)' : ''));
+    }
   }
 
   // Fetch a wider pool than `room` so the ratio has something to choose

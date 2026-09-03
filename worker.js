@@ -16,7 +16,7 @@ import { scanSearch, scorePending, MAX_SCORE_ATTEMPTS } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply } from './src/autoapply.js';
 import { runImapLoop } from './src/imap.js';
-import { embedPendingAds } from './src/embed.js';
+import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import { pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 
 const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
@@ -99,6 +99,23 @@ async function embedTick() {
     const { rows: [p] } = await pool.query(
       `SELECT embeddings_enabled FROM profile LIMIT 1`);
     if (!p?.embeddings_enabled) return;
+
+    // A search's query vector is what ad ranking is measured against, so
+    // it has to exist and has to match the current criteria. One tiny
+    // embedding per changed search, not per ad.
+    const { rows: stale } = await pool.query(
+      `SELECT id, name FROM searches
+       WHERE deleted_at IS NULL
+         AND (query_embedding IS NULL
+              OR (criteria_changed_at IS NOT NULL
+                  AND query_embedded_at < criteria_changed_at))
+       LIMIT 5`
+    );
+    for (const s2 of stale) {
+      await embedSearchQuery(s2.id)
+        .then(() => console.log(`embed: sökvektor för "${s2.name}"`))
+        .catch((e) => console.error(`embed sökvektor ${s2.name}:`, e.message.slice(0, 90)));
+    }
 
     const n = await embedPendingAds({ limit: 64 });
     if (n) {
