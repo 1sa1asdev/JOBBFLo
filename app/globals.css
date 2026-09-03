@@ -1660,3 +1660,13 @@
   /* the last step is the one that decides whether anything gets sent */
   .funnel-step:last-child b{color:var(--flag);}
   .auto-log{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+
+  /* Egen kontakt: en lead användaren hittat själv */
+  .lead-open{margin-top:9px;}
+  .lead-form{
+    border:1px solid var(--tag-border);background:var(--panel);
+    padding:11px 13px;margin-top:9px;display:flex;flex-direction:column;gap:8px;
+  }
+  .lead-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .lead-row .ct-input{flex:1;min-width:130px;}
+  .lead-acts{display:flex;gap:8px;flex-wrap:wrap;}

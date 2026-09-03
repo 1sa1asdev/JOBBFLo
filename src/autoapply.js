@@ -174,7 +174,13 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
        -- filters are the only thing standing between the criteria and a
        -- letter, which is cheap and blunt, and the point of the setting.
        AND (r.score >= s.auto_apply_min_score
-            OR (NOT s.auto_apply_require_score AND r.score IS NULL))
+            OR (NOT s.auto_apply_require_score AND r.score IS NULL)
+            -- A lead the user typed in themselves needs no verdict. The
+            -- score decides whether an ad the MACHINE found is worth
+            -- writing to; this one was chosen by the person whose letters
+            -- these are, and paying a model to second-guess that would be
+            -- spending tokens to overrule the user.
+            OR a.source = 'manual')
        -- a repost carries a new ad id but the same fingerprint;
        -- applying again would be a second letter for one job
        AND NOT EXISTS (
@@ -303,6 +309,10 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
            SELECT r.ad_id FROM search_results r JOIN ads a ON a.id = r.ad_id
            WHERE r.search_id = $1 AND NOT r.suppressed
              AND a.apply_email IS NOT NULL
+             -- A hand-added lead has no ad text to judge, and needs no
+             -- verdict anyway (see candidatesFor). Paying to score its
+             -- placeholder description would be the purest waste here.
+             AND a.source <> 'manual'
              AND a.removed_at IS NULL
              AND (a.deadline IS NULL OR a.deadline >= current_date)
              AND r.application_status IS NULL

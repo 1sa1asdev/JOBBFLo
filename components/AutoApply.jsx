@@ -84,6 +84,70 @@ function RatioPicker({ places, ratio, dailyLimit, onSave }) {
   );
 }
 
+// ------------------------------------------------------------
+// A lead the user found themselves — a company hiring, an address off a
+// careers page, a name from a friend. None of that reaches
+// Arbetsförmedlingen's API, so none of it could reach a campaign.
+//
+// It skips scoring on purpose. A score judges whether an ad the MACHINE
+// found is worth writing to; this one was chosen by the person whose
+// letters these are, and paying a model to second-guess that spends
+// tokens to overrule the user.
+// ------------------------------------------------------------
+function LeadForm({ searchId, onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [employer, setEmployer] = useState('');
+  const [email, setEmail] = useState('');
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function add() {
+    setBusy(true); setErr(null);
+    try {
+      await api('/api/autoapply/lead', {
+        method: 'POST', body: { searchId, employer, email, title },
+      });
+      setEmployer(''); setEmail(''); setTitle(''); setOpen(false);
+      onAdded?.();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  if (!open) {
+    return (
+      <button className="btn lead-open" onClick={() => setOpen(true)}>
+        + Lägg till egen kontakt
+      </button>
+    );
+  }
+
+  return (
+    <div className="lead-form">
+      <div className="lead-row">
+        <input className="ct-input" placeholder="Arbetsgivare" value={employer}
+          onChange={(e) => setEmployer(e.target.value)} />
+        <input className="ct-input" placeholder="mejladress" value={email}
+          onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      <input className="ct-input" placeholder="Roll (valfritt)" value={title}
+        onChange={(e) => setTitle(e.target.value)} />
+      <p className="hint">
+        Går in i kampanjens kö direkt utan bedömning — du har redan valt den själv.
+        Kampanjbrevet skickas som det är, och samma adress kontaktas aldrig två gånger.
+      </p>
+      {err && <div className="err-note">{err}</div>}
+      <div className="lead-acts">
+        <button className="btn primary" disabled={busy || !employer.trim() || !email.trim()}
+          onClick={add}>
+          {busy ? <>Lägger till<Dots label="Lägger till" /></> : 'Lägg till'}
+        </button>
+        <button className="btn" onClick={() => { setOpen(false); setErr(null); }}>Avbryt</button>
+      </div>
+    </div>
+  );
+}
+
 export default function AutoApply({ onFindSimilar }) {
   const [view, setView] = useState('campaigns');   // campaigns | letter | inbox
   const [letterFor, setLetterFor] = useState(null);   // search being written for
@@ -500,6 +564,8 @@ export default function AutoApply({ onFindSimilar }) {
                       </button>
                     )}
                   </div>
+
+                  <LeadForm searchId={s.id} onAdded={load} />
 
                   {ran[s.id] && (
                     <div className="auto-dry">
