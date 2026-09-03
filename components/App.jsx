@@ -20,6 +20,7 @@ export default function App() {
   const [letterState, setLetterState] = useState(null); // {application, ad, match}
   const [creatingSearch, setCreatingSearch] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
+  const [autoCount, setAutoCount] = useState(0);
   const [mobilePanel, setMobilePanel] = useState('chat'); // library | chat | stage
   // profile is reachable from EVERY workspace, so it lives outside
   // the search view's `view` state rather than inside it
@@ -36,10 +37,19 @@ export default function App() {
     }
   }, []);
 
+  // Two inboxes, two counts. Fetching without ?source counted every
+  // thread — so campaign replies, which live under Auto-ansökan, were
+  // added to the Inkorg badge. Clicking it then showed fewer threads
+  // than the number promised, with no way to tell where the rest were.
   const loadInboxCount = useCallback(async () => {
+    const pending = (rows) => rows.filter((t) => Number(t.pending_suggestions) > 0).length;
     try {
-      const rows = await api('/api/inbox');
-      setInboxCount(rows.filter((t) => Number(t.pending_suggestions) > 0).length);
+      const [mine, auto] = await Promise.all([
+        api('/api/inbox?source=user'),
+        api('/api/inbox?source=auto'),
+      ]);
+      setInboxCount(pending(mine));
+      setAutoCount(pending(auto));
     } catch { /* db not up yet */ }
   }, []);
 
@@ -121,7 +131,7 @@ export default function App() {
           Inkorg {inboxCount > 0 && <span className="badge">{inboxCount}</span>}
         </button>
         <button role="tab" aria-selected={workspace === 'auto'} onClick={() => setWorkspace('auto')}>
-          Auto-ansökan
+          Auto-ansökan {autoCount > 0 && <span className="badge">{autoCount}</span>}
         </button>
         <button
           className={`topnav-profile${showProfile ? ' active' : ''}`}

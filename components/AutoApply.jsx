@@ -91,6 +91,7 @@ export default function AutoApply({ onFindSimilar }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [dry, setDry] = useState({});              // searchId -> dry-run result
+  const [ran, setRan] = useState({});          // searchId -> faktisk körning
   const [creating, setCreating] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
 
@@ -106,6 +107,21 @@ export default function AutoApply({ onFindSimilar }) {
     setBusy(searchId); setError(null);
     try {
       await api('/api/autoapply', { method: 'PATCH', body: { searchId, ...patch } });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusy(null);
+  }
+
+  // The one button here that sends. dryRun:false is explicit rather than
+  // defaulted, because the same endpoint serves the preview and getting
+  // that wrong would mail employers from a button labelled "show me".
+  async function rerun(searchId) {
+    setBusy(searchId); setError(null);
+    try {
+      const result = await api('/api/autoapply', {
+        method: 'POST', body: { searchId, dryRun: false },
+      });
+      setRan((r) => ({ ...r, [searchId]: result }));
       await load();
     } catch (e) { setError(e.message); }
     setBusy(null);
@@ -470,7 +486,29 @@ export default function AutoApply({ onFindSimilar }) {
                     <button className="btn" disabled={busy === s.id} onClick={() => preview(s.id)}>
                       {busy === s.id ? 'Kollar…' : 'Visa vad som skulle skickas'}
                     </button>
+                    {/* Rule edits already re-run on save, but only for the
+                        changes the app can see. Re-scoring finishing in the
+                        background, a new ad arriving, the daily cap rolling
+                        over — each makes an earlier "0 redo" wrong with
+                        nothing to press. This one sends for real, so it
+                        says so instead of hiding behind "kör om". */}
+                    {s.auto_apply_enabled && (
+                      <button className="btn" disabled={busy === s.id}
+                        title="Kör reglerna nu och skicka det som klarar dem"
+                        onClick={() => rerun(s.id)}>
+                        {busy === s.id ? <>Kör<Dots label="Kör" /></> : 'Kör reglerna nu →'}
+                      </button>
+                    )}
                   </div>
+
+                  {ran[s.id] && (
+                    <div className="auto-dry">
+                      {ran[s.id].sent > 0
+                        ? <>✓ Skickade <b>{ran[s.id].sent}</b> brev:{' '}
+                            {(ran[s.id].sentTo || []).map((x) => `${x.employer} (${x.score})`).join(', ')}</>
+                        : <>Inget skickades — {ran[s.id].reason || 'ingen annons uppfyller reglerna just nu'}.</>}
+                    </div>
+                  )}
 
                   {d && (
                     <div className="auto-dry">
