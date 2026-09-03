@@ -121,7 +121,12 @@ export async function embedPendingAds({ limit = 64 } = {}) {
     `SELECT a.id, a.title, a.employer, a.municipality, a.description,
             a.raw->'occupation'->>'label' AS occupation
      FROM ads a
+     -- Never pay to embed an ad that can no longer be applied to. This
+     -- also closes the loop with releaseExpiredVectors(): without it,
+     -- every vector released at expiry would be bought again on the next
+     -- tick, for ever.
      WHERE a.embedding IS NULL AND a.removed_at IS NULL
+       AND (a.deadline IS NULL OR a.deadline >= current_date)
      ORDER BY a.published_at DESC NULLS LAST
      LIMIT $1`, [limit]
   );

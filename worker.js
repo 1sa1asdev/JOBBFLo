@@ -17,7 +17,9 @@ import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply } from './src/autoapply.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
-import { pruneStaleAds, embeddingCoverage } from './src/refresh.js';
+import {
+  pruneStaleAds, embeddingCoverage, releaseExpiredVectors, refreshQueryVectors,
+} from './src/refresh.js';
 
 const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
 const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
@@ -26,6 +28,7 @@ const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
 const EMBED_EVERY = 60 * 1000;          // embed newly found ads, free and local
 const PRUNE_EVERY = 6 * 60 * 60 * 1000; // retire ads nobody touched
 const AUTOAPPLY_EVERY = 30 * 60 * 1000; // auto-apply campaigns (daily caps do the limiting)
+const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
 async function pollTick() {
   try {
@@ -100,15 +103,13 @@ async function embedTick() {
       `SELECT embeddings_enabled FROM profile LIMIT 1`);
     if (!p?.embeddings_enabled) return;
 
-    // A search's query vector is what ad ranking is measured against, so
-    // it has to exist and has to match the current criteria. One tiny
-    // embedding per changed search, not per ad.
+    // A changed purpose must not keep ranking against the old one, and
+    // that cannot wait for the daily tick — the user changes criteria
+    // and expects the next scan to reflect it.
     const { rows: stale } = await pool.query(
       `SELECT id, name FROM searches
-       WHERE deleted_at IS NULL
-         AND (query_embedding IS NULL
-              OR (criteria_changed_at IS NOT NULL
-                  AND query_embedded_at < criteria_changed_at))
+       WHERE deleted_at IS NULL AND criteria_changed_at IS NOT NULL
+         AND (query_embedded_at IS NULL OR query_embedded_at < criteria_changed_at)
        LIMIT 5`
     );
     for (const s2 of stale) {
@@ -128,6 +129,22 @@ async function embedTick() {
       console.error('embed:', err.message.slice(0, 130));
       embedQuiet = true;   // say it once, not every minute
     }
+  }
+}
+
+// Daily vector maintenance: release the vectors of ads whose own
+// deadline has passed, and rebuild the query vectors the ranking is
+// measured against. Skipped entirely while embedding is switched off —
+// rebuilding a query vector costs money like any other embedding.
+async function vectorsTick() {
+  try {
+    const { rows: [p] } = await pool.query(
+      `SELECT embeddings_enabled FROM profile LIMIT 1`);
+    if (!p?.embeddings_enabled) return;
+    await releaseExpiredVectors();
+    await refreshQueryVectors();
+  } catch (err) {
+    console.error('vectors:', err.message.slice(0, 130));
   }
 }
 
@@ -195,6 +212,7 @@ scoreTick();
 drainTick();
 embedTick();
 pruneTick();
+vectorsTick();
 followupTick();
 autoApplyTick();
 setInterval(pollTick, POLL_EVERY);
@@ -203,6 +221,7 @@ setInterval(drainTick, DRAIN_EVERY);
 setInterval(followupTick, FOLLOWUP_EVERY);
 setInterval(embedTick, EMBED_EVERY);
 setInterval(pruneTick, PRUNE_EVERY);
+setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {

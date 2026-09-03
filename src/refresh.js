@@ -66,3 +66,57 @@ export async function embeddingCoverage() {
     pct: r.total ? Math.round((r.embedded / r.total) * 100) : 0,
   };
 }
+
+// ------------------------------------------------------------
+// Vector hygiene, run on a daily tick.
+//
+// Two jobs, and they are separate on purpose.
+// ------------------------------------------------------------
+
+// 1. Let go of vectors for ads that can no longer be applied to.
+//
+// Expiry is per ad, not per day: each vector is released when THAT ad's
+// own sista ansökningsdag passes, so the index holds only ads still
+// worth ranking. The ad row itself stays — pruneStaleAds owns deleting
+// those, and an expired ad may still carry an application's history.
+//
+// Nothing re-embeds them afterwards, because embedPendingAds now skips
+// anything past its deadline. Without that pairing this would be an
+// expensive loop: release, re-embed, release again, every single day.
+export async function releaseExpiredVectors() {
+  const { rowCount } = await pool.query(
+    `UPDATE ads SET embedding = NULL, embedding_model = NULL, embedded_at = NULL
+     WHERE embedding IS NOT NULL
+       AND deadline IS NOT NULL
+       AND deadline < current_date`
+  );
+  if (rowCount) console.log(`vektorer: släppte ${rowCount} utgångna annonser`);
+  return rowCount;
+}
+
+// 2. Rebuild the query vectors the ranking measures against.
+//
+// A search's vector is built from its criteria AND the CV profile, so it
+// goes stale for a reason the search itself never records: editing the
+// CV changes what "similar to me" means, while criteria_changed_at does
+// not move. Refreshed daily rather than on a trigger because the cost is
+// one small embedding per search — cheaper than the bookkeeping needed
+// to know precisely when it was needed.
+export async function refreshQueryVectors({ maxAgeHours = 24 } = {}) {
+  const { embedSearchQuery } = await import('./embed.js');
+  const { rows } = await pool.query(
+    `SELECT id, name FROM searches
+     WHERE deleted_at IS NULL
+       AND (query_embedding IS NULL
+            OR query_embedded_at IS NULL
+            OR query_embedded_at < now() - ($1 || ' hours')::interval)`,
+    [String(maxAgeHours)]
+  );
+  let done = 0;
+  for (const s of rows) {
+    try { await embedSearchQuery(s.id); done += 1; }
+    catch (err) { console.error(`vektor "${s.name}":`, err.message.slice(0, 90)); }
+  }
+  if (done) console.log(`vektorer: byggde om ${done} sökvektorer`);
+  return done;
+}
