@@ -33,23 +33,46 @@ export async function GET(req) {
     // to `applications`, not `match_results`, so the list never learned
     // an ad had been applied to — the card kept offering "Skriv brev"
     // for something already in the employer's inbox until a reload.
+    // Every counter above lives in match_results, and that was the gap:
+    // editing the criteria, the hard requirement or the places changes
+    // the SEARCH, not those counts. When the new filters happened to find
+    // a similar number of ads the beacon never moved, the list never
+    // refetched, and a saved change looked like one that did not save.
+    //
+    // `rules` hashes everything the user can edit, so any of them moves
+    // the version. fetch_offset and fetch_total are here for a second
+    // reason: the header's "söker igenom 900 av 1172" reads them off the
+    // search object, so without them the progress sat frozen while the
+    // sweep ran underneath it.
+    //
+    // Driven off `searches` rather than match_results so a search with no
+    // candidates yet still reports — which is when the user watches hardest.
     const { rows: [s] } = await pool.query(
-      `SELECT count(*) AS total,
-              count(m.score) AS scored,
-              count(m.score_requested_at) AS requested,
-              max(extract(epoch from m.scored_at)) AS last_scored,
-              count(app.id) AS apps,
-              max(extract(epoch from app.updated_at)) AS last_app
-       FROM match_results m
-       JOIN searches sr ON sr.id = m.search_id
-       LEFT JOIN applications app ON app.ad_id = m.ad_id AND app.profile_id = sr.profile_id
-       WHERE m.search_id = $1`, [searchId]
+      `SELECT
+         (SELECT count(*) FROM match_results m WHERE m.search_id = sr.id) AS total,
+         (SELECT count(score) FROM match_results m WHERE m.search_id = sr.id) AS scored,
+         (SELECT count(score_requested_at) FROM match_results m WHERE m.search_id = sr.id) AS requested,
+         (SELECT max(extract(epoch from scored_at)) FROM match_results m WHERE m.search_id = sr.id) AS last_scored,
+         (SELECT count(*) FROM match_results m
+            JOIN applications app ON app.ad_id = m.ad_id AND app.profile_id = sr.profile_id
+          WHERE m.search_id = sr.id) AS apps,
+         (SELECT max(extract(epoch from app.updated_at)) FROM match_results m
+            JOIN applications app ON app.ad_id = m.ad_id AND app.profile_id = sr.profile_id
+          WHERE m.search_id = sr.id) AS last_app,
+         sr.fetch_offset, sr.fetch_total, (sr.fetch_done_at IS NOT NULL) AS swept,
+         md5(coalesce(sr.criteria_text, '')
+           || coalesce(sr.api_filters::text, '')
+           || coalesce(sr.must_criteria, '')
+           || coalesce(sr.location::text, '')
+           || coalesce(sr.auto_apply_min_score::text, '')) AS rules
+       FROM searches sr WHERE sr.id = $1`, [searchId]
     );
-    search = [
+    search = s ? [
       s.total, s.scored, s.requested,
       Math.round(Number(s.last_scored) || 0),
       s.apps, Math.round(Number(s.last_app) || 0),
-    ].join(':');
+      s.fetch_offset, s.fetch_total, s.swept, s.rules,
+    ].join(':') : null;
   }
 
   // one opaque string — the client only cares whether it changed
