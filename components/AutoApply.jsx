@@ -414,6 +414,38 @@ export default function AutoApply({ onFindSimilar }) {
                     </p>
                   </div>
 
+                  {/* Where the candidates actually go. "5 matchningar" out
+                      of 1183 ads read is a different story from 5 out of
+                      12, and the card showed only the last number — so an
+                      empty campaign looked broken rather than narrow. Each
+                      step is a place candidates are lost, in order. */}
+                  {s.funnel && (
+                    <div className="auto-funnel">
+                      <span className="auto-queue-title">
+                        Genomsökt {(s.fetch_done_at ? s.fetch_total : s.fetch_offset || 0).toLocaleString('sv-SE')}
+                        {' av '}{(s.fetch_total || 0).toLocaleString('sv-SE')} annonser hos AF
+                      </span>
+                      <div className="funnel-row">
+                        {[
+                          ['hittade', s.funnel.hittade, 'matchar filtren'],
+                          ['med mejladress', s.funnel.med_mejl, 'går att skicka till'],
+                          ['bedömda', s.funnel.bedomda, 'har fått poäng'],
+                          [`över ${s.auto_apply_min_score} p`, s.funnel.over_gransen, 'klarar regeln'],
+                        ].map(([label, n, why]) => (
+                          <span className="funnel-step" key={label} title={why}>
+                            <b>{Number(n).toLocaleString('sv-SE')}</b>
+                            <span>{label}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {s.funnel.i_ko > 0 && (
+                        <p className="hint">
+                          {s.funnel.i_ko} väntar på bedömning — de dyker upp här när modellen hunnit ikapp.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="auto-queue">
                     <span className="auto-queue-title">
                       Näst på tur ({queue.length}) — {s.auto_apply_require_score
@@ -445,22 +477,30 @@ export default function AutoApply({ onFindSimilar }) {
                         : <>Skulle inte skicka något{d.reason ? ` — ${d.reason}` : ''}.</>}
                     </div>
                   )}
+
+                  {/* This campaign's own history. One shared log meant you
+                      could not tell which rule skipped what — and "hoppad:
+                      adressen redan kontaktad" only means something next to
+                      the campaign that decided it. */}
+                  <div className="auto-log">
+                    <span className="auto-queue-title">Händelselogg</span>
+                    {(!s.log || s.log.length === 0)
+                      ? <p className="hint">Inget skickat från den här kampanjen än.</p>
+                      : s.log.map((l) => (
+                        <div className={`auto-log-row ${l.outcome}`} key={l.id}>
+                          <span className="alr-when">{timeAgo(l.created_at)}</span>
+                          <span className="alr-out">
+                            {l.outcome === 'sent' ? '✓ skickad'
+                              : l.outcome === 'failed' ? '✗ fel' : '– hoppad'}
+                          </span>
+                          <span className="alr-title">{l.title || '—'}</span>
+                          <span className="alr-detail">{l.detail}</span>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               );
             })}
-          </div>
-
-          <div className="auto-log">
-            <span className="auto-queue-title">Händelselogg</span>
-            {data.log.length === 0 && <p className="hint">Inget skickat automatiskt än.</p>}
-            {data.log.map((l) => (
-              <div className={`auto-log-row ${l.outcome}`} key={l.id}>
-                <span className="alr-when">{timeAgo(l.created_at)}</span>
-                <span className="alr-out">{l.outcome === 'sent' ? '✓ skickad' : l.outcome === 'failed' ? '✗ fel' : '– hoppad'}</span>
-                <span className="alr-title">{l.title || l.search_name || '—'}</span>
-                <span className="alr-detail">{l.detail}</span>
-              </div>
-            ))}
           </div>
 
           {anyOn && (

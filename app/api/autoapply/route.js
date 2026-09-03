@@ -32,6 +32,34 @@ export async function GET() {
   // to see the queue before switching anything on
   for (const s of searches) {
     s.candidates = await candidatesFor(s.id, { limit: 5 });
+
+    // The funnel, because "5 matchningar" out of 1183 ads read is a very
+    // different picture from 5 out of 12, and the card showed only the
+    // last number. Each step is where candidates are actually lost, so
+    // an empty campaign can be diagnosed from the card instead of from
+    // the database.
+    const { rows: [f] } = await pool.query(
+      `SELECT count(*)::int AS hittade,
+              count(*) FILTER (WHERE a.apply_email IS NOT NULL)::int AS med_mejl,
+              count(*) FILTER (WHERE m.score IS NOT NULL)::int AS bedomda,
+              count(*) FILTER (WHERE m.score >= $2)::int AS over_gransen,
+              count(*) FILTER (WHERE m.score_requested_at IS NOT NULL
+                                 AND m.score IS NULL)::int AS i_ko
+       FROM match_results m
+       JOIN ads a ON a.id = m.ad_id
+       WHERE m.search_id = $1`,
+      [s.id, s.auto_apply_min_score]
+    );
+    s.funnel = f;
+
+    // its own history, not everyone's
+    const { rows: log } = await pool.query(
+      `SELECT l.*, ads.title, ads.employer FROM auto_apply_log l
+       LEFT JOIN ads ON ads.id = l.ad_id
+       WHERE l.search_id = $1 ORDER BY l.created_at DESC LIMIT 12`,
+      [s.id]
+    );
+    s.log = log;
   }
 
   const { rows: log } = await pool.query(

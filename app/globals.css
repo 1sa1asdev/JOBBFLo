@@ -1642,3 +1642,21 @@
     animation:scanpulse 1.4s ease-in-out infinite;
   }
   @keyframes scanpulse{0%,100%{opacity:.25}50%{opacity:1}}
+
+  /* ====== KAMPANJENS TRATT: var kandidaterna tar vägen ====== */
+  .auto-funnel{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .funnel-row{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin-top:8px;}
+  .funnel-step{
+    flex:1;min-width:78px;display:flex;flex-direction:column;gap:2px;
+    padding:7px 10px;border:1px solid var(--tag-border);border-right:none;
+    background:var(--panel);
+  }
+  .funnel-step:last-child{border-right:1px solid var(--tag-border);}
+  .funnel-step b{font-size:15px;font-weight:700;line-height:1.1;}
+  .funnel-step span{
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--mute);
+  }
+  /* the last step is the one that decides whether anything gets sent */
+  .funnel-step:last-child b{color:var(--flag);}
+  .auto-log{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
