@@ -246,7 +246,20 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           <h2>Matchningar</h2>
           <div className="sub">
             visar <b>{visible.length}</b> av <b>{total}</b>{counts.iKon > 0 && <> · <b>{counts.iKon}</b> i kö</>}
-            {' — '}{search.last_scanned_at ? `senast hämtad ${timeAgo(search.last_scanned_at)}` : 'ej hämtad än'}
+            {/* "senast hämtad för 52 min sedan" answers when, never
+                whether. A first sweep can run a long time, and the only
+                visible difference between working and stalled was a
+                timestamp that also stands still — so it read as broken.
+                These are three distinct states and now say so. */}
+            {' — '}{search.fetch_done_at
+              ? (search.scan_enabled
+                  ? <>bevakar nya annonser · senast {timeAgo(search.last_scanned_at)}</>
+                  : <>bevakning av · senast {timeAgo(search.last_scanned_at)}</>)
+              : search.fetch_total
+                ? <><span className="scanning">söker igenom</span>{' '}
+                    <b>{Math.min(search.fetch_offset || 0, search.fetch_total)}</b> av{' '}
+                    <b>{search.fetch_total}</b></>
+                : <span className="scanning">söker …</span>}
             {maxKm && <> · <b>inom {maxKm} km</b></>}
             {counts.hittadeUtanFilter > counts.hittade
               ? ` · ${counts.hittadeUtanFilter - counts.hittade} dolda av ansökningsfiltret`

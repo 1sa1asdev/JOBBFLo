@@ -19,7 +19,16 @@ import { sendApplication, attachmentsFor } from './mailer.js';
 //   - every decision is written to auto_apply_log, including skips
 // ------------------------------------------------------------
 
-const GLOBAL_DAILY_CAP = 20;   // backstop across all searches
+// Backstop across ALL campaigns, not a preference — the per-campaign
+// limit is the preference. This exists so a misconfigured rule cannot
+// mail a thousand employers overnight.
+//
+// The real ceiling is Gmail's: a free account is cut off around 500
+// messages a day and briefly locked out, which would take the inbox
+// down with it. 200 leaves room for the letters you send by hand and
+// for every reply, and is far enough from the edge that a busy day
+// cannot reach it by accident.
+const GLOBAL_DAILY_CAP = 200;
 
 // A Postgres advisory lock, so two runs can never overlap: the worker
 // tick, a UI trigger and a second worker process all serialise here.

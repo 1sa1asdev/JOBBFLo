@@ -1632,3 +1632,13 @@
   .attach-btn:hover:not(:disabled){border-color:var(--ink);color:var(--ink);}
   .attach-btn:disabled{opacity:.55;cursor:default;}
   .attach-note{font-size:10px;color:var(--mute);line-height:1.45;margin-top:5px;}
+  /* "söker igenom 900 av 1172" — pulsar bara medan svepet pågår, så att
+     skillnaden mellan arbetande och stillastående syns utan att man
+     jämför tidsstämplar. */
+  .scanning{color:var(--flag);font-weight:600;}
+  .scanning::after{
+    content:"";display:inline-block;width:5px;height:5px;border-radius:50%;
+    background:var(--flag);margin-left:5px;vertical-align:middle;
+    animation:scanpulse 1.4s ease-in-out infinite;
+  }
+  @keyframes scanpulse{0%,100%{opacity:.25}50%{opacity:1}}

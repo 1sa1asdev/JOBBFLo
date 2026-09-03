@@ -251,6 +251,15 @@ export default function AutoApply({ onFindSimilar }) {
                       <span className="auto-name">{s.name}</span>
                       <span className="auto-stats">
                         {s.sent_total} skickade totalt · {s.sent_today} idag
+                        {/* Without this the card says nothing about whether
+                            the campaign is still finding ads, which is the
+                            first thing you want to know when it has sent
+                            nothing yet. */}
+                        {s.fetch_done_at
+                          ? (s.scan_enabled ? ' · bevakar nya annonser' : ' · bevakning av')
+                          : s.fetch_total
+                            ? <> · <span className="scanning">söker igenom</span> {Math.min(s.fetch_offset || 0, s.fetch_total)} av {s.fetch_total}</>
+                            : <> · <span className="scanning">söker …</span></>}
                       </span>
                     </div>
                     <div className="auto-head-acts">
@@ -331,7 +340,7 @@ export default function AutoApply({ onFindSimilar }) {
                     <label>
                       <span>Max per dygn</span>
                       <input
-                        type="number" min="1" max="20" className="txt-input"
+                        type="number" min="1" max="100" className="txt-input"
                         value={s.auto_apply_daily_limit}
                         onChange={(e) => update(s.id, { daily_limit: e.target.value })}
                       />

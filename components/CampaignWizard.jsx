@@ -182,7 +182,7 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
             </label>
             <label>
               <span>Max brev per dygn</span>
-              <input className="txt-input" type="number" min="1" max="20"
+              <input className="txt-input" type="number" min="1" max="100"
                 value={dailyLimit} onChange={(e) => setDailyLimit(Number(e.target.value))} />
             </label>
           </div>

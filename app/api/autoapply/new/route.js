@@ -80,7 +80,7 @@ export async function POST(req) {
        $7::text[], $8::jsonb, $9, $10) RETURNING *`,
     [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      Math.max(0, Math.min(100, Number(min_score) || 85)),
-     Math.max(1, Math.min(20, Number(daily_limit) || 3)),
+     Math.max(1, Math.min(100, Number(daily_limit) || 3)),
      picked.length ? picked : null,
      // A ratio only means something across several places, so one place
      // silently drops it rather than storing a split of one.

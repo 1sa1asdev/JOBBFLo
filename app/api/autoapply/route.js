@@ -11,6 +11,7 @@ export async function GET() {
             s.auto_apply_daily_limit, s.auto_apply_paused_reason,
             s.auto_apply_require_score, s.campaign_created_at,
             s.location, s.must_criteria, s.location_ratio,
+            s.fetch_offset, s.fetch_total, s.fetch_done_at, s.scan_enabled,
             s.criteria_text, s.campaign_letter_approved_at,
             (s.campaign_letter IS NOT NULL) AS has_letter,
             (SELECT count(*)::int FROM applications a
@@ -75,7 +76,7 @@ export async function PATCH(req) {
     sets.push(`auto_apply_require_score = $${vals.length}`);
   }
   if (daily_limit !== undefined) {
-    vals.push(Math.max(1, Math.min(20, Number(daily_limit))));
+    vals.push(Math.max(1, Math.min(100, Number(daily_limit))));
     sets.push(`auto_apply_daily_limit = $${vals.length}`);
   }
   // How the daily letters are split between the campaign's places.
