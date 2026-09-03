@@ -201,11 +201,27 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
 // the worktime filter has to stay on the API side.
 const RELAX_CAP = 2000;
 
+// Ordered least-intentional first, because broadening throws something
+// away and the user should lose the app's guesses before their own
+// choices.
+//
+// `q` sits high for a reason: JobSearch ANDs its terms, so a four-word
+// free text asks for ads containing ALL of them and routinely matches
+// nothing. A real campaign here was written as "frontend backend
+// mjukvaru utvecklare" and returned 0 hits — while "frontendutvecklare"
+// with a municipality returned 26. Because q was not on this ladder, the
+// only thing left to drop was the geography, so the user's three chosen
+// cities were stripped and persisted, and the search stayed empty for a
+// reason that had nothing to do with where they wanted to work.
+//
+// municipality and region go last and together: a place is the one
+// filter the user almost always typed themselves.
 const BROADENING_LADDER = [
   ['remote', 'employment-type'],
   ['experience-required'],
+  ['q'],
   ['occupation-field', 'occupation-group'],
-  ['municipality'],
+  ['municipality', 'region'],
 ];
 
 function buildQuery(filters, limit, offset = 0) {

@@ -245,6 +245,45 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
   );
   if (room <= 0) return { sent: 0, skipped: [], reason: 'dagsgränsen nådd' };
 
+  // ----------------------------------------------------------
+  // Ask for the verdicts this campaign needs.
+  //
+  // Scoring is gated on score_requested_at: nothing is judged until a
+  // human asks, which is what stops this branch paying to read
+  // thousands of ads nobody cares about. A campaign never clicks that
+  // button, so a campaign requiring a score had no way to ever obtain
+  // one — the first real campaign here found 600 ads, 35 of them
+  // mailable, 0 scored, and would have sat there indefinitely.
+  //
+  // A campaign IS that request, made once and standing: the user
+  // approved a rule saying "evaluate ads like this and write to them".
+  // So it queues its own, and only ever ads it could actually send to —
+  // an ad with no address is one it cannot use, and paying to judge it
+  // would be the exact waste the gate exists to prevent.
+  //
+  // Asked for in a batch a few times the day's room, because most
+  // candidates fall below the threshold. The daily score budget still
+  // applies; anything over it simply waits for tomorrow.
+  if (search.auto_apply_require_score && !dryRun) {
+    const { rowCount: asked } = await pool.query(
+      `UPDATE match_results m SET score_requested_at = now(), queued_at = now()
+       WHERE m.search_id = $1
+         AND m.score IS NULL
+         AND m.score_requested_at IS NULL
+         AND m.ad_id IN (
+           SELECT r.ad_id FROM search_results r JOIN ads a ON a.id = r.ad_id
+           WHERE r.search_id = $1 AND NOT r.suppressed
+             AND a.apply_email IS NOT NULL
+             AND a.removed_at IS NULL
+             AND (a.deadline IS NULL OR a.deadline >= current_date)
+             AND r.application_status IS NULL
+           LIMIT $2
+         )`,
+      [searchId, Math.max(room * 5, 20)]
+    );
+    if (asked) console.log(`kampanj "${search.name}": begärde bedömning av ${asked} annonser`);
+  }
+
   // Fetch a wider pool than `room` so the ratio has something to choose
   // between. Asking for exactly `room` rows returns the top scores
   // globally, which in a multi-city campaign are all from the largest

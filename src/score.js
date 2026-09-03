@@ -10,7 +10,10 @@ import { renderCvProfile } from './cvprofile.js';
 const FILTER_SYSTEM = `Du översätter en jobbsökandes egna ord till filter för Arbetsförmedlingens JobSearch API.
 
 Tillgängliga filter:
-- q (fritext — yrkesord, teknik, nyckelord)
+- q (fritext). VARNING: orden AND:as — "frontend backend utvecklare" kräver att
+  ALLA tre finns i samma annons och ger nästan alltid NOLL träffar.
+  Använd högst ETT ord, eller utelämna q helt och lita på occupation-field.
+  Räkna aldrig upp synonymer eller alternativ i q — det smalnar av, det breddar inte.
 - occupation-field: EXAKT ett av dessa värden, annars utelämna:
   Administration, ekonomi, juridik | Bygg och anläggning | Chefer och verksamhetsledare |
   Data/IT | Försäljning, inköp, marknadsföring | Hantverk | Hotell, restaurang, storhushåll |
