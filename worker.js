@@ -40,13 +40,29 @@ async function pollTick() {
 
 async function scoreTick() {
   try {
+    // Two different jobs wearing one name.
+    //
+    // KEEPING UP with new ads is what scan_interval is for: one page an
+    // hour is plenty, and JobStream is a public API worth being polite
+    // to.
+    //
+    // The FIRST SWEEP is not that. A campaign covering three cities
+    // matched 1172 ads, and at one page an hour it would take twelve
+    // hours before the user could see their own pool — while the search
+    // looks broken and half-empty. Finding costs nothing (no model, just
+    // the API), so an unfinished sweep runs several pages a tick and
+    // ignores the interval until it is done.
     const { rows: due } = await pool.query(
-      `SELECT id, name FROM searches
+      `SELECT id, name, (fetch_done_at IS NULL) AS first_sweep
+       FROM searches
        WHERE deleted_at IS NULL AND scan_enabled
-         AND (last_scanned_at IS NULL OR last_scanned_at + scan_interval < now())`
+         AND (fetch_done_at IS NULL
+              OR last_scanned_at IS NULL
+              OR last_scanned_at + scan_interval < now())`
     );
     for (const s of due) {
-      await scanSearch(s.id).catch((e) => console.error(`scan ${s.name}:`, e.message));
+      await scanSearch(s.id, { pages: s.first_sweep ? 5 : 1 })
+        .catch((e) => console.error(`scan ${s.name}:`, e.message));
     }
   } catch (err) {
     console.error('scoreTick:', err.message);
