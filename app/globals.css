@@ -1574,3 +1574,28 @@
   }
   .wiz-summary b{font-weight:600;min-width:0;overflow-wrap:anywhere;}
   .wiz-nav{display:flex;justify-content:space-between;gap:10px;margin-top:4px;}
+
+  /* Ta bort bas-CV, och manuell redigering av kampanjbrevet */
+  .cvup-del,.cvup-confirm button{
+    background:none;border:1px solid var(--tag-border);cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);padding:3px 7px;min-height:24px;
+  }
+  .cvup-del:hover,.cvup-confirm button:hover{border-color:var(--flag);color:var(--flag);}
+  .cvup-confirm{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:10.5px;}
+  .cvup-confirm .danger{background:var(--flag);border-color:var(--flag);color:var(--paper);}
+  .cvup-confirm .danger:hover{opacity:.85;color:var(--paper);}
+  .cl-edit-btn{
+    margin-left:auto;background:none;border:1px solid var(--tag-border);cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);padding:3px 7px;min-height:24px;
+  }
+  .cl-edit-btn:hover{border-color:var(--ink);color:var(--ink);}
+  .cl-edit{
+    width:100%;border:1px solid var(--tag-border);background:var(--paper);color:var(--ink);
+    padding:11px 13px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
+    font-size:12.5px;line-height:1.6;resize:vertical;margin-top:9px;
+  }
+  .cl-edit:focus{outline:2px solid var(--flag);outline-offset:1px;}
+  .cl-edit-note{font-size:10px;color:var(--mute);line-height:1.45;margin-top:7px;}
+  .cl-edit-acts{display:flex;gap:9px;margin-top:11px;flex-wrap:wrap;}

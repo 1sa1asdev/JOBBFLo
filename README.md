@@ -18,10 +18,18 @@ cp .env.example .env   # fill in DATABASE_URL, ANTHROPIC_API_KEY, GMAIL_*
 Local Postgres (or use a free Neon/Supabase connection string):
 
 ```bash
-docker run -d --name jobbjakt-pg -e POSTGRES_USER=jobbjakt -e POSTGRES_PASSWORD=jobbjakt -e POSTGRES_DB=jobbjakt -p 5433:5432 postgres:16-alpine
+docker run -d --name jobbjakt-pg --restart unless-stopped -e POSTGRES_USER=jobbjakt -e POSTGRES_PASSWORD=jobbjakt -e POSTGRES_DB=jobbjakt -p 6543:5432 pgvector/pgvector:pg16
 ```
 
-(Then set `DATABASE_URL=postgres://jobbjakt:jobbjakt@localhost:5433/jobbjakt`.)
+(Then set `DATABASE_URL=postgres://jobbjakt:jobbjakt@localhost:6543/jobbjakt`.)
+
+Port 6543 rather than the more obvious 5433: Windows reserves blocks of
+ports for Hyper-V on boot, and 5433 landed inside one (5355-5454). Docker
+then refuses to start with "an attempt was made to access a socket in a
+way forbidden by its access permissions", which reads like a permissions
+problem and is really a port-range collision. 6543 sits outside the
+ranges Windows hands out. `pgvector` rather than plain `postgres`
+because ads carry an embedding column.
 
 **Edit `db/seed.sql` with your real CV first** — scoring quality depends
 entirely on it. Then:

@@ -14,6 +14,9 @@ export default function CampaignLetter({ search, onChanged }) {
   const [data, setData] = useState(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState('');
+  const [draftSubject, setDraftSubject] = useState('');
   const [error, setError] = useState(null);
   const bodyRef = useRef(null);
   const [files, setFiles] = useState(null);
@@ -43,6 +46,23 @@ export default function CampaignLetter({ search, onChanged }) {
         method: 'POST', body: { searchId: search.id, instruction: instruction || null },
       });
       setInput('');
+      await load();
+      onChanged?.();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  // Saves the letter exactly as typed. Deliberately not routed through
+  // the model: "sent exactly as written" has to mean the text on screen,
+  // or approving it means nothing.
+  async function saveEdit() {
+    setBusy(true); setError(null);
+    try {
+      await api('/api/autoapply/letter', {
+        method: 'PATCH',
+        body: { searchId: search.id, letter: draftBody, subject: draftSubject },
+      });
+      setEditing(false);
       await load();
       onChanged?.();
     } catch (e) { setError(e.message); }
@@ -169,13 +189,47 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
                   → {data.example.ad.apply_email} — exakt den här texten, oförändrad.
                 </div>
               )}
-              <div className="subject-line">
-                <span className="lbl">Ämne</span>
-                <span className="val">{shown.subject}</span>
-              </div>
-              <div className="letter">
-                {String(shown.body || '').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
-              </div>
+              {editing ? (
+                <>
+                  {/* Editing by hand, because sometimes the fix is one
+                      word and describing that word to a model costs more
+                      than typing it — and the model may quietly change
+                      three other things on the way past. */}
+                  <div className="subject-line">
+                    <span className="lbl">Ämne</span>
+                    <input className="ct-input" value={draftSubject}
+                      onChange={(e) => setDraftSubject(e.target.value)} />
+                  </div>
+                  <textarea className="cl-edit" rows={16} value={draftBody}
+                    onChange={(e) => setDraftBody(e.target.value)} />
+                  <div className="cl-edit-note">
+                    Sparas ordagrant. Ett godkännande gäller texten som stod på
+                    skärmen, så en ändring drar tillbaka det — du får godkänna igen.
+                  </div>
+                  <div className="cl-edit-acts">
+                    <button className="btn primary" disabled={busy || !draftBody.trim()}
+                      onClick={saveEdit}>
+                      {busy ? <>Sparar<Dots label="Sparar" /></> : 'Spara ändringen'}
+                    </button>
+                    <button className="btn" onClick={() => setEditing(false)}>Avbryt</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="subject-line">
+                    <span className="lbl">Ämne</span>
+                    <span className="val">{shown.subject}</span>
+                    <button className="cl-edit-btn" onClick={() => {
+                      setDraftSubject(shown.subject || '');
+                      setDraftBody(shown.body || '');
+                      setEditing(true);
+                    }}>Redigera</button>
+                  </div>
+                  <div className="letter">
+                    {String(shown.body || '').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

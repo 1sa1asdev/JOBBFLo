@@ -83,11 +83,30 @@ export async function POST(req) {
 // remove a search-specific CV (fall back to the profile one)
 export async function DELETE(req) {
   const searchId = new URL(req.url).searchParams.get('search');
-  if (!searchId) return NextResponse.json({ error: 'search krävs' }, { status: 400 });
+
+  if (searchId) {
+    // cv_file and cv_mime were left behind here, so "removing" a
+    // search's tailored CV cleared the text the model reads while the
+    // DOCUMENT stayed attached — attachmentsFor COALESCEs s.cv_file, so
+    // the deleted CV kept going out with every letter. Clear all four.
+    await pool.query(
+      `UPDATE searches SET cv_text = NULL, cv_filename = NULL,
+         cv_file = NULL, cv_mime = NULL, cv_profile = NULL
+       WHERE id = $1`, [searchId]
+    );
+    return NextResponse.json({ ok: true, scope: 'search' });
+  }
+
+  // The base CV. Everything derived from it goes too: cv_profile is a
+  // reading OF this document, and leaving it would mean scoring and
+  // letters kept citing a CV that is no longer here — facts with no
+  // source, which is worse than no facts.
   await pool.query(
-    `UPDATE searches SET cv_text = NULL, cv_filename = NULL WHERE id = $1`, [searchId]
+    `UPDATE profile SET cv_text = NULL, cv_filename = NULL,
+       cv_file = NULL, cv_mime = NULL,
+       cv_profile = NULL, cv_profile_at = NULL, cv_profile_model = NULL`
   );
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, scope: 'profile' });
 }
 
 // what CV is in play right now, and can it actually be attached?

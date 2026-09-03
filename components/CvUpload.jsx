@@ -10,6 +10,7 @@ import { useRef, useState } from 'react';
 // ------------------------------------------------------------
 export default function CvUpload({ scope = 'profile', searchId = null, current, onDone, compact = false }) {
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState(null);
   const [warning, setWarning] = useState(null);
   const [pasting, setPasting] = useState(false);
@@ -48,6 +49,21 @@ export default function CvUpload({ scope = 'profile', searchId = null, current, 
     send(fd);
   }
 
+  // Removing the base CV takes the derived profile with it, and without
+  // a CV nothing can be scored or written — so it asks first. The
+  // confirmation replaces the button in place rather than opening a
+  // dialog, which is harder to click through by reflex.
+  async function clearProfileCv() {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/cv', { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error || 'kunde inte ta bort');
+      setConfirming(false);
+      onDone?.({ cleared: true });
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
   async function clearSearchCv() {
     setBusy(true);
     try {
@@ -76,6 +92,17 @@ export default function CvUpload({ scope = 'profile', searchId = null, current, 
           <div className="cvup-current">
             <span className="cvup-file">{current.filename}</span>
             <span className="cvup-meta">{Math.round(current.chars / 100) / 10}k tecken</span>
+            {scope === 'profile' && (confirming ? (
+              <span className="cvup-confirm">
+                Ta bort CV:t och allt som lästs ut ur det?
+                <button className="danger" disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); clearProfileCv(); }}>Ta bort</button>
+                <button onClick={(e) => { e.stopPropagation(); setConfirming(false); }}>Avbryt</button>
+              </span>
+            ) : (
+              <button className="cvup-del" title="Ta bort bas-CV:t"
+                onClick={(e) => { e.stopPropagation(); setConfirming(true); }}>Ta bort</button>
+            ))}
           </div>
         ) : (
           <span className="cvup-hint">

@@ -4,3 +4,9 @@ node_modules/
 *.log
 
 .next-check/
+
+# Any copy of .env is still .env. A backup taken during a config change
+# (.env.bak-port5433) was committed once with live keys in it — the
+# extension changed, the secrets did not.
+.env.*
+!.env.example
