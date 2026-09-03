@@ -386,7 +386,9 @@ export default function AutoApply({ onFindSimilar }) {
                             för att kravet ska ha någon effekt.</>
                         : <>Läses av modellen vid bedömningen. Uppfylls det inte får annonsen
                             högst 15 poäng och hamnar därmed under gränsen — inget brev skickas.
-                            Går det inte att avgöra ur annonstexten räknas kravet som ej uppfyllt.</>}
+                            Går det inte att avgöra ur annonstexten räknas kravet som ej uppfyllt.
+                            Ändrar du kravet döms redan bedömda annonser om — deras poäng
+                            svarade på en annan fråga.</>}
                     </p>
                   </div>
 

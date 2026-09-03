@@ -208,6 +208,60 @@ export async function PATCH(req) {
     scanSearch(searchId, { pages: 2 }).catch((e) => console.error(`kampanj-scan ${searchId}:`, e.message));
   }
 
+  // A hard requirement is enforced BY the model while it scores, so a
+  // verdict reached before the requirement existed never tested it. Left
+  // alone, adding "bara juniora roller" would apply to new ads only,
+  // while 55 already-scored seniors kept their 70 and kept qualifying —
+  // the rule would appear to work and quietly not.
+  //
+  // So the affected verdicts are cleared and re-requested. It costs the
+  // scoring again, which is the honest price of changing the question.
+  if (must_criteria !== undefined && s.auto_apply_require_score) {
+    const { rowCount: recheck } = await pool.query(
+      // matched and flags are NOT NULL — they are emptied, not nulled.
+      // Setting them to NULL threw after the row had already been
+      // updated, so the new requirement saved while the verdicts it
+      // invalidates silently survived: the exact failure this block
+      // exists to prevent, caused by the block itself.
+      `UPDATE match_results
+         SET score = NULL, summary = NULL,
+             matched = '[]'::jsonb, flags = '[]'::jsonb,
+             scored_at = NULL, score_requested_at = now(), attempts = 0
+       WHERE search_id = $1 AND score IS NOT NULL`,
+      [searchId]
+    );
+    if (recheck) {
+      console.log(`ska-krav ändrat: ${recheck} bedömningar ogiltiga, köade för ombedömning`);
+    }
+  }
+
+  // ----------------------------------------------------------
+  // A changed rule takes effect now, not in half an hour.
+  //
+  // The worker's tick is every 30 minutes, so lowering the threshold or
+  // raising the daily cap looked like nothing happened — and the natural
+  // response to that is to change it again. Re-running here makes the
+  // card reflect the rule you just set.
+  //
+  // Fire-and-forget: the campaign takes a lock and can take a while
+  // (it may queue scoring and send letters), and the settings request
+  // must not sit waiting on it.
+  // ----------------------------------------------------------
+  const affectsWhoQualifies = min_score !== undefined
+    || daily_limit !== undefined
+    || require_score !== undefined
+    || must_criteria !== undefined
+    || location_ratio !== undefined
+    || criteriaChanged
+    || enabled === true;
+
+  if (affectsWhoQualifies && !clear_campaign && s.auto_apply_enabled) {
+    const { runAutoApply } = await import('../../../src/autoapply.js');
+    runAutoApply(searchId)
+      .then((r) => { if (r?.sent) console.log(`regeländring: ${r.sent} skickade direkt`); })
+      .catch((e) => console.error(`kampanj-omkörning ${searchId}:`, e.message));
+  }
+
   return NextResponse.json(parseError ? { ...s, warning: parseError } : s);
 }
 
