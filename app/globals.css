@@ -1623,3 +1623,12 @@
   .tmsg-body p,
   .suggest-body p,
   .sheet .letter p { white-space: pre-wrap; }
+  .attach-acts{display:inline-flex;gap:6px;margin-left:9px;}
+  .attach-btn{
+    background:none;border:1px solid var(--tag-border);cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);padding:2px 7px;min-height:22px;
+  }
+  .attach-btn:hover:not(:disabled){border-color:var(--ink);color:var(--ink);}
+  .attach-btn:disabled{opacity:.55;cursor:default;}
+  .attach-note{font-size:10px;color:var(--mute);line-height:1.45;margin-top:5px;}

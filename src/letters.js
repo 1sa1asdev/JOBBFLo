@@ -140,8 +140,17 @@ async function loadContext(adId, { searchId = null } = {}) {
      FROM profile LIMIT 1`);
   if (!profile) throw new Error('no profile — run db:seed');
 
-  // letters answer with whatever CV that search is using
-  if (searchId) {
+  // An application's own CV wins: if the user swapped the document for
+  // this one letter, the letter has to be written from that document or
+  // it will argue from a CV the employer never receives.
+  const { rows: [own] } = await pool.query(
+    `SELECT cv_text FROM applications WHERE ad_id = $1 AND profile_id = $2`,
+    [adId, profile.id]
+  );
+  if (own?.cv_text?.trim()) {
+    profile.cv_text = own.cv_text;
+  } else if (searchId) {
+    // otherwise letters answer with whatever CV that search is using
     const { rows: [s] } = await pool.query(
       `SELECT cv_text FROM searches WHERE id = $1`, [searchId]
     );

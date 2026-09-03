@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, daysUntil } from '../lib/api.js';
 import Dots from './Dots';
 
@@ -35,6 +35,8 @@ function markParagraph(text, spans, onJumpRegister) {
 export default function LetterView({ adId, search, letterState, setLetterState, onBack }) {
   const [data, setData] = useState(null); // {ad, match, duplicates, application}
   const [appDetail, setAppDetail] = useState(null); // versions + reuse warnings
+  const [cvErr, setCvErr] = useState(null);
+  const cvRef = useRef(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -101,6 +103,35 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     });
     setLetterState((s) => ({ ...s, application: app }));
     setEditing(false);
+  }
+
+  // Replaces the attached CV for this application only, and stores the
+  // extracted text with it so a later revision writes from the same
+  // document the employer receives.
+  async function swapCv(file) {
+    if (!file) return;
+    setBusy(true); setCvErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/applications/${application.id}/attachments`, {
+        method: 'POST', body: fd,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'kunde inte byta CV');
+      await load();
+    } catch (e) { setCvErr(e.message); }
+    setBusy(false);
+  }
+
+  async function resetCv() {
+    setBusy(true); setCvErr(null);
+    try {
+      const res = await fetch(`/api/applications/${application.id}/attachments`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error || 'kunde inte återställa');
+      await load();
+    } catch (e) { setCvErr(e.message); }
+    setBusy(false);
   }
 
   async function doSend() {
@@ -271,7 +302,39 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                         </span>
                       ))
                     : <span className="file none">inget CV bifogas — ladda upp CV:t som fil i Profil</span>}
+
+                  {/* A care job and a dev job want different CVs, and both
+                      can sit in the same search — so the swap belongs to
+                      this letter, not to the search. Hidden once sent: the
+                      attachment is then a record of what actually went out,
+                      not a setting. */}
+                  {!sent && application && (
+                    <span className="attach-acts">
+                      <input
+                        ref={cvRef} type="file" accept=".pdf,.docx,.txt,.md"
+                        style={{ display: 'none' }}
+                        onChange={(e) => swapCv(e.target.files?.[0])}
+                      />
+                      <button className="attach-btn" disabled={busy}
+                        onClick={() => cvRef.current?.click()}>
+                        {busy ? <Dots label="Läser" /> : 'Byt CV'}
+                      </button>
+                      {appDetail?.cv_filename && (
+                        <button className="attach-btn" disabled={busy} onClick={resetCv}>
+                          Återställ
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </div>
+                {appDetail?.cv_filename && (
+                  <div className="attach-note">
+                    Eget CV för just den här ansökan. Ber du om en ändring skrivs
+                    brevet om utifrån det — annars skulle brevet argumentera från
+                    ett CV mottagaren aldrig får.
+                  </div>
+                )}
+                {cvErr && <div className="err-note" style={{ margin: '6px 0 0' }}>{cvErr}</div>}
 
                 {spans.length > 0 && (
                   <div className="evidence">

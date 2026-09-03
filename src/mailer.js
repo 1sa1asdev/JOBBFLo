@@ -42,11 +42,23 @@ function aliasFrom(alias) {
 // tailored CV wins over the profile's base one.
 // ------------------------------------------------------------
 export async function attachmentsFor(applicationId) {
+  // Precedence, narrowest first: this application's own CV, then the
+  // search's tailored one, then the profile's base. COALESCE per column
+  // would be wrong — it could pair one CV's bytes with another's
+  // filename — so the whole document is chosen as a unit.
   const { rows: [row] } = await pool.query(
     `SELECT
-       COALESCE(s.cv_file, p.cv_file)         AS cv_file,
-       COALESCE(s.cv_filename, p.cv_filename) AS cv_filename,
-       COALESCE(s.cv_mime, p.cv_mime)         AS cv_mime,
+       COALESCE(a.cv_file, s.cv_file, p.cv_file) AS cv_file,
+       CASE
+         WHEN a.cv_file IS NOT NULL THEN a.cv_filename
+         WHEN s.cv_file IS NOT NULL THEN s.cv_filename
+         ELSE p.cv_filename
+       END AS cv_filename,
+       CASE
+         WHEN a.cv_file IS NOT NULL THEN a.cv_mime
+         WHEN s.cv_file IS NOT NULL THEN s.cv_mime
+         ELSE p.cv_mime
+       END AS cv_mime,
        p.id AS profile_id, a.origin_search_id
      FROM applications a
      JOIN profile p  ON p.id = a.profile_id
