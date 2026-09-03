@@ -25,6 +25,9 @@ Regler:
 - Svara på det annonsen faktiskt efterfrågar — använd de citerade kraven.
 - Ljug aldrig. Påstå inget som inte har stöd i CV:t eller projekten.
 - Hälsningsfras i början och avslutning med namn är OBLIGATORISKA.
+- Skriv ALDRIG mejladress, telefonnummer eller länkar. Appen lägger till
+  kontaktuppgifterna automatiskt efter namnet, hämtade från profilen —
+  de i CV:t kan vara gamla, och brevet skickas från profilens adress.
 
 Svara ENDAST med JSON, inga kodstaket:
 {"subject": "Ansökan: <tjänstetitel>", "body": "brevet med \\n\\n mellan stycken", "change_note": "en mening om vad du gjorde"}`;
@@ -71,7 +74,17 @@ ${match?.lead_project_name ? `\n## LYFT FRAM I FÖRSTA HAND\nProjektet "${match.
 const GREETING_RE = /^\s*(hej|hejsan|god dag|till|bäste|bästa)\b/i;
 const CLOSING_RE = /(vänliga hälsningar|med vänlig hälsning|hälsningar|mvh|bästa hälsningar)\s*,?/i;
 
-export function ensureLetterShape(body, name) {
+// A line in the sign-off that is contact details rather than a name:
+// an email address, a phone number (7+ digits once separators are
+// ignored), or a profile link. Only ever applied AFTER the closing
+// phrase, so a phone number quoted in the body itself is left alone.
+const CONTACT_LINE_RE = /(\S+@\S+\.\S+)|(?:[\d][\d\s\-+()]{6,}\d)|\b(linkedin|github|portfolio)\b/i;
+
+// `who` is the profile ({ name, email, phone }); a bare string still
+// works, because callers that only have a name predate the rest.
+export function ensureLetterShape(body, who) {
+  const p = typeof who === 'string' ? { name: who } : (who || {});
+  const name = p.name;
   let text = String(body || '').trim().replace(/\n{3,}/g, '\n\n');
 
   if (!GREETING_RE.test(text)) text = `Hej,\n\n${text}`;
@@ -81,6 +94,40 @@ export function ensureLetterShape(body, name) {
   } else if (name && !text.toLowerCase().includes(String(name).toLowerCase())) {
     // closing present but the name was dropped after it
     text = `${text}\n${name}`;
+  }
+
+  // ----------------------------------------------------------
+  // How the employer answers.
+  //
+  // Every letter ended at the name. A campaign letter is a cold mail to
+  // a stranger who has no other record of the sender, and a reply-to
+  // header is not something a recruiter reads off a printout or
+  // forwards to a colleague — so the phone number simply was not there
+  // when someone wanted to call.
+  //
+  // Appended here rather than asked of the model for the same reason
+  // the greeting and closing are: contact details are facts, and a
+  // model that paraphrases a phone number produces a letter that looks
+  // right and cannot be answered. Idempotent on the email address, so
+  // regenerating, editing or re-shaping a letter never stacks it up.
+  // ----------------------------------------------------------
+  const contact = [p.email, p.phone].map((v) => String(v || '').trim()).filter(Boolean);
+  if (contact.length) {
+    // Models write a contact line of their own, lifted off the CV. That
+    // produced two blocks with DIFFERENT addresses — an old proton.me
+    // beside the profile's gmail — on a mail actually sent from the
+    // gmail account. So any contact-looking line in the sign-off is
+    // dropped and replaced: the profile is the one place these are
+    // maintained, and a stale address in a cold email is a reply that
+    // never arrives.
+    const at = text.search(CLOSING_RE);
+    if (at !== -1) {
+      const head = text.slice(0, at);
+      const tail = text.slice(at).split('\n')
+        .filter((line) => !CONTACT_LINE_RE.test(line));
+      text = (head + tail.join('\n')).trimEnd();
+    }
+    text = `${text}\n${contact.join(' · ')}`;
   }
   return text;
 }
@@ -145,7 +192,7 @@ export async function draftLetter(adId, { originSearchId = null } = {}) {
     system: LETTER_SYSTEM,
     messages: [{ role: 'user', content: letterContext(ctx) }],
   });
-  draft.body = ensureLetterShape(draft.body, ctx.profile.name);
+  draft.body = ensureLetterShape(draft.body, ctx.profile);
 
   const { rows: [app] } = await pool.query(
     `INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text, letter_version)
@@ -192,7 +239,7 @@ export async function reviseLetter(applicationId, instruction) {
       { role: 'user', content: `Revidera brevet enligt: ${instruction}\nSvara med samma JSON-format, inklusive "change_note".` },
     ],
   });
-  draft.body = ensureLetterShape(draft.body, ctx.profile.name);
+  draft.body = ensureLetterShape(draft.body, ctx.profile);
   const version = app.letter_version + 1;
 
   await pool.query(

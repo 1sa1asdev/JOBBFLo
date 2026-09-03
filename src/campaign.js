@@ -40,6 +40,9 @@ STRUKTUR:
 
 REGLER:
 - 120–200 ord. Kortare än en vanlig ansökan — det här är ett kallt mejl.
+- Skriv ALDRIG mejladress, telefonnummer eller länkar. Appen lägger till
+  kontaktuppgifterna automatiskt efter namnet, hämtade från profilen —
+  de i CV:t kan vara gamla, och brevet skickas från profilens adress.
 - Påstå ALDRIG något om mottagaren, deras produkt, kultur eller behov.
   Du vet inte vilka de är. Skriv inte "ert team", "er resa", "just er".
 - Inga floskler: "passionerad", "driven", "brinner för", "spännande möjlighet",
@@ -54,7 +57,7 @@ Svara ENDAST med JSON, inga kodstaket:
 async function context(searchId) {
   const { rows: [s] } = await pool.query(
     `SELECT s.*, COALESCE(s.cv_text, p.cv_text) AS cv_text,
-            p.name, p.about_text, p.tone_text, p.id AS profile_id
+            p.name, p.email, p.phone, p.about_text, p.tone_text, p.id AS profile_id
      FROM searches s JOIN profile p ON p.id = s.profile_id
      WHERE s.id = $1 AND s.deleted_at IS NULL`, [searchId]
   );
@@ -122,7 +125,11 @@ export async function writeCampaignLetter(searchId, instruction = null) {
   }
 
   const draft = await llmJson({ tier: 'write', maxTokens: 2000, system: CAMPAIGN_SYSTEM, messages });
-  draft.body = ensureLetterShape(draft.body, ctx.s.name);
+  // ctx.s carries the profile's name/email/phone: the SELECT lists them
+  // after s.*, so they win over the search's own `name` column. Passing
+  // the whole row is what gets the contact line onto a cold email, where
+  // it matters most — the recipient has no other way to reach back.
+  draft.body = ensureLetterShape(draft.body, ctx.s);
 
   // changing the letter withdraws approval — the user must read it again
   await pool.query(
