@@ -1599,3 +1599,27 @@
   .cl-edit:focus{outline:2px solid var(--flag);outline-offset:1px;}
   .cl-edit-note{font-size:10px;color:var(--mute);line-height:1.45;margin-top:7px;}
   .cl-edit-acts{display:flex;gap:9px;margin-top:11px;flex-wrap:wrap;}
+
+  /* ============ ENKLA RADBRYTNINGAR I BREV OCH ANNONSER ============
+     Brevtexten delas på blankrad till <p>, vilket är rätt för styckena
+     — men HTML kollapsar en ENKEL radbrytning till ett mellanslag, och
+     signaturen är just enkla radbrytningar:
+
+       Vänliga hälsningar,
+       Anna Andersson
+       anna@exempel.se · 070…
+
+     Utan detta renderades de tre raderna som en enda rad, medan mejlet
+     som faktiskt skickas är text/plain och behåller dem. Förhandsvisningen
+     ljög alltså om vad mottagaren får — och "det du läser är det de får"
+     är hela poängen med godkännandesteget.
+
+     pre-wrap i stället för att byta ut split-logiken: annonstexten
+     markeras med markParagraph() för citat-highlight, och den strukturen
+     ska inte röras för ett radbrytningsfel. Adresslistor och punktlistor
+     i annonser blir läsbara på köpet. */
+  .letter p,
+  .adtext p,
+  .tmsg-body p,
+  .suggest-body p,
+  .sheet .letter p { white-space: pre-wrap; }
