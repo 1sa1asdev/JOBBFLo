@@ -584,6 +584,45 @@ export default function AutoApply({ onFindSimilar }) {
                     </div>
                   )}
 
+                  {/* Everyone this campaign has written to, complete and
+                      permanent. The event log below is a rolling feed —
+                      it scrolls away and answers "what happened lately".
+                      This answers "who have I contacted", which has to
+                      survive rule edits, renames and the search being
+                      deleted, so it is read from applications and carries
+                      the campaign name stamped at send time. */}
+                  {s.contacts?.length > 0 && (
+                    <details className="auto-contacts">
+                      <summary>
+                        Kontaktade ({s.contacts.length})
+                        {s.contacts.some((c) => c.svar > 0) && (
+                          <span className="contact-replies">
+                            {s.contacts.filter((c) => c.svar > 0).length} har svarat
+                          </span>
+                        )}
+                      </summary>
+                      <div className="contact-list">
+                        {s.contacts.map((c) => (
+                          <div className={`contact-row${c.svar > 0 ? ' answered' : ''}`} key={c.id}>
+                            <span className="cr-when">{fmtDate(c.sent_at)}</span>
+                            <span className="cr-emp">
+                              {c.employer}
+                              {c.manuell && <span className="cr-manual">egen</span>}
+                            </span>
+                            <span className="cr-mail">{c.sent_to}</span>
+                            <span className={`cr-status st-${c.status}`}>
+                              {c.status === 'interview' ? 'intervju'
+                                : c.status === 'replied' ? 'svar'
+                                : c.status === 'rejected' ? 'avslag'
+                                : c.status === 'ghosted' ? 'tyst'
+                                : 'väntar'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
                   {/* This campaign's own history. One shared log meant you
                       could not tell which rule skipped what — and "hoppad:
                       adressen redan kontaktad" only means something next to

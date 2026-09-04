@@ -52,6 +52,24 @@ export async function GET() {
     );
     s.funnel = f;
 
+    // Everyone this campaign has ever written to. Read from
+    // applications rather than auto_apply_log, because the log is a
+    // rolling feed of recent events while this has to be the complete,
+    // permanent roster — it must not scroll away, and it must survive
+    // the rules being edited.
+    const { rows: contacts } = await pool.query(
+      `SELECT a.id, a.sent_to, a.sent_at, a.status, a.campaign_name,
+              ads.title, ads.employer, (ads.source = 'manual') AS manuell,
+              (SELECT count(*)::int FROM email_messages em
+                WHERE em.application_id = a.id AND em.direction = 'inbound') AS svar
+       FROM applications a
+       JOIN ads ON ads.id = a.ad_id
+       WHERE a.sent_by = 'auto' AND a.origin_search_id = $1
+       ORDER BY a.sent_at DESC`,
+      [s.id]
+    );
+    s.contacts = contacts;
+
     // its own history, not everyone's
     const { rows: log } = await pool.query(
       `SELECT l.*, ads.title, ads.employer FROM auto_apply_log l

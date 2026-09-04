@@ -397,6 +397,13 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
       }
 
       await sendApplication(app.id, { to: c.apply_email });
+      // Stamped at send time, not read through the join later: the
+      // campaign may be renamed or its search deleted, and this has to
+      // stay true to what was sent under which rule.
+      await pool.query(
+        `UPDATE applications SET campaign_name = $2 WHERE id = $1`,
+        [app.id, search.name]
+      );
       await log({ searchId, adId: c.ad_id, applicationId: app.id, score: c.score,
                   outcome: 'sent', detail: `${c.employer} <${c.apply_email}>` });
       results.sent++;
