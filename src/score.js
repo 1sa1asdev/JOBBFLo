@@ -481,12 +481,27 @@ async function drainQueue(searchId, { limit }) {
       results.push({ ad, ...r });
       console.log(`  ${String(r.score).padStart(3)} · ${ad.title} — ${ad.employer}`);
     } catch (err) {
+      // `attempts` exists to stop ONE bad ad being retried for ever — a
+      // description that always breaks the parser, say. A rate limit is
+      // not that ad's fault, and on a free tier it is the normal answer
+      // to a burst: queueing 65 ads at once burned all three attempts in
+      // seconds and parked every one of them permanently. The queue then
+      // read "65 väntar" while nothing would ever move again.
+      //
+      // A transient failure records the reason without spending an
+      // attempt, so the ad returns on the next tick with the quota
+      // refilled.
+      const transient = err.transient
+        || /429|rate|quota|timeout|ETIMEDOUT|ECONNRESET|användbart svar/i.test(err.message || '');
       await pool.query(
-        `UPDATE match_results SET attempts = attempts + 1, last_error = $3
+        `UPDATE match_results SET attempts = attempts + $4, last_error = $3
          WHERE search_id = $1 AND ad_id = $2`,
-        [searchId, ad.id, err.message]
+        [searchId, ad.id, err.message, transient ? 0 : 1]
       );
-      console.error(`  !! ${ad.title}: ${err.message}`);
+      console.error(`  !! ${ad.title}: ${err.message}${transient ? ' (försöker igen)' : ''}`);
+      // A provider that just rate-limited will do it again straight
+      // away, so stop the batch instead of burning the rest failing.
+      if (transient) break;
     }
   }
   return results;
