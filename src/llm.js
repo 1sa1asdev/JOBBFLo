@@ -159,7 +159,8 @@ export async function configFor(provider, primary) {
 }
 
 // ---------- transports ----------
-async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens }) {
+async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens,
+                                     provider, tier }) {
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -221,6 +222,20 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
   // charge the bucket with what was actually used, when reported
   const used = data.usage?.total_tokens;
   if (used) recordSpend(model, used);
+
+  // Metered as well as rate-limited. recordSpend keeps a 60-second
+  // window in memory for the breaker; this writes the call down so the
+  // monthly budget has something real to read. Deliberately not awaited
+  // — the user's answer must not wait on bookkeeping — and it swallows
+  // its own errors for the same reason.
+  import('./prices.js')
+    .then(({ recordUsage }) => recordUsage({
+      provider, model, tier,
+      promptTokens: data.usage?.prompt_tokens,
+      completionTokens: data.usage?.completion_tokens,
+      totalTokens: used,
+    }))
+    .catch(() => {});
 
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) {
@@ -385,7 +400,7 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
         }
         const text = provider === 'anthropic'
           ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
-          : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
+          : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens, provider, tier });
         onModel?.(`${provider}:${model}`);
         return validate ? validate(text) : text;
       } catch (err) {
@@ -420,7 +435,7 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
             await waitForBudget(`${provider}:${model}`, need);
             const text = provider === 'anthropic'
               ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
-              : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens });
+              : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens, provider, tier });
             onModel?.(`${provider}:${model}`);
             return validate ? validate(text) : text;
           } catch (retryErr) {

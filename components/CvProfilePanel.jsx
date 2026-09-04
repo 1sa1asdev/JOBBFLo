@@ -123,6 +123,119 @@ export function EmbeddingPanel() {
   );
 }
 
+// ------------------------------------------------------------
+// What the app costs to run, and what it is allowed to cost.
+//
+// The budget is set in money because money is what runs out. Everything
+// else worth capping — ads judged, letters sent — follows from it and
+// from what the chosen models charge, so raising the budget raises the
+// capacity without the user doing the arithmetic themselves.
+//
+// The per-unit prices are measured from this install's own calls, not
+// read off a price list: they carry this CV's length and these ads'
+// length, which is what actually determines the bill.
+// ------------------------------------------------------------
+export function BudgetPanel() {
+  const [b, setB] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = () => api('/api/profile/budget').then(setB).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+
+  async function save(patch) {
+    setBusy(true); setErr(null);
+    try { setB(await api('/api/profile/budget', { method: 'PATCH', body: patch })); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  if (!b) return null;
+  const kr = (usd) => `$${usd.toFixed(2)}`;
+
+  return (
+    <section className="cvprofile">
+      <div className="cvp-head">
+        <div>
+          <h3>Kostnad och tak</h3>
+          <p className="cvp-sub">
+            {b.credit
+              ? <><b>{kr(b.credit.left)}</b> kvar hos {b.provider} av {kr(b.credit.bought)} köpta. </>
+              : <>Ingen saldouppgift från {b.provider}. </>}
+            Bedömning körs på <code>{b.models.bulk}</code>, brev på <code>{b.models.write}</code>.
+          </p>
+        </div>
+      </div>
+
+      <div className="budget-grid">
+        <div className="budget-stat">
+          <b>{kr(b.spent.usd)}</b>
+          <span>använt denna månad</span>
+        </div>
+        <div className="budget-stat">
+          <b>${b.unit.score.toFixed(4)}</b>
+          <span>per bedömd annons</span>
+        </div>
+        <div className="budget-stat">
+          <b>${b.unit.letter.toFixed(4)}</b>
+          <span>per brev</span>
+        </div>
+      </div>
+      {b.unit.measured.score > 0
+        ? <p className="hint">Styckpriserna är mätta på dina egna {b.unit.measured.score} senaste
+            bedömningar — inte hämtade ur en prislista.</p>
+        : <p className="hint">Styckpriserna är uppskattade tills appen kört några anrop med
+            mätning påslagen; då byts de mot dina faktiska.</p>}
+
+      <div className="budget-row">
+        <label>
+          <span>Tak per månad (USD)</span>
+          <input
+            className="txt-input" type="number" min="0" max="1000" step="1"
+            value={b.budget ?? ''}
+            placeholder="inget tak"
+            onChange={(e) => setB({ ...b, budget: e.target.value === '' ? null : Number(e.target.value) })}
+            onBlur={(e) => save({ monthly_budget_usd: e.target.value === '' ? null : Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          <span>Max bedömningar per dygn</span>
+          <input
+            className="txt-input" type="number" min="1" max="2000"
+            defaultValue={b.dailyScoreLimit}
+            onBlur={(e) => save({ daily_score_limit: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+
+      {b.capacity ? (
+        <>
+          <div className="budget-scale">
+            {[['per månad', b.capacity.month], ['per vecka', b.capacity.week],
+              ['per dygn', b.capacity.day]].map(([label, n]) => (
+              <span className="scale-step" key={label}>
+                <b>{n.toLocaleString('sv-SE')}</b><span>annonser {label}</span>
+              </span>
+            ))}
+          </div>
+          <p className="hint">
+            {kr(b.remaining)} kvar av taket, {b.daysLeft} dagar av månaden igen — det räcker
+            till <b>{b.capacity.todayLeft.toLocaleString('sv-SE')}</b> bedömningar idag om du
+            fördelar jämnt. Brev kostar en tiondel så mycket och ryms i alla fall.
+          </p>
+        </>
+      ) : (
+        <p className="hint">
+          Utan tak spenderar appen vad arbetet kräver. Sätt ett tak ovan så räknas det om
+          till hur många annonser som kan bedömas per månad, vecka och dygn.
+        </p>
+      )}
+      {busy && <div className="home-msg">sparar…</div>}
+      {err && <div className="err-note">{err}</div>}
+    </section>
+  );
+}
+
 export default function CvProfilePanel({ profile, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);

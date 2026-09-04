@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
 import CvUpload from './CvUpload.jsx';
-import CvProfilePanel, { HomePanel, EmbeddingPanel } from './CvProfilePanel.jsx';
+import CvProfilePanel, { HomePanel, EmbeddingPanel, BudgetPanel } from './CvProfilePanel.jsx';
 import Dots from './Dots';
 
 export default function ProfileView({ onClose }) {
@@ -49,6 +49,8 @@ export default function ProfileView({ onClose }) {
           profile={profile}
           onChanged={() => api('/api/profile').then(setProfile).catch(() => {})}
         />
+
+        <BudgetPanel />
 
         <EmbeddingPanel />
 
