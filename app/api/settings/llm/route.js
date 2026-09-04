@@ -58,6 +58,21 @@ export async function PUT(req) {
      model_bulk?.trim() || null, model_write?.trim() || null]
   );
 
+  // An ad parked after three failures was parked by the OLD model. That
+  // verdict says nothing about whether a different one can read it — and
+  // switching provider is precisely what a user does when the current
+  // one keeps failing. Eight ads sat unscorable on "groq: ingen modell
+  // gav användbart svar" long after the app had moved to another
+  // provider entirely, with nothing able to un-stick them.
+  //
+  // Only the parked rows reset. `attempts` still protects against a
+  // genuinely unreadable ad within one model's lifetime.
+  const { rowCount: unparked } = await pool.query(
+    `UPDATE match_results SET attempts = 0, last_error = NULL
+     WHERE score IS NULL AND score_requested_at IS NOT NULL AND attempts >= 3`
+  );
+  if (unparked) console.log(`modellbyte: ${unparked} parkerade annonser får ett nytt försök`);
+
   invalidateLlmConfig();
   const active = await llmConfig({ fresh: true });
   return NextResponse.json({
