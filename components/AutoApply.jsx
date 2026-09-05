@@ -7,6 +7,7 @@ import CampaignLetter from './CampaignLetter.jsx';
 import Dots from './Dots';
 import LocationPicker from './LocationPicker.jsx';
 import CampaignWizard from './CampaignWizard.jsx';
+import LeadFinder from './LeadFinder.jsx';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -251,12 +252,17 @@ export default function AutoApply({ onFindSimilar }) {
           onClick={() => { setView('letter'); if (!letterFor) setLetterFor(data?.searches?.[0] || null); }}>
           Kampanjbrev
         </button>
+        <button role="tab" aria-selected={view === 'leads'} onClick={() => setView('leads')}>
+          Hitta adresser
+        </button>
         <button role="tab" aria-selected={view === 'inbox'} onClick={() => setView('inbox')}>
           Auto-inkorg
         </button>
       </div>
 
-      {view === 'inbox' ? (
+      {view === 'leads' ? (
+        <LeadFinder campaigns={data.searches} onChanged={load} />
+      ) : view === 'inbox' ? (
         <Inbox source="auto" onFindSimilar={onFindSimilar} />
       ) : view === 'letter' ? (
         <div className="cl-shell">
