@@ -203,6 +203,11 @@ export async function confirmVerified({ limit = 500 } = {}) {
         ? { email: r.contacts[0].email, grund: r.only_shared ? 'delad inkorg' : 'enda träffen på sidan' }
         : null);
     if (!v) continue;
+    // Last gate before an address becomes something the campaign will
+    // mail. Nothing reads these now that confirmation is gone, so a
+    // parse artefact reaches Gmail unread — and one that did stopped
+    // the campaign rather than the letter.
+    if (!/^[^@\s<>\\"',;]+@[^@\s<>\\"',;]+\.[a-z]{2,}$/i.test(v.email)) continue;
     if (v.grund === 'namngiven kontaktperson' || v.grund === 'domänen tillhör arbetsgivaren') {
       styrkta += 1;
     }

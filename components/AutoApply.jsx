@@ -456,7 +456,7 @@ export default function AutoApply({ onFindSimilar }) {
                     <label>
                       <span>Max per dygn</span>
                       <input
-                        type="number" min="1" max="100" className="txt-input"
+                        type="number" min="1" max="200" className="txt-input"
                         value={s.auto_apply_daily_limit}
                         onChange={(e) => update(s.id, { daily_limit: e.target.value })}
                       />

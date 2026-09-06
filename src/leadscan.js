@@ -115,7 +115,20 @@ function emailsIn(html) {
 
   // A mailto is an address someone put there deliberately, so it
   // outranks one that merely appears in the text.
-  const mailto = keep([...html.matchAll(/mailto:([^"'?>\s]+)/gi)].map((m) => m[1]));
+  // The captured span is whatever follows mailto: up to the next quote,
+  // and inside JSON embedded in HTML that quote is escaped — so the
+  // capture ran on and produced "hareton@cleverex.se\". Gmail answered
+  // 555-5.5.2 Syntax error, and because a rejected recipient looked
+  // like a broken SMTP session, it stopped the whole campaign.
+  //
+  // Re-matching the address out of the capture drops the tail: the
+  // pattern is the authority on what an address looks like, not the
+  // surrounding markup.
+  const mailto = keep(
+    [...html.matchAll(/mailto:([^"'?>\s]+)/gi)]
+      .map((m) => (m[1].match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i) || [])[0])
+      .filter(Boolean)
+  );
   const text = keep(html.match(EMAIL_RE) || []);
   const rank = (a, b) => {
     const g = (GENERIC.test(a) ? 1 : 0) - (GENERIC.test(b) ? 1 : 0);

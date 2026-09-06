@@ -136,7 +136,7 @@ export async function PATCH(req) {
     sets.push(`auto_apply_require_score = $${vals.length}`);
   }
   if (daily_limit !== undefined) {
-    vals.push(Math.max(1, Math.min(100, Number(daily_limit))));
+    vals.push(Math.max(1, Math.min(200, Number(daily_limit))));
     sets.push(`auto_apply_daily_limit = $${vals.length}`);
   }
   // How the daily letters are split between the campaign's places.

@@ -25,10 +25,16 @@ import { sendApplication, attachmentsFor } from './mailer.js';
 //
 // The real ceiling is Gmail's: a free account is cut off around 500
 // messages a day and briefly locked out, which would take the inbox
-// down with it. 200 leaves room for the letters you send by hand and
-// for every reply, and is far enough from the edge that a busy day
-// cannot reach it by accident.
-const GLOBAL_DAILY_CAP = 200;
+// down with it. This number leaves room for the letters you send by
+// hand and for every reply, and is far enough from the edge that a busy
+// day cannot reach it by accident.
+//
+// Raised from 200 when one campaign's own limit was set to 200. Equal
+// numbers would have made this a coincidence rather than a backstop:
+// that campaign alone could take the entire global allowance, leaving
+// nothing for the other campaigns or for mail sent by hand, and the
+// "200 per dygn" on its card would quietly not be true.
+const GLOBAL_DAILY_CAP = 300;
 
 // A Postgres advisory lock, so two runs can never overlap: the worker
 // tick, a UI trigger and a second worker process all serialise here.
@@ -549,6 +555,25 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
         results.skipped.push({ title: c.title, detail: 'dubblett stoppad' });
         continue;
       }
+      // A rejected RECIPIENT is about this one address, not about the
+      // connection — the next employer is unaffected, so stopping the
+      // campaign for it is the wrong response. One scraped address
+      // carrying a trailing backslash did exactly that: Gmail answered
+      // 555-5.5.2 and 700 reachable ads sat still behind it.
+      //
+      // The address is cleared rather than kept, so the ad goes back to
+      // "utan mejladress" and can be found again properly instead of
+      // failing the same way every run.
+      if (/all recipients were rejected|5\.1\.[13]|5\.5\.2|550|553|555/i.test(err.message)) {
+        await pool.query(
+          `UPDATE ads SET apply_email = NULL, apply_email_source = NULL WHERE id = $1`,
+          [c.ad_id]);
+        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
+                    detail: `adressen avvisades av mottagarservern: ${err.message.slice(0, 120)}` });
+        results.skipped.push({ title: c.title, detail: 'ogiltig adress — borttagen' });
+        continue;
+      }
+
       // anything else stops the whole campaign — a bad key, a dead
       // SMTP session or an LLM outage will not fix itself on the next
       // employer
