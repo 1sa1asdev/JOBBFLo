@@ -11,19 +11,31 @@ import 'dotenv/config';
 import { pool } from '../src/db.js';
 import { scanForEmails, blockedBy } from '../src/leadscan.js';
 
-const searchId = process.argv[2];
+// "alla" scans the whole pool rather than one campaign's ads. Worth
+// having separate: a campaign's ads are work the user is about to do,
+// while the pool is speculative — so the wider run is asked for
+// explicitly rather than being the default.
+const arg = process.argv[2];
+const searchId = arg && arg !== 'alla' ? arg : null;
 const filter = process.argv[3] || null;   // optional substring, e.g. teamtailor
-if (!searchId) {
-  console.error('användning: node scripts/scan-leads.js <searchId> [domänfilter]');
+if (!arg) {
+  console.error('användning: node scripts/scan-leads.js <searchId|alla> [domänfilter]');
   process.exit(1);
 }
 
 const { rows: ads } = await pool.query(
-  `SELECT a.id, a.employer, a.apply_url
-   FROM match_results m
-   JOIN ads a ON a.id = m.ad_id
+  `SELECT DISTINCT a.id, a.employer, a.apply_url, a.published_at
+   FROM ads a
+   ${searchId ? 'JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1' : ''}
    LEFT JOIN lead_scans ls ON ls.ad_id = a.id
-   WHERE m.search_id = $1
+   -- Parenthesised, and that is not cosmetic. Written as
+   --   WHERE $1 IS NULL OR true AND a.apply_email IS NULL AND …
+   -- Postgres binds AND tighter than OR, so it reads as
+   --   WHERE ($1 IS NULL) OR (everything else)
+   -- and with no searchId the left side is true, making every filter
+   -- below it dead. The run that followed set out to read 1369
+   -- Teamtailor pages and started on all 33113 ads in the pool instead.
+   WHERE (${searchId ? 'true' : '$1::text IS NULL'})
      AND a.apply_email IS NULL
      AND a.apply_url IS NOT NULL
      AND a.removed_at IS NULL
