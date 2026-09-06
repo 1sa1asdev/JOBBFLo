@@ -45,9 +45,52 @@ export function normaliseUrl(raw) {
   return /^https?:\/\//i.test(s) ? s : `https://${s}`;
 }
 
+// Sites this app must not read programmatically. CLAUDE.md already says
+// LinkedIn and Academic Work are paste-in only because their terms
+// forbid it — a rule about how ads get IN that applies just as much to
+// reading an address OUT. 45 ads in one campaign's list point at exactly
+// those two, so without this the rule would have been broken by a
+// feature built a fortnight after it was written down.
+//
+// The refusal is shown to the user rather than hidden: the page is still
+// theirs to open by hand, which is what "paste-in only" has always meant.
+const FORBIDDEN = [
+  ['linkedin.com', 'LinkedIn'],
+  ['academicwork.se', 'Academic Work'],
+  ['indeed.com', 'Indeed'],
+  ['glassdoor.', 'Glassdoor'],
+  ['blocket.se', 'Blocket'],
+];
+
+export function blockedBy(url) {
+  const host = (normaliseUrl(url) || '').toLowerCase();
+  const hit = FORBIDDEN.find(([d]) => host.includes(d));
+  return hit ? hit[1] : null;
+}
+
+// One page per host at a time, and never twice within a second. A user
+// clicking through a list of a thousand is not a crawl, but it can look
+// exactly like one from the other end.
+const lastFetch = new Map();
+const MIN_GAP_MS = 1000;
+
 export async function scanForEmails(url, { timeoutMs = 15000 } = {}) {
   const target = normaliseUrl(url);
   if (!target) return { ok: false, reason: 'ingen länk' };
+
+  const blocked = blockedBy(target);
+  if (blocked) {
+    return {
+      ok: false,
+      blocked,
+      reason: `${blocked} tillåter inte att sidan läses automatiskt — öppna länken och kopiera adressen själv.`,
+    };
+  }
+
+  const host = new URL(target).host;
+  const since = Date.now() - (lastFetch.get(host) || 0);
+  if (since < MIN_GAP_MS) await new Promise((r) => setTimeout(r, MIN_GAP_MS - since));
+  lastFetch.set(host, Date.now());
 
   let res;
   try {

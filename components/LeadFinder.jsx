@@ -110,9 +110,15 @@ export default function LeadFinder({ campaigns, onChanged }) {
               ) : (
                 <>
                   <div className="lead-acts">
-                    <button className="btn" disabled={busy === l.id} onClick={() => runScan(l.id)}>
-                      {busy === l.id ? <>Läser sidan<Dots label="Läser" /></> : s ? 'Läs om' : 'Läs sidan'}
-                    </button>
+                    {l.blocked ? (
+                      <span className="lead-blocked">
+                        {l.blocked} tillåter inte automatisk läsning — öppna länken själv
+                      </span>
+                    ) : (
+                      <button className="btn" disabled={busy === l.id} onClick={() => runScan(l.id)}>
+                        {busy === l.id ? <>Läser sidan<Dots label="Läser" /></> : s ? 'Läs om' : 'Läs sidan'}
+                      </button>
+                    )}
                     <input
                       className="ct-input" placeholder="eller skriv adressen själv"
                       value={typed[l.id] || ''}

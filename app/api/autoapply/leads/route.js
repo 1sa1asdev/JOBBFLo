@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
-import { scanForEmails } from '../../../../src/leadscan.js';
+import { scanForEmails, blockedBy } from '../../../../src/leadscan.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +52,16 @@ export async function GET(req) {
     [searchId]
   );
 
-  return NextResponse.json({ leads: rows, total: n.total, ranked: Boolean(s?.query_embedding) });
+  // Marked in the list, not discovered on click: a button that always
+  // refuses is worse than one that is not offered.
+  const leads = rows.map((r) => ({ ...r, blocked: blockedBy(r.apply_url) }));
+
+  return NextResponse.json({
+    leads,
+    total: n.total,
+    blocked: leads.filter((l) => l.blocked).length,
+    ranked: Boolean(s?.query_embedding),
+  });
 }
 
 // Read one page and report what it found. Writes nothing: an address off
