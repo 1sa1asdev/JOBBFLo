@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
-import { candidatesFor, runAutoApply } from '../../../src/autoapply.js';
+import { candidatesFor, runAutoApply, whyNothing } from '../../../src/autoapply.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +34,12 @@ export async function GET() {
   // to see the queue before switching anything on
   for (const s of searches) {
     s.candidates = await candidatesFor(s.id, { limit: 5 });
+
+    // An empty queue needs its reason on the card, not behind a button.
+    // A campaign that has written to everything reachable and one whose
+    // threshold is too high look identical at rest, and the user cannot
+    // act on "Inga annonser uppfyller regeln just nu".
+    if (!s.candidates.length) s.varfor = await whyNothing(s.id);
 
     // The funnel, because "5 matchningar" out of 1183 ads read is a very
     // different picture from 5 out of 12, and the card showed only the

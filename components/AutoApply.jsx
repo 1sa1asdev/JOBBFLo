@@ -649,7 +649,12 @@ export default function AutoApply({ onFindSimilar }) {
                         ? <>annonser över {s.auto_apply_min_score} poäng med mejladress</>
                         : <>annonser med mejladress som matchar filtren, bedömda eller ej</>}
                     </span>
-                    {queue.length === 0 && <p className="hint">Inga annonser uppfyller regeln just nu.</p>}
+                    {queue.length === 0 && (
+                      <>
+                        <p className="hint">Inga annonser uppfyller regeln just nu.</p>
+                        {s.varfor && <Varfor v={s.varfor} s={s} />}
+                      </>
+                    )}
                     {queue.map((c) => (
                       <div className="auto-q" key={c.ad_id}>
                         <b>{c.score}</b>
