@@ -22,10 +22,10 @@ import { extractFromText } from './textcontacts.js';
 // most likely to break it, so the query joins searches and tests
 // auto_apply_enabled rather than taking a search id on trust.
 //
-// Nothing found is ever used to send. Every hit lands in lead_scans as
-// a suggestion and waits for the user to confirm it in Hitta adresser —
-// an address off a page can be a support desk or the wrong person, and
-// these are letters to strangers.
+// A find is used only when it can be VERIFIED. Confirming 338 addresses
+// by hand is not review, it is a queue nobody empties, so the campaign
+// accepts the ones that carry their own proof and leaves the rest in
+// Hitta adresser. See verifiable() for what counts as proof.
 // ------------------------------------------------------------
 
 // Small on purpose. Each page is a request to somebody else's server,
@@ -93,7 +93,11 @@ export async function scanCampaignLeads({ pages = PAGES_PER_TICK } = {}) {
     else none += 1;
   }
 
-  return { text, pages: rows.length, named, shared, none, skipped };
+  // Accept what carries its own proof, so the campaign gains addresses
+  // from this tick rather than gaining a longer list to approve.
+  const verified = await confirmVerified();
+
+  return { text, pages: rows.length, named, shared, none, skipped, verified };
 }
 
 // How much of a campaign is waiting on an address, and how far the
@@ -115,4 +119,78 @@ export async function leadProgress(searchId) {
   );
   const n = (v) => Number(v || 0);
   return { utanAdress: n(r?.utan_adress), lasta: n(r?.lasta), attBekrafta: n(r?.att_bekrafta) };
+}
+
+// ------------------------------------------------------------
+// Which finds the campaign may accept without asking.
+//
+// Two kinds of proof, and one of them has to hold:
+//
+//   the page named the person — a contact page that says "Martina
+//   Nunes, Talent Acquisition" beside the mailto is the employer's own
+//   statement about who handles the hire; or
+//
+//   the domain is the employer's — recruitment@ndpconsult.se on NDP IT's
+//   ad is that company, not a third party who happened to appear in the
+//   markup. This is the one that carries the volume: 1084 of 2000.
+//
+// Both require exactly ONE candidate. Two addresses on a page means the
+// page did not say which, and picking for the user is precisely the
+// guess this bar exists to avoid.
+//
+// Shared inboxes never qualify. info@ is a real address that reaches a
+// real company, and the letter still lands in the queue the ATS was
+// built to feed — worth offering, never worth assuming.
+// ------------------------------------------------------------
+const STOPORD = /(ab|as|asa|oy|hb|kb|group|sweden|sverige|nordic|scandinavia|holding|consulting|international|the)/g;
+const bara = (t) => String(t || '').toLowerCase().replace(STOPORD, '').replace(/[^a-z0-9]/g, '');
+
+export function verifiable(scan, ad) {
+  if (!scan?.ok || scan.only_shared) return null;
+  const kontakter = scan.contacts || [];
+  if (kontakter.length !== 1) return null;
+
+  const k = kontakter[0];
+  if (!k?.email) return null;
+  if (k.name) return { email: k.email, grund: 'namngiven kontaktperson' };
+
+  const domän = bara((k.email.split('@')[1] || '').replace(/\.(se|com|nu|net|org|io|eu|dk|no|fi)$/, ''));
+  const arbetsgivare = bara(ad?.employer);
+  if (domän && arbetsgivare && (arbetsgivare.includes(domän) || domän.includes(arbetsgivare))) {
+    return { email: k.email, grund: 'domänen tillhör arbetsgivaren' };
+  }
+  return null;
+}
+
+// Promotes what clears the bar onto the ad, which is what puts it in
+// the campaign's queue. apply_email_source records that a machine did
+// this, so a bad rule here stays auditable rather than looking like
+// something the user typed.
+export async function confirmVerified({ limit = 500 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT ls.ad_id, ls.contacts, ls.only_shared, ls.ok, a.employer
+     FROM lead_scans ls
+     JOIN ads a ON a.id = ls.ad_id
+     JOIN match_results m ON m.ad_id = a.id
+     JOIN searches s ON s.id = m.search_id
+     WHERE s.auto_apply_enabled AND s.deleted_at IS NULL
+       AND s.campaign_created_at IS NOT NULL
+       AND a.apply_email IS NULL AND ls.ok
+     GROUP BY ls.ad_id, ls.contacts, ls.only_shared, ls.ok, a.employer
+     LIMIT $1`,
+    [limit]
+  );
+
+  let godkända = 0;
+  for (const r of rows) {
+    const v = verifiable(r, r);
+    if (!v) continue;
+    await pool.query(
+      `UPDATE ads SET apply_email = $2, apply_email_source = 'scanned'
+       WHERE id = $1 AND apply_email IS NULL`,
+      [r.ad_id, v.email]
+    );
+    godkända += 1;
+  }
+  return { prövade: rows.length, godkända };
 }

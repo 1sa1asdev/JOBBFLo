@@ -205,6 +205,9 @@ async function leadScanTick() {
   try {
     const r = await scanCampaignLeads();
     if (r.text?.named) console.log(`adresser: ${r.text.named} ur annonstexten`);
+    if (r.verified?.godkända) {
+      console.log(`adresser: ${r.verified.godkända} verifierade och tillagda i kampanjen`);
+    }
     if (r.named || r.shared) {
       console.log(`adresser: ${r.named} kontaktpersoner, ${r.shared} delade inkorgar `
         + `av ${r.pages} lästa sidor`);

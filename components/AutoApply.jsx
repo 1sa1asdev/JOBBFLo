@@ -657,9 +657,12 @@ export default function AutoApply({ onFindSimilar }) {
                           <p className="hint lead-progress">
                             Kampanjen letar upp adresserna själv: <b>{s.leads.lasta
                               .toLocaleString('sv-SE')}</b> av {s.leads.utanAdress
-                              .toLocaleString('sv-SE')} sidor lästa,{' '}
-                            <b>{s.leads.attBekrafta.toLocaleString('sv-SE')}</b> adresser
-                            väntar på ditt godkännande i <b>Hitta adresser</b>.
+                              .toLocaleString('sv-SE')} sidor lästa. Adresser som går att
+                            styrka — sidan namnger personen, eller domänen tillhör
+                            arbetsgivaren — läggs till automatiskt.{' '}
+                            {s.leads.attBekrafta > 0 && <>De {s.leads.attBekrafta
+                              .toLocaleString('sv-SE')} som inte gick att styrka ligger
+                              kvar i <b>Hitta adresser</b>.</>}
                           </p>
                         )}
                       </>
