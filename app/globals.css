@@ -1776,6 +1776,7 @@
 
   /* ====== SÄNDNINGSFÖNSTER ====== */
   .auto-window{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .auto-window .auto-switch{margin-top:9px;}
   .wday-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;}
   .wday{
     width:32px;min-height:30px;border:1px solid var(--tag-border);background:none;

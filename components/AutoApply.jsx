@@ -330,6 +330,10 @@ export default function AutoApply({ onFindSimilar }) {
             {data.searches.map((s) => {
               const queue = s.candidates || [];
               const d = dry[s.id];
+              // Any of the three set counts as timed: a campaign with
+              // only weekdays chosen is still restricted, and hiding the
+              // row would leave that restriction invisible.
+              const timed = Boolean(s.send_days || s.send_from || s.send_to);
               return (
                 <div className={`auto-card${s.auto_apply_enabled ? ' on' : ''}`} key={s.id}>
                   <div className="auto-card-head">
@@ -486,6 +490,19 @@ export default function AutoApply({ onFindSimilar }) {
                       impossible rather than unlikely. */}
                   <div className="auto-window">
                     <span className="auto-queue-title">När breven får skickas</span>
+                    {/* Off by default in the sense that matters: a campaign
+                        with no window sends whenever it has something to
+                        send. Turning the timer on picks working hours
+                        rather than leaving empty fields that read as
+                        "never". */}
+                    <label className="auto-switch">
+                      <input type="checkbox" checked={timed}
+                        onChange={(e) => update(s.id, e.target.checked
+                          ? { send_days: [1, 2, 3, 4, 5], send_from: '10:00', send_to: '12:00' }
+                          : { send_days: null, send_from: null, send_to: null })} />
+                      <span>Skicka bara vissa dagar och tider</span>
+                    </label>
+                    {timed && (
                     <div className="wday-row">
                       {[[1,'må'],[2,'ti'],[3,'on'],[4,'to'],[5,'fr'],[6,'lö'],[7,'sö']].map(([n,l]) => {
                         const on = !s.send_days || s.send_days.includes(n);
@@ -499,14 +516,15 @@ export default function AutoApply({ onFindSimilar }) {
                         );
                       })}
                       <input className="ct-input time" type="time"
-                        defaultValue={(s.send_from || '').slice(0,5)}
+                        key={`from-${s.send_from}`} defaultValue={(s.send_from || '').slice(0,5)}
                         onBlur={(e) => update(s.id, { send_from: e.target.value || null })} />
                       <span className="wday-dash">–</span>
                       <input className="ct-input time" type="time"
-                        defaultValue={(s.send_to || '').slice(0,5)}
+                        key={`to-${s.send_to}`} defaultValue={(s.send_to || '').slice(0,5)}
                         onBlur={(e) => update(s.id, { send_to: e.target.value || null })} />
                     </div>
-                    <label className="chk-line">
+                    )}
+                    <label className="auto-switch">
                       <input type="checkbox" checked={s.send_batch_size != null}
                         onChange={(e) => update(s.id,
                           { send_batch_size: e.target.checked ? 10 : null })} />
