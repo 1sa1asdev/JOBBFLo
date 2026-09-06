@@ -1804,3 +1804,6 @@
 
   .lead-progress{margin-top:7px;}
   .lead-progress b{color:var(--ink);font-variant-numeric:tabular-nums;}
+
+  .lead-drop{color:var(--mute);}
+  .lead-drop:hover:not(:disabled){color:var(--flag);border-color:var(--flag);}

@@ -101,6 +101,44 @@ export async function POST(req) {
 // The user confirms an address. From here the ad is an ordinary
 // mailable candidate: the campaign's own rules — score, threshold,
 // per-address dedupe — apply to it unchanged.
+// Drop an ad from a campaign. For the two things the user can see from
+// the list and the app cannot: the posting is dead, or the job is not
+// one they want.
+//
+// never_apply is the existing primitive, and it is keyed on FINGERPRINT
+// rather than ad id — so a repost of the same job at the same employer
+// stays out too. That matters here: "inte passande" is a judgement about
+// the job, and Arbetsförmedlingen reposts constantly, which would
+// otherwise put it back at the top of the list a week later.
+//
+// suppressed is not a column: search_results derives it from this table,
+// and candidatesFor already refuses to send to a suppressed row. So one
+// insert removes the ad from the queue and from this list at once,
+// without deleting the ad itself.
+//
+// It applies across searches, not just this campaign. That is the
+// table's design and the right reading of the request — a job the user
+// does not want is not wanted in the next campaign either — but it does
+// mean this is broader than the button's own wording, so the reason is
+// recorded for anything that later needs to explain the absence.
+export async function DELETE(req) {
+  const { adId, reason = 'bortvald i Hitta adresser' } = await req.json();
+  if (!adId) return NextResponse.json({ error: 'adId krävs' }, { status: 400 });
+
+  const { rows: [ad] } = await pool.query(
+    `SELECT fingerprint FROM ads WHERE id = $1`, [adId]);
+  if (!ad?.fingerprint) {
+    return NextResponse.json({ error: 'annonsen finns inte' }, { status: 404 });
+  }
+
+  await pool.query(
+    `INSERT INTO never_apply (fingerprint, reason) VALUES ($1, $2)
+     ON CONFLICT (fingerprint) DO UPDATE SET reason = EXCLUDED.reason`,
+    [ad.fingerprint, String(reason).slice(0, 200)]
+  );
+  return NextResponse.json({ ok: true, adId });
+}
+
 export async function PATCH(req) {
   const { adId, email, source = 'scanned' } = await req.json();
   const addr = String(email || '').trim().toLowerCase();

@@ -49,6 +49,19 @@ export default function LeadFinder({ campaigns, onChanged }) {
     setBusy(null);
   }
 
+  // Gone from the list the moment it is pressed. A "removed" row that
+  // stays put is the same problem as no button: the user is working
+  // down a list of hundreds and needs it to get shorter.
+  async function remove(adId) {
+    setBusy(adId); setErr(null);
+    try {
+      await api('/api/autoapply/leads', { method: 'DELETE', body: { adId } });
+      setData((d) => ({ ...d, leads: d.leads.filter((l) => l.id !== adId), total: d.total - 1 }));
+      onChanged?.();
+    } catch (e) { setErr(e.message); }
+    setBusy(null);
+  }
+
   async function confirm(adId, email, source) {
     setBusy(adId); setErr(null);
     try {
@@ -142,6 +155,11 @@ export default function LeadFinder({ campaigns, onChanged }) {
                         {busy === l.id ? <>Läser sidan<Dots label="Läser" /></> : s ? 'Läs om' : 'Läs sidan'}
                       </button>
                     )}
+                    <button className="btn lead-drop" disabled={busy === l.id}
+                      title="Ta bort annonsen — den räknas inte, skannas inte om, och kommer inte tillbaka som omannonsering"
+                      onClick={() => remove(l.id)}>
+                      Ta bort
+                    </button>
                     <input
                       className="ct-input" placeholder="eller skriv adressen själv"
                       value={typed[l.id] || ''}
