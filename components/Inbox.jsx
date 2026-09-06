@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import LiveDot from './LiveDot';
 import { useNotify } from '../lib/useNotify.js';
 import Dots from './Dots';
 
@@ -45,25 +46,6 @@ function oddsNote(t) {
 }
 
 const oddsCls = (p) => (p >= 60 ? '' : p >= 25 ? 'mid' : 'low');
-
-// Small "live" indicator: green when connected and polling, and it
-// flashes when an update actually lands, so a reply arriving while
-// you're looking at the screen is visibly new rather than silently
-// swapped in.
-function LiveDot({ pulsed }) {
-  const [recent, setRecent] = useState(false);
-  useEffect(() => {
-    if (!pulsed) return undefined;
-    setRecent(true);
-    const t = setTimeout(() => setRecent(false), 2500);
-    return () => clearTimeout(t);
-  }, [pulsed]);
-  return (
-    <span className={`live-dot${recent ? ' hit' : ''}`} title={recent ? 'Ny uppdatering' : 'Live — uppdateras automatiskt'}>
-      <i />{recent ? 'Uppdaterat' : 'Live'}
-    </span>
-  );
-}
 
 // ------------------------------------------------------------
 // A campaign heading in the auto-inbox.

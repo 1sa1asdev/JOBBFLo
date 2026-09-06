@@ -1,7 +1,9 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import { usePoll } from '../lib/usePoll.js';
 import Dots from './Dots';
+import LiveDot from './LiveDot';
 
 // ------------------------------------------------------------
 // The ads a campaign cannot reach, and the work of reaching them.
@@ -27,15 +29,32 @@ export default function LeadFinder({ campaigns, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [done, setDone] = useState({});      // adId -> saved address
   const [typed, setTyped] = useState({});
+  const [pulsed, setPulsed] = useState(null);
   const [err, setErr] = useState(null);
 
   const load = useCallback(async () => {
     if (!searchId) return;
-    try { setData(await api(`/api/autoapply/leads?search=${searchId}`)); }
-    catch (e) { setErr(e.message); }
+    try {
+      const next = await api(`/api/autoapply/leads?search=${searchId}`);
+      // Only flash when the count actually moved — a poll that says
+      // "uppdaterat" every ten seconds regardless is noise, and stops
+      // meaning anything by the third time.
+      setData((prev) => {
+        if (prev && prev.total !== next.total) setPulsed(Date.now());
+        return next;
+      });
+    } catch (e) { setErr(e.message); }
   }, [searchId]);
 
   useEffect(() => { setData(null); load(); }, [load]);
+
+  // The worker is reading pages the whole time this view is open, and
+  // without a poll the list only changed when the user reloaded — which
+  // is exactly the wrong thing to ask of a page whose entire content is
+  // work happening elsewhere. Slower than the inbox's 4s because each
+  // pass is a full ranked list, and the underlying scan moves twelve
+  // pages every four minutes.
+  usePoll(load, { interval: 10000, enabled: Boolean(searchId) });
 
   async function runScan(adId) {
     setBusy(adId); setErr(null);
@@ -81,7 +100,7 @@ export default function LeadFinder({ campaigns, onChanged }) {
     <div className="auto-body">
       <div className="auto-head">
         <div className="idx">06 / Hitta adresser</div>
-        <h2>Annonser utan mejladress</h2>
+        <h2>Annonser utan mejladress <LiveDot pulsed={pulsed} /></h2>
         <p className="auto-lede">
           <b>{data.total.toLocaleString('sv-SE')}</b> annonser i kampanjen publicerar ingen
           adress, så kampanjen kan inte skriva till dem. Appen öppnar sidan, läser den och
