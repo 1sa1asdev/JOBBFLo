@@ -42,7 +42,10 @@ const VENDOR = /(recright|sentry|wixpress|example\.|schema\.org|w3\.org|googleap
 export function contactsInText(text) {
   const all = [...new Set((String(text || '').match(EMAIL_RE) || []).map((e) => e.toLowerCase()))]
     .filter((e) => !/\.(png|jpe?g|svg|gif|webp)$/i.test(e))
-    .filter((e) => !VENDOR.test(e));
+    .filter((e) => !VENDOR.test(e))
+    // Never a contact, not even a fallback: a GDPR address is for data
+    // requests, and offering it implies a usefulness it does not have.
+    .filter((e) => !/^(privacy|dataprotection|gdpr|dpo|legal|abuse|security)@/i.test(e));
 
   const local = (e) => e.split('@')[0];
   const isUnion = (e) => UNION.test(local(e)) || UNION_DOMAIN.test(e);

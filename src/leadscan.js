@@ -29,6 +29,15 @@ const JUNK = /(sentry|wixpress|example\.|\.png$|\.jpg$|\.jpeg$|\.gif$|\.webp$|@2
 // A shared inbox is worth offering, but a named person is worth more — a
 // letter to martina.nunes@ is read by Martina, one to info@ by whoever
 // is on duty.
+// Page furniture that is never a contact, not even a poor one. A cookie
+// banner's GDPR notice is not a shared inbox you might write to as a
+// fallback — it is a legal address for data requests, and offering it
+// implies a usefulness it does not have. Of 21 Teamtailor ads that
+// yielded "a shared inbox", 16 were exactly this: dataprotection@ eight
+// times, privacy@ eight. Those ads have no contact, and saying so is
+// more use than a suggestion that wastes a letter.
+const NEVER = /^(privacy|dataprotection|data\.protection|gdpr|dpo|legal|abuse|security|webmaster|noreply|no-reply)@/i;
+
 // Two kinds of non-person here, and both matter. Shared inboxes are the
 // obvious ones. The second kind cost a real miss: a Teamtailor footer
 // carries a GDPR notice, so dataprotection@ and privacy@ were returned
@@ -160,7 +169,7 @@ export async function scanForEmails(url, { timeoutMs = 15000 } = {}) {
   // responsible for the hire, and a letter to info@ or careers@ lands in
   // the same shared queue the ATS was built to feed. A shared inbox is
   // offered only if the search turns up nothing else at all.
-  const onAd = emailsIn(html);
+  const onAd = emailsIn(html).filter((e) => !NEVER.test(e));
   const contacts = onAd
     .filter((e) => !GENERIC.test(e))
     .map((email) => ({ email, via: 'annonssidan' }));
