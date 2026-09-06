@@ -1793,3 +1793,11 @@
     font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.04em;
     text-transform:uppercase;color:var(--mute);
   }
+
+  .varfor{margin:7px 0 0;padding:0 0 0 15px;list-style:none;}
+  .varfor li{
+    font-size:12px;color:var(--mute);line-height:1.5;position:relative;
+  }
+  .varfor li::before{content:'·';position:absolute;left:-11px;}
+  .varfor b{color:var(--ink);font-variant-numeric:tabular-nums;}
+  .varfor-vart{color:var(--flag);}

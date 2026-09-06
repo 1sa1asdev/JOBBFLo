@@ -210,12 +210,72 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
 }
 
 // ------------------------------------------------------------
+// Why a campaign has nothing to send.
+//
+// "Inget skickades" reads as a broken button. It almost never is: the
+// pool is 1218 ads of which 74 publish an address, 41 clear the
+// threshold, and every one of those 41 goes to a recruiter already
+// written to. That is a finished campaign, not a failure, and the two
+// need different things from the user — more addresses versus a lower
+// threshold versus nothing at all.
+//
+// Counts the SAME pool candidatesFor draws from, knocking out one
+// condition at a time, so the numbers explain that query rather than
+// approximating it.
+// ------------------------------------------------------------
+export async function whyNothing(searchId) {
+  const { rows: [r] } = await pool.query(
+    `SELECT
+       count(*) FILTER (WHERE true) AS matchningar,
+       count(*) FILTER (WHERE a.apply_email IS NULL) AS utan_adress,
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+         AND (a.removed_at IS NOT NULL OR a.deadline < current_date)) AS stangda,
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL AND r.score IS NULL
+         AND s.auto_apply_require_score AND a.source <> 'manual') AS obedomda,
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL AND r.score IS NOT NULL
+         AND r.score < s.auto_apply_min_score) AS for_lag_poang,
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+         AND r.application_status IS NOT NULL) AS redan_ansokt,
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+         AND r.application_status IS NULL
+         AND r.score >= s.auto_apply_min_score
+         AND EXISTS (SELECT 1 FROM applications ap2
+                     WHERE ap2.profile_id = s.profile_id AND ap2.sent_to IS NOT NULL
+                       AND lower(ap2.sent_to) = lower(a.apply_email))) AS adress_redan_kontaktad
+     FROM search_results r
+     JOIN ads a ON a.id = r.ad_id
+     JOIN searches s ON s.id = r.search_id
+     WHERE r.search_id = $1 AND NOT r.suppressed`,
+    [searchId]
+  );
+  if (!r) return null;
+  const n = (v) => Number(v || 0);
+  return {
+    matchningar: n(r.matchningar),
+    utanAdress: n(r.utan_adress),
+    obedomda: n(r.obedomda),
+    forLagPoang: n(r.for_lag_poang),
+    redanAnsokt: n(r.redan_ansokt),
+    adressRedanKontaktad: n(r.adress_redan_kontaktad),
+    stangda: n(r.stangda),
+  };
+}
+
+// ------------------------------------------------------------
 // Run one search's campaign. dryRun reports what WOULD be sent.
 // ------------------------------------------------------------
 export async function runAutoApply(searchId, opts = {}) {
   // a dry run reads only, so it needs no lock and must never block
-  return opts.dryRun ? runAutoApplyInner(searchId, opts)
-                     : withLock(() => runAutoApplyInner(searchId, opts));
+  const res = await (opts.dryRun ? runAutoApplyInner(searchId, opts)
+                                 : withLock(() => runAutoApplyInner(searchId, opts)));
+
+  // A run that sent nothing has to say what stopped it, or the button
+  // reads as broken every time the campaign is simply finished. One
+  // aggregate, and only on the path where there is something to explain.
+  if (!res.sent && !res.sentTo?.length) {
+    try { res.varfor = await whyNothing(searchId); } catch { /* diagnosis is a nicety */ }
+  }
+  return res;
 }
 
 async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = {}) {

@@ -149,6 +149,32 @@ function LeadForm({ searchId, onAdded }) {
   );
 }
 
+// What stopped a run, in the order worth acting on. "Inget skickades"
+// is nearly always a campaign that has run out of reachable ads rather
+// than one that is broken, and those need opposite responses: more
+// addresses, or a lower threshold, or nothing at all.
+function Varfor({ v, s }) {
+  const rader = [
+    [v.utanAdress, 'publicerar ingen mejladress', 'Hitta adresser'],
+    [v.adressRedanKontaktad, 'går till en adress du redan skrivit till', null],
+    [v.redanAnsokt, 'har du redan sökt', null],
+    [v.forLagPoang, `fick under ${s.auto_apply_min_score} poäng`, null],
+    [v.obedomda, 'väntar på bedömning', null],
+    [v.stangda, 'har gått ut eller tagits bort', null],
+  ].filter(([n]) => n > 0);
+  if (!rader.length) return null;
+  return (
+    <ul className="varfor">
+      {rader.map(([n, text, vart]) => (
+        <li key={text}>
+          <b>{n.toLocaleString('sv-SE')}</b> {text}
+          {vart && <span className="varfor-vart"> — {vart}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function AutoApply({ onFindSimilar }) {
   const [view, setView] = useState('campaigns');   // campaigns | letter | inbox
   const [letterFor, setLetterFor] = useState(null);   // search being written for
@@ -661,7 +687,8 @@ export default function AutoApply({ onFindSimilar }) {
                       {ran[s.id].sent > 0
                         ? <>✓ Skickade <b>{ran[s.id].sent}</b> brev:{' '}
                             {(ran[s.id].sentTo || []).map((x) => `${x.employer} (${x.score})`).join(', ')}</>
-                        : <>Inget skickades — {ran[s.id].reason || 'ingen annons uppfyller reglerna just nu'}.</>}
+                        : <>Inget skickades — {ran[s.id].reason || 'ingen annons uppfyller reglerna just nu'}.
+                            {ran[s.id].varfor && <Varfor v={ran[s.id].varfor} s={s} />}</>}
                     </div>
                   )}
 
