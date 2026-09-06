@@ -91,11 +91,21 @@ async function scoreTick() {
 async function drainTick() {
   try {
     const { rows: backlog } = await pool.query(
+      // The conditions have to be the drainer's, not a subset of them.
+      // Counting rows drainQueue then refuses to touch made this log
+      // "drain: 1 begärda bedömningar" every twenty seconds forever —
+      // the ad had been withdrawn by Arbetsförmedlingen, so it was
+      // correctly skipped and incorrectly counted.
       `SELECT s.id, s.name, count(*) AS pending
        FROM match_results m
        JOIN searches s ON s.id = m.search_id AND s.deleted_at IS NULL
+       JOIN ads a ON a.id = m.ad_id
+       LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint
        WHERE m.score_requested_at IS NOT NULL   -- candidates are NOT a backlog
          AND m.score IS NULL AND m.attempts < $1
+         AND a.removed_at IS NULL
+         AND na.fingerprint IS NULL
+         AND (a.deadline IS NULL OR a.deadline >= current_date)
        GROUP BY s.id, s.name
        ORDER BY count(*) DESC`,
       [MAX_SCORE_ATTEMPTS]
