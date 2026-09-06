@@ -218,7 +218,7 @@ export async function runAutoApply(searchId, opts = {}) {
                      : withLock(() => runAutoApplyInner(searchId, opts));
 }
 
-async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
+async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = {}) {
   const { rows: [search] } = await pool.query(
     `SELECT s.*, p.id AS profile_id, octet_length(COALESCE(s.cv_file, p.cv_file)) AS cv_bytes
      FROM searches s JOIN profile p ON p.id = s.profile_id
@@ -254,11 +254,75 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
      WHERE a.sent_by = 'auto' AND a.origin_search_id = $1
        AND a.sent_at > date_trunc('day', now())`, [searchId]
   );
-  const room = Math.min(
+  const dayLeft = Math.min(
     search.auto_apply_daily_limit - t.n,
     GLOBAL_DAILY_CAP - globalToday
   );
-  if (room <= 0) return { sent: 0, skipped: [], reason: 'dagsgränsen nådd' };
+  if (dayLeft <= 0) return { sent: 0, skipped: [], reason: 'dagsgränsen nådd' };
+
+  // ----------------------------------------------------------
+  // The sending window.
+  //
+  // A cold letter landing at 03:00 on a Sunday is read on Monday with
+  // the rest of the weekend, if at all. Checked in Europe/Stockholm
+  // rather than the database's UTC: those are two hours apart in summer,
+  // so a stored "10:00" compared against now()::time would have sent at
+  // 08:00 Swedish time and looked like it was working.
+  //
+  // A manual run ignores the window for the same reason it ignores the
+  // gap — the user is standing there, and they know what time it is.
+  // ----------------------------------------------------------
+  if (!dryRun && !manual) {
+    const { rows: [w] } = await pool.query(
+      `SELECT
+         extract(isodow from now() AT TIME ZONE 'Europe/Stockholm')::int AS dag,
+         to_char(now() AT TIME ZONE 'Europe/Stockholm', 'HH24:MI') AS klockan,
+         ($1::smallint[] IS NULL
+          OR extract(isodow from now() AT TIME ZONE 'Europe/Stockholm')::int = ANY($1)) AS ratt_dag,
+         ($2::time IS NULL OR $3::time IS NULL
+          -- a window whose end is before its start wraps past midnight
+          OR CASE WHEN $2::time <= $3::time
+                  THEN (now() AT TIME ZONE 'Europe/Stockholm')::time BETWEEN $2 AND $3
+                  ELSE (now() AT TIME ZONE 'Europe/Stockholm')::time >= $2
+                    OR (now() AT TIME ZONE 'Europe/Stockholm')::time <= $3
+             END) AS ratt_tid`,
+      [search.send_days, search.send_from, search.send_to]
+    );
+    if (!w.ratt_dag || !w.ratt_tid) {
+      return {
+        sent: 0,
+        skipped: [],
+        reason: `utanför sändningsfönstret (klockan är ${w.klockan})`,
+      };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Letters leave in batches, with a quiet gap between them.
+  //
+  // Lowering a threshold once sent seventeen in three seconds: the rule
+  // changed, the campaign re-ran, and it spent everything the day
+  // allowed before anyone could look. No single decision was wrong — it
+  // was that they all happened at once.
+  //
+  // A scheduled run waits out the gap. A manual one does not, because
+  // the user is standing there having just pressed the button, but it is
+  // still held to one batch — the burst is what the size limits, and
+  // that limit is the point.
+  // ----------------------------------------------------------
+  // `manual` is destructured, not read off an `opts` object — this
+  // function takes its arguments apart in the signature, so opts.manual
+  // was a ReferenceError that killed every real run before it reached a
+  // single letter. The dry run never touched the branch, which is
+  // exactly why it passed.
+  if (!dryRun && search.last_batch_at && !manual) {
+    const waited = (Date.now() - new Date(search.last_batch_at).getTime()) / 60000;
+    if (waited < search.send_batch_minutes) {
+      const left = Math.ceil(search.send_batch_minutes - waited);
+      return { sent: 0, skipped: [], reason: `nästa omgång om ~${left} min` };
+    }
+  }
+  const room = Math.min(dayLeft, search.send_batch_size);
 
   // ----------------------------------------------------------
   // Ask for the verdicts this campaign needs.
@@ -429,6 +493,13 @@ async function runAutoApplyInner(searchId, { dryRun = false } = {}) {
       break;
     }
   }
+  // Stamped only when something actually went out. A run that sent
+  // nothing must not start the clock, or an empty campaign would sit out
+  // the gap for no reason and the next real batch would be late.
+  if (!dryRun && results.sent > 0) {
+    await pool.query(`UPDATE searches SET last_batch_at = now() WHERE id = $1`, [searchId]);
+  }
+
   return results;
 }
 

@@ -27,7 +27,11 @@ const DRAIN_EVERY = 20 * 1000;          // judge queued ads — the user is watc
 const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
 const EMBED_EVERY = 60 * 1000;          // embed newly found ads, free and local
 const PRUNE_EVERY = 6 * 60 * 60 * 1000; // retire ads nobody touched
-const AUTOAPPLY_EVERY = 30 * 60 * 1000; // auto-apply campaigns (daily caps do the limiting)
+// Once a minute, not once every half hour. The pacing lives in the
+// campaign now — batch size and a quiet gap between batches — so the
+// tick only has to come round often enough to notice when a gap has
+// elapsed. A run with nothing due is one cheap query.
+const AUTOAPPLY_EVERY = 60 * 1000;
 const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
 async function pollTick() {

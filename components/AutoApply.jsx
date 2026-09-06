@@ -478,6 +478,59 @@ export default function AutoApply({ onFindSimilar }) {
                     </p>
                   </div>
 
+                  {/* When letters may leave, and how fast.
+                      A cold letter landing 03:00 on a Sunday is read on
+                      Monday with the weekend's backlog, if at all. And
+                      lowering a threshold once sent seventeen in three
+                      seconds — the batch size is what makes that
+                      impossible rather than unlikely. */}
+                  <div className="auto-window">
+                    <span className="auto-queue-title">När breven får skickas</span>
+                    <div className="wday-row">
+                      {[[1,'må'],[2,'ti'],[3,'on'],[4,'to'],[5,'fr'],[6,'lö'],[7,'sö']].map(([n,l]) => {
+                        const on = !s.send_days || s.send_days.includes(n);
+                        return (
+                          <button key={n} className={`wday${on ? ' on' : ''}`}
+                            onClick={() => {
+                              const cur = s.send_days || [1,2,3,4,5,6,7];
+                              const next = on ? cur.filter((d) => d !== n) : [...cur, n].sort();
+                              update(s.id, { send_days: next.length ? next : null });
+                            }}>{l}</button>
+                        );
+                      })}
+                      <input className="ct-input time" type="time"
+                        defaultValue={(s.send_from || '').slice(0,5)}
+                        onBlur={(e) => update(s.id, { send_from: e.target.value || null })} />
+                      <span className="wday-dash">–</span>
+                      <input className="ct-input time" type="time"
+                        defaultValue={(s.send_to || '').slice(0,5)}
+                        onBlur={(e) => update(s.id, { send_to: e.target.value || null })} />
+                    </div>
+                    <div className="wday-row">
+                      <label className="wday-lbl">
+                        <span>Brev per omgång</span>
+                        <input className="ct-input num" type="number" min="1" max="50"
+                          defaultValue={s.send_batch_size}
+                          onBlur={(e) => update(s.id, { send_batch_size: Number(e.target.value) })} />
+                      </label>
+                      <label className="wday-lbl">
+                        <span>Minuter mellan omgångar</span>
+                        <input className="ct-input num" type="number" min="1" max="240"
+                          defaultValue={s.send_batch_minutes}
+                          onBlur={(e) => update(s.id, { send_batch_minutes: Number(e.target.value) })} />
+                      </label>
+                    </div>
+                    <p className="hint">
+                      {s.send_days || s.send_from
+                        ? <>Skickar {s.send_days ? `${s.send_days.length} dagar i veckan` : 'alla dagar'}
+                            {s.send_from && s.send_to ? ` mellan ${s.send_from.slice(0,5)} och ${s.send_to.slice(0,5)}` : ''},
+                            {' '}{s.send_batch_size} brev åt gången med {s.send_batch_minutes} minuters
+                            paus — som mest {s.auto_apply_daily_limit} per dygn. Svensk tid.</>
+                        : <>Inget fönster satt: kampanjen skickar när som helst,
+                            {' '}{s.send_batch_size} brev åt gången med {s.send_batch_minutes} minuters paus.</>}
+                    </p>
+                  </div>
+
                   {/* The only setting here that changes what gets spent.
                       Off, no model reads the ad text and the API filters
                       decide alone — cheap, and blunt in exactly the way

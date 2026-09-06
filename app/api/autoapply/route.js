@@ -12,6 +12,8 @@ export async function GET() {
             s.auto_apply_require_score, s.campaign_created_at,
             s.location, s.must_criteria, s.location_ratio,
             s.fetch_offset, s.fetch_total, s.fetch_done_at, s.scan_enabled,
+            s.send_days, s.send_from, s.send_to,
+            s.send_batch_size, s.send_batch_minutes, s.last_batch_at,
             s.criteria_text, s.campaign_letter_approved_at,
             (s.campaign_letter IS NOT NULL) AS has_letter,
             (SELECT count(*)::int FROM applications a
@@ -102,7 +104,8 @@ export async function GET() {
 // change a campaign's rule
 export async function PATCH(req) {
   const { searchId, enabled, min_score, daily_limit, clear_campaign, name, criteria,
-          require_score, must_criteria, location_ratio } = await req.json();
+          require_score, must_criteria, location_ratio,
+          send_days, send_from, send_to, send_batch_size, send_batch_minutes } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
 
   const sets = [];
@@ -135,6 +138,30 @@ export async function PATCH(req) {
       : null;
     vals.push(r && Object.keys(r).length ? JSON.stringify(r) : null);
     sets.push(`location_ratio = $${vals.length}::jsonb`);
+  }
+
+  // When the campaign may send, and how fast. Null clears a restriction
+  // rather than storing an empty one — "no window" and "a window that
+  // matches nothing" must not look the same in the database.
+  if (send_days !== undefined) {
+    const d = Array.isArray(send_days)
+      ? [...new Set(send_days.map(Number).filter((n) => n >= 1 && n <= 7))].sort()
+      : null;
+    vals.push(d && d.length ? d : null);
+    sets.push(`send_days = $${vals.length}::smallint[]`);
+  }
+  for (const [key, val] of [['send_from', send_from], ['send_to', send_to]]) {
+    if (val === undefined) continue;
+    vals.push(val ? String(val).slice(0, 5) : null);
+    sets.push(`${key} = $${vals.length}::time`);
+  }
+  if (send_batch_size !== undefined) {
+    vals.push(Math.max(1, Math.min(50, Number(send_batch_size) || 10)));
+    sets.push(`send_batch_size = $${vals.length}`);
+  }
+  if (send_batch_minutes !== undefined) {
+    vals.push(Math.max(1, Math.min(240, Number(send_batch_minutes) || 5)));
+    sets.push(`send_batch_minutes = $${vals.length}`);
   }
 
   // A free-text rule the model enforces while scoring. Empty string
@@ -288,7 +315,7 @@ export async function POST(req) {
   const { searchId, dryRun = true } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
   try {
-    const result = await runAutoApply(searchId, { dryRun: Boolean(dryRun) });
+    const result = await runAutoApply(searchId, { dryRun: Boolean(dryRun), manual: true });
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

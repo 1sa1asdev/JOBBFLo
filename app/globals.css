@@ -1773,3 +1773,22 @@
   .lead-mail b{font-weight:600;}
   .lead-who{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10px;opacity:.85;}
   .lead-via{font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;}
+
+  /* ====== SÄNDNINGSFÖNSTER ====== */
+  .auto-window{border-top:1px solid var(--line);padding-top:11px;margin-top:11px;}
+  .wday-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .wday{
+    width:32px;min-height:30px;border:1px solid var(--tag-border);background:none;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;
+    text-transform:uppercase;color:var(--mute);
+  }
+  .wday.on{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+  .wday:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+  .wday-dash{color:var(--mute);}
+  .ct-input.time{width:104px;flex:0 0 auto;}
+  .ct-input.num{width:76px;flex:0 0 auto;}
+  .wday-lbl{display:flex;align-items:center;gap:8px;}
+  .wday-lbl > span{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--mute);
+  }
