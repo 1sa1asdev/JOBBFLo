@@ -1,59 +1,55 @@
 // ------------------------------------------------------------
-// Reading an application page for a contact address.
+// Finding the person behind an ad.
 //
-// Most link-only ads point at an ATS whose whole purpose is to replace
-// email, so this fails more often than it succeeds — a sample of ten
-// found addresses on four. That is still the difference between 1082
-// unreachable ads and several hundred reachable ones, and every
-// Teamtailor page in the sample named the recruiter outright.
+// Most link-only ads point at an ATS built to replace email, so a naive
+// read of the application page finds nothing. But several of them name
+// the recruiter on a page of their own and link to it — Teamtailor does
+// this on 77 of one campaign's ads alone — and that page carries a
+// mailto. Two steps, not one:
 //
-// Deliberately NOT a crawler. One request, for one page, when the user
-// asks for that ad — the same page they were about to open themselves.
-// Nothing is followed, nothing is indexed, and nothing is mailed on the
-// strength of it: what comes back is a suggestion the user confirms.
+//   job page  ->  <meta property="article:author"> -> /people/…
+//   person page ->  mailto: + name + job title
+//
+// The author tag is the reliable route. A Teamtailor job page also lists
+// "Colleagues" further down, so picking the first /people/ link by
+// position would return a random co-worker rather than the recruiter.
+//
+// One hop, only ever to a page the ad itself pointed at, and only when
+// the user asks for that ad. Nothing is followed beyond that, nothing is
+// indexed, and nothing is mailed on what comes back: it is a suggestion
+// with a name and a role attached so the user can judge it.
 // ------------------------------------------------------------
 
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 
 // Things that look like addresses but are not people: tracking, tooling,
 // asset filenames, and the placeholder domains that turn up in markup.
-const JUNK = /(sentry|wixpress|example\.|\.png$|\.jpg$|\.jpeg$|\.gif$|\.webp$|@2x|schema\.org|w3\.org|domain\.com|yourdomain|email\.com$|sentry\.io|googleapis|cloudflare|jsdelivr|gravatar)/i;
+const JUNK = /(sentry|wixpress|example\.|\.png$|\.jpg$|\.jpeg$|\.gif$|\.webp$|@2x|schema\.org|w3\.org|domain\.com|yourdomain|sentry\.io|googleapis|cloudflare|jsdelivr|gravatar)/i;
 
-// A shared inbox is worth offering, but a named person is worth more —
-// a letter to jessika.warvne@ is read by Jessika, one to info@ is read
-// by whoever is on duty. Ordered so the better guess is offered first.
-const GENERIC = /^(info|hello|hej|kontakt|contact|support|careers?|jobb?|jobs|rekrytering|recruitment|hr|noreply|no-reply|post|mail|office|admin|webmaster)@/i;
+// A shared inbox is worth offering, but a named person is worth more — a
+// letter to martina.nunes@ is read by Martina, one to info@ by whoever
+// is on duty.
+// Two kinds of non-person here, and both matter. Shared inboxes are the
+// obvious ones. The second kind cost a real miss: a Teamtailor footer
+// carries a GDPR notice, so dataprotection@ and privacy@ were returned
+// as "named contacts" for two employers — they have no dot and are not
+// obviously generic, yet nobody there is hiring anyone.
+const GENERIC = new RegExp(
+  '^(' + [
+    // shared inboxes
+    'info', 'hello', 'hej', 'kontakt', 'contact', 'support', 'careers?',
+    'jobb?', 'jobs', 'rekrytering', 'recruitment', 'hr', 'noreply',
+    'no-reply', 'post', 'mail', 'office', 'admin', 'webmaster',
+    // functions that appear in page furniture, never a hiring manager
+    'privacy', 'dataprotection', 'data\\.protection', 'gdpr', 'dpo',
+    'legal', 'press', 'media', 'invoice', 'faktura', 'ekonomi',
+    'security', 'abuse', 'billing', 'sales', 'marketing',
+  ].join('|') + ')@', 'i');
 
-function rank(a, b) {
-  const ga = GENERIC.test(a) ? 1 : 0;
-  const gb = GENERIC.test(b) ? 1 : 0;
-  if (ga !== gb) return ga - gb;
-  // a dot in the local part usually means firstname.lastname
-  const da = a.split('@')[0].includes('.') ? 0 : 1;
-  const db = b.split('@')[0].includes('.') ? 0 : 1;
-  if (da !== db) return da - db;
-  return a.localeCompare(b);
-}
-
-// Ads carry links written by hand, and some arrive without a scheme —
-// "www.netlight.com" threw "Failed to parse URL" rather than being
-// fetched. Repairing it here is cheaper than a stored value nobody
-// notices is broken.
-export function normaliseUrl(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  return /^https?:\/\//i.test(s) ? s : `https://${s}`;
-}
-
-// Sites this app must not read programmatically. CLAUDE.md already says
-// LinkedIn and Academic Work are paste-in only because their terms
-// forbid it — a rule about how ads get IN that applies just as much to
-// reading an address OUT. 45 ads in one campaign's list point at exactly
-// those two, so without this the rule would have been broken by a
-// feature built a fortnight after it was written down.
-//
-// The refusal is shown to the user rather than hidden: the page is still
-// theirs to open by hand, which is what "paste-in only" has always meant.
+// Sites this app must not read programmatically. CLAUDE.md says LinkedIn
+// and Academic Work are paste-in only because their terms forbid it — a
+// rule about how ads get IN that applies just as much to reading an
+// address OUT.
 const FORBIDDEN = [
   ['linkedin.com', 'LinkedIn'],
   ['academicwork.se', 'Academic Work'],
@@ -62,6 +58,12 @@ const FORBIDDEN = [
   ['blocket.se', 'Blocket'],
 ];
 
+export function normaliseUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  return /^https?:\/\//i.test(s) ? s : `https://${s}`;
+}
+
 export function blockedBy(url) {
   const host = (normaliseUrl(url) || '').toLowerCase();
   const hit = FORBIDDEN.find(([d]) => host.includes(d));
@@ -69,10 +71,69 @@ export function blockedBy(url) {
 }
 
 // One page per host at a time, and never twice within a second. A user
-// clicking through a list of a thousand is not a crawl, but it can look
-// exactly like one from the other end.
+// working down a list of a thousand is not a crawl, but from the other
+// end it can look exactly like one.
 const lastFetch = new Map();
 const MIN_GAP_MS = 1000;
+
+async function getHtml(url, timeoutMs) {
+  const host = new URL(url).host;
+  const since = Date.now() - (lastFetch.get(host) || 0);
+  if (since < MIN_GAP_MS) await new Promise((r) => setTimeout(r, MIN_GAP_MS - since));
+  lastFetch.set(host, Date.now());
+
+  const res = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      // Identifies the app rather than pretending to be a person.
+      'user-agent': 'Mozilla/5.0 (compatible; jobbflo/1.0; +lead-finder)',
+      accept: 'text/html,application/xhtml+xml',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`sidan svarade ${res.status}`);
+  return res.text();
+}
+
+function emailsIn(html) {
+  const seen = new Set();
+  const keep = (list) => list.filter((e) => {
+    const v = e.toLowerCase();
+    if (JUNK.test(v) || seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  }).map((e) => e.toLowerCase());
+
+  // A mailto is an address someone put there deliberately, so it
+  // outranks one that merely appears in the text.
+  const mailto = keep([...html.matchAll(/mailto:([^"'?>\s]+)/gi)].map((m) => m[1]));
+  const text = keep(html.match(EMAIL_RE) || []);
+  const rank = (a, b) => {
+    const g = (GENERIC.test(a) ? 1 : 0) - (GENERIC.test(b) ? 1 : 0);
+    if (g) return g;
+    const d = (a.split('@')[0].includes('.') ? 0 : 1) - (b.split('@')[0].includes('.') ? 0 : 1);
+    return d || a.localeCompare(b);
+  };
+  return [...mailto.sort(rank), ...text.sort(rank)];
+}
+
+const attr = (html, re) => (html.match(re) || [])[1] || null;
+
+// The recruiter's own page, per the ad's structured metadata. Falls back
+// to a /people/ link only when it appears BEFORE the Colleagues heading,
+// since everything after it is co-workers rather than the contact.
+function recruiterPage(html, base) {
+  const author = attr(html,
+    /<meta[^>]+property=["']article:author["'][^>]+content=["']([^"']+)["']/i)
+    || attr(html,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']article:author["']/i);
+  if (author && /\/people\//i.test(author)) return new URL(author, base).href;
+
+  const cutoff = html.search(/>\s*Colleagues\s*</i);
+  const head = cutoff > 0 ? html.slice(0, cutoff) : html;
+  const link = attr(head, /href=["']([^"']*\/people\/[^"']+)["']/i);
+  return link ? new URL(link, base).href : null;
+}
 
 export async function scanForEmails(url, { timeoutMs = 15000 } = {}) {
   const target = normaliseUrl(url);
@@ -87,44 +148,50 @@ export async function scanForEmails(url, { timeoutMs = 15000 } = {}) {
     };
   }
 
-  const host = new URL(target).host;
-  const since = Date.now() - (lastFetch.get(host) || 0);
-  if (since < MIN_GAP_MS) await new Promise((r) => setTimeout(r, MIN_GAP_MS - since));
-  lastFetch.set(host, Date.now());
-
-  let res;
-  try {
-    res = await fetch(target, {
-      redirect: 'follow',
-      headers: {
-        // Identifies the app rather than pretending to be a person, and
-        // accepts html only — no point downloading a PDF to regex it.
-        'user-agent': 'Mozilla/5.0 (compatible; jobbflo/1.0; +lead-finder)',
-        accept: 'text/html,application/xhtml+xml',
-      },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
+  let html;
+  try { html = await getHtml(target, timeoutMs); }
+  catch (err) {
     return { ok: false, reason: `kunde inte hämta sidan (${String(err?.message || err).slice(0, 60)})` };
   }
-  if (!res.ok) return { ok: false, reason: `sidan svarade ${res.status}` };
+  const host = new URL(target).host;
 
-  const html = await res.text();
+  // Step one: the ad page itself. Only addresses that look like a
+  // PERSON are kept — the point of this feature is the individual
+  // responsible for the hire, and a letter to info@ or careers@ lands in
+  // the same shared queue the ATS was built to feed. A shared inbox is
+  // offered only if the search turns up nothing else at all.
+  const onAd = emailsIn(html);
+  const contacts = onAd
+    .filter((e) => !GENERIC.test(e))
+    .map((email) => ({ email, via: 'annonssidan' }));
 
-  // mailto: links are an address someone put there on purpose, so they
-  // outrank one that merely appears in the text.
-  const mailto = [...html.matchAll(/mailto:([^"'?>\s]+)/gi)].map((m) => m[1].toLowerCase());
-  const inText = (html.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
+  // Step two: the named recruiter, when the ad points at one.
+  const person = recruiterPage(html, target);
+  if (person && !blockedBy(person)) {
+    try {
+      const phtml = await getHtml(person, timeoutMs);
+      // "Martina Nunes - Sales Talent Acquisition Specialist - Teamtailor"
+      const title = (attr(phtml, /<title[^>]*>([^<]+)</i) || '').trim();
+      const [name, role] = title.split(/\s+[-–|]\s+/);
+      for (const email of emailsIn(phtml)) {
+        if (contacts.some((c) => c.email === email)) continue;
+        contacts.unshift({
+          email,
+          name: name?.trim() || null,
+          role: role?.trim() || null,
+          via: 'kontaktsidan',
+          url: person,
+        });
+      }
+    } catch { /* the ad page's own findings still stand */ }
+  }
 
-  const seen = new Set();
-  const keep = (list) => list.filter((e) => {
-    if (JUNK.test(e) || seen.has(e)) return false;
-    seen.add(e);
-    return true;
-  });
+  if (contacts.length) return { ok: true, contacts, host };
 
-  const found = [...keep(mailto).sort(rank), ...keep(inText).sort(rank)];
-  return found.length
-    ? { ok: true, emails: found.slice(0, 6), host: new URL(target).host }
-    : { ok: false, reason: 'ingen adress på sidan', host: new URL(target).host };
+  // Nothing named anywhere. A shared inbox is better than giving up, but
+  // it is offered as the fallback it is rather than mixed in with people.
+  const shared = onAd.filter((e) => GENERIC.test(e));
+  return shared.length
+    ? { ok: true, host, onlyShared: true, contacts: shared.map((email) => ({ email, via: 'delad inkorg' })) }
+    : { ok: false, reason: 'ingen kontaktperson på sidan', host };
 }

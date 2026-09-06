@@ -133,10 +133,22 @@ export default function LeadFinder({ campaigns, onChanged }) {
 
                   {s && (s.ok ? (
                     <div className="lead-found">
-                      <span className="lead-found-label">Hittade på sidan — välj rätt:</span>
-                      {s.emails.map((e) => (
-                        <button key={e} className="lead-mail" disabled={busy === l.id}
-                          onClick={() => confirm(l.id, e, 'scanned')}>{e}</button>
+                      <span className="lead-found-label">
+                        {s.onlyShared
+                          ? 'Ingen namngiven kontakt — bara en delad inkorg:'
+                          : 'Kontaktperson för annonsen — bekräfta rätt:'}
+                      </span>
+                      {s.contacts.map((c) => (
+                        <button key={c.email} className="lead-mail" disabled={busy === l.id}
+                          onClick={() => confirm(l.id, c.email, 'scanned')}>
+                          <b>{c.email}</b>
+                          {(c.name || c.role) && (
+                            <span className="lead-who">
+                              {[c.name, c.role].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                          <span className="lead-via">via {c.via}</span>
+                        </button>
                       ))}
                     </div>
                   ) : (

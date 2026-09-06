@@ -1769,3 +1769,7 @@
     font-size:10.5px;color:var(--mute);border-left:2px solid var(--tag-border);
     padding-left:9px;line-height:1.4;
   }
+  .lead-mail{display:flex;flex-direction:column;gap:1px;align-items:flex-start;text-align:left;}
+  .lead-mail b{font-weight:600;}
+  .lead-who{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10px;opacity:.85;}
+  .lead-via{font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;}
