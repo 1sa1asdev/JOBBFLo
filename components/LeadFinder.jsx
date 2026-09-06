@@ -105,6 +105,28 @@ export default function LeadFinder({ campaigns, onChanged }) {
                 </a>
               </div>
 
+              {/* Already found, from the ad text or a page read earlier.
+                  Shown without asking, because making the user press
+                  "läs sidan" for something we already know would refetch
+                  someone else's server to learn nothing new. */}
+              {!saved && !s && l.found?.length > 0 && (
+                <div className="lead-found">
+                  <span className="lead-found-label">
+                    {l.only_shared ? 'Bara en delad inkorg:' : 'Kontaktperson — bekräfta rätt:'}
+                  </span>
+                  {l.found.map((c) => (
+                    <button key={c.email} className="lead-mail" disabled={busy === l.id}
+                      onClick={() => confirm(l.id, c.email, 'scanned')}>
+                      <b>{c.email}</b>
+                      {(c.name || c.role) && (
+                        <span className="lead-who">{[c.name, c.role].filter(Boolean).join(' · ')}</span>
+                      )}
+                      <span className="lead-via">via {c.via || l.found_via}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {saved ? (
                 <div className="lead-saved">✓ {saved} — annonsen ingår nu i kampanjen</div>
               ) : (

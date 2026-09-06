@@ -24,17 +24,25 @@ export async function GET(req) {
   const { rows: [s] } = await pool.query(
     `SELECT query_embedding FROM searches WHERE id = $1`, [searchId]);
 
+  // Ads with a contact already found come first — those are one click
+  // from being reachable — and CV similarity orders within that.
   const order = s?.query_embedding
-    ? `ORDER BY (a.embedding IS NULL), a.embedding <=> $2::vector, a.published_at DESC NULLS LAST`
-    : `ORDER BY a.published_at DESC NULLS LAST`;
+    ? `ORDER BY (ls.ad_id IS NULL), (a.embedding IS NULL),
+                a.embedding <=> $2::vector, a.published_at DESC NULLS LAST`
+    : `ORDER BY (ls.ad_id IS NULL), a.published_at DESC NULLS LAST`;
   const args = s?.query_embedding ? [searchId, s.query_embedding] : [searchId];
 
   const { rows } = await pool.query(
     `SELECT a.id, a.title, a.employer, a.municipality, a.apply_url, a.deadline,
             m.score, a.ats_vendor,
-            split_part(split_part(a.apply_url, '://', 2), '/', 1) AS host
+            split_part(split_part(a.apply_url, '://', 2), '/', 1) AS host,
+            -- Already known: read from the ad text, or from a page read
+            -- earlier. Re-fetching what we have would be slow for the
+            -- user and rude to the server.
+            ls.contacts AS found, ls.only_shared, ls.host AS found_via
      FROM match_results m
      JOIN ads a ON a.id = m.ad_id
+     LEFT JOIN lead_scans ls ON ls.ad_id = a.id
      WHERE m.search_id = $1
        AND a.apply_email IS NULL
        AND a.apply_url IS NOT NULL
