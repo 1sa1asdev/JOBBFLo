@@ -506,28 +506,40 @@ export default function AutoApply({ onFindSimilar }) {
                         defaultValue={(s.send_to || '').slice(0,5)}
                         onBlur={(e) => update(s.id, { send_to: e.target.value || null })} />
                     </div>
-                    <div className="wday-row">
-                      <label className="wday-lbl">
-                        <span>Brev per omgång</span>
-                        <input className="ct-input num" type="number" min="1" max="50"
-                          defaultValue={s.send_batch_size}
-                          onBlur={(e) => update(s.id, { send_batch_size: Number(e.target.value) })} />
-                      </label>
-                      <label className="wday-lbl">
-                        <span>Minuter mellan omgångar</span>
-                        <input className="ct-input num" type="number" min="1" max="240"
-                          defaultValue={s.send_batch_minutes}
-                          onBlur={(e) => update(s.id, { send_batch_minutes: Number(e.target.value) })} />
-                      </label>
-                    </div>
+                    <label className="chk-line">
+                      <input type="checkbox" checked={s.send_batch_size != null}
+                        onChange={(e) => update(s.id,
+                          { send_batch_size: e.target.checked ? 10 : null })} />
+                      <span>Dela upp i omgångar</span>
+                    </label>
+                    {s.send_batch_size != null && (
+                      <div className="wday-row">
+                        <label className="wday-lbl">
+                          <span>Brev per omgång</span>
+                          <input className="ct-input num" type="number" min="1" max="50"
+                            key={`bs-${s.send_batch_size}`} defaultValue={s.send_batch_size}
+                            onBlur={(e) => update(s.id, { send_batch_size: Number(e.target.value) })} />
+                        </label>
+                        <label className="wday-lbl">
+                          <span>Minuter mellan omgångar</span>
+                          <input className="ct-input num" type="number" min="1" max="240"
+                            defaultValue={s.send_batch_minutes}
+                            onBlur={(e) => update(s.id, { send_batch_minutes: Number(e.target.value) })} />
+                        </label>
+                      </div>
+                    )}
                     <p className="hint">
                       {s.send_days || s.send_from
                         ? <>Skickar {s.send_days ? `${s.send_days.length} dagar i veckan` : 'alla dagar'}
                             {s.send_from && s.send_to ? ` mellan ${s.send_from.slice(0,5)} och ${s.send_to.slice(0,5)}` : ''},
-                            {' '}{s.send_batch_size} brev åt gången med {s.send_batch_minutes} minuters
-                            paus — som mest {s.auto_apply_daily_limit} per dygn. Svensk tid.</>
+                            {' '}{s.send_batch_size != null
+                              ? `${s.send_batch_size} brev åt gången med ${s.send_batch_minutes} minuters paus`
+                              : `allt på en gång`} — som mest {s.auto_apply_daily_limit} per
+                            dygn. Svensk tid.</>
                         : <>Inget fönster satt: kampanjen skickar när som helst,
-                            {' '}{s.send_batch_size} brev åt gången med {s.send_batch_minutes} minuters paus.</>}
+                            {' '}{s.send_batch_size != null
+                              ? `${s.send_batch_size} brev åt gången med ${s.send_batch_minutes} minuters paus`
+                              : `upp till ${s.auto_apply_daily_limit} brev på en gång`}.</>}
                     </p>
                   </div>
 

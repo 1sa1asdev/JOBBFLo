@@ -156,8 +156,12 @@ export async function PATCH(req) {
     sets.push(`${key} = $${vals.length}::time`);
   }
   if (send_batch_size !== undefined) {
-    vals.push(Math.max(1, Math.min(50, Number(send_batch_size) || 10)));
-    sets.push(`send_batch_size = $${vals.length}`);
+    // null is a real value here, not a missing one: it means "send the
+    // day's whole allowance at once". Coercing it to a default the way
+    // the clamp does for a bad number would quietly re-enable pacing.
+    vals.push(send_batch_size === null ? null
+      : Math.max(1, Math.min(50, Number(send_batch_size) || 10)));
+    sets.push(`send_batch_size = $${vals.length}::int`);
   }
   if (send_batch_minutes !== undefined) {
     vals.push(Math.max(1, Math.min(240, Number(send_batch_minutes) || 5)));

@@ -315,14 +315,21 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
   // was a ReferenceError that killed every real run before it reached a
   // single letter. The dry run never touched the branch, which is
   // exactly why it passed.
-  if (!dryRun && search.last_batch_at && !manual) {
+  //
+  // A null batch size turns all of this off: the campaign sends the
+  // day's whole allowance in one run. The daily cap is still the
+  // ceiling, so the worst case is bounded either way — what pacing buys
+  // is the interval in which someone can notice, and that is worth
+  // giving up when the ads go stale faster than the gap.
+  const paced = search.send_batch_size != null;
+  if (paced && !dryRun && search.last_batch_at && !manual) {
     const waited = (Date.now() - new Date(search.last_batch_at).getTime()) / 60000;
     if (waited < search.send_batch_minutes) {
       const left = Math.ceil(search.send_batch_minutes - waited);
       return { sent: 0, skipped: [], reason: `nästa omgång om ~${left} min` };
     }
   }
-  const room = Math.min(dayLeft, search.send_batch_size);
+  const room = paced ? Math.min(dayLeft, search.send_batch_size) : dayLeft;
 
   // ----------------------------------------------------------
   // Ask for the verdicts this campaign needs.
@@ -497,7 +504,9 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
   // nothing must not start the clock, or an empty campaign would sit out
   // the gap for no reason and the next real batch would be late.
   if (!dryRun && results.sent > 0) {
-    await pool.query(`UPDATE searches SET last_batch_at = now() WHERE id = $1`, [searchId]);
+    if (paced) {
+      await pool.query(`UPDATE searches SET last_batch_at = now() WHERE id = $1`, [searchId]);
+    }
   }
 
   return results;
