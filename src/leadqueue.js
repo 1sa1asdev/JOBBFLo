@@ -22,10 +22,14 @@ import { extractFromText } from './textcontacts.js';
 // most likely to break it, so the query joins searches and tests
 // auto_apply_enabled rather than taking a search id on trust.
 //
-// A find is used only when it can be VERIFIED. Confirming 338 addresses
-// by hand is not review, it is a queue nobody empties, so the campaign
-// accepts the ones that carry their own proof and leaves the rest in
-// Hitta adresser. See verifiable() for what counts as proof.
+// Finds are taken automatically. The confirmation queue is gone: it was
+// 338 long and growing faster than anyone empties it, so in practice it
+// was a way of not applying rather than review. Hitta adresser stays as
+// a place to look and to override, not as a gate.
+//
+// verifiable() still marks which finds carry their own proof, because
+// "180 of 334 were provable" is worth knowing even when all 334 are
+// used.
 // ------------------------------------------------------------
 
 // Small on purpose. Each page is a request to somebody else's server,
@@ -181,10 +185,27 @@ export async function confirmVerified({ limit = 500 } = {}) {
     [limit]
   );
 
-  let godkända = 0;
+  let godkända = 0; let styrkta = 0;
   for (const r of rows) {
-    const v = verifiable(r, r);
+    // Proof first, but no longer a gate. The confirmation queue was 338
+    // long and growing faster than anyone empties it, which made it a
+    // way of not applying rather than a safeguard — so an unproved find
+    // is taken too, at the top of the ranking the scanner already
+    // applied (named person, then dotted local part, then shared inbox).
+    //
+    // What still protects the user is downstream and unchanged: union,
+    // GDPR and vendor addresses never enter lead_scans at all, and the
+    // campaign refuses a second letter to an address already written
+    // to. What is given up is the case where a page named the wrong
+    // person — that letter now goes out without anyone reading it first.
+    const v = verifiable(r, r)
+      || (r.contacts?.[0]?.email
+        ? { email: r.contacts[0].email, grund: r.only_shared ? 'delad inkorg' : 'enda träffen på sidan' }
+        : null);
     if (!v) continue;
+    if (v.grund === 'namngiven kontaktperson' || v.grund === 'domänen tillhör arbetsgivaren') {
+      styrkta += 1;
+    }
     await pool.query(
       `UPDATE ads SET apply_email = $2, apply_email_source = 'scanned'
        WHERE id = $1 AND apply_email IS NULL`,
@@ -192,5 +213,5 @@ export async function confirmVerified({ limit = 500 } = {}) {
     );
     godkända += 1;
   }
-  return { prövade: rows.length, godkända };
+  return { prövade: rows.length, godkända, styrkta };
 }

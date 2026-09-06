@@ -71,8 +71,9 @@ export default function LeadFinder({ campaigns, onChanged }) {
         <h2>Annonser utan mejladress</h2>
         <p className="auto-lede">
           <b>{data.total.toLocaleString('sv-SE')}</b> annonser i kampanjen publicerar ingen
-          adress, så kampanjen kan inte skriva till dem. Appen öppnar sidan och läser den —
-          du avgör om adressen är rätt. {data.ranked
+          adress, så kampanjen kan inte skriva till dem. Appen öppnar sidan, läser den och
+          lägger till det den hittar direkt — den här vyn är för att se efter och ändra,
+          inte för att godkänna. {data.ranked
             ? 'Sorterade efter hur nära de ligger ditt CV, så det översta är värt mest tid.'
             : 'Sorterade efter datum tills kampanjen har en sökvektor.'}
         </p>
