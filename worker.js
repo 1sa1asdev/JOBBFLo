@@ -15,6 +15,7 @@ import { pollJobStream } from './src/fetchJobs.js';
 import { scanSearch, scorePending, MAX_SCORE_ATTEMPTS } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply } from './src/autoapply.js';
+import { scanCampaignLeads } from './src/leadqueue.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
@@ -32,6 +33,12 @@ const PRUNE_EVERY = 6 * 60 * 60 * 1000; // retire ads nobody touched
 // tick only has to come round often enough to notice when a gap has
 // elapsed. A run with nothing due is one cheap query.
 const AUTOAPPLY_EVERY = 60 * 1000;
+// Reading somebody's application page to find a recruiter. Slow on
+// purpose: twelve pages a tick against a backlog of a thousand is
+// hours, and that is the right speed for requests to servers that owe
+// us nothing. The campaign is not blocked on it either way — this fills
+// a list the user confirms from.
+const LEADSCAN_EVERY = 4 * 60 * 1000;
 const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
 async function pollTick() {
@@ -194,6 +201,19 @@ async function autoApplyTick() {
   }
 }
 
+async function leadScanTick() {
+  try {
+    const r = await scanCampaignLeads();
+    if (r.text?.named) console.log(`adresser: ${r.text.named} ur annonstexten`);
+    if (r.named || r.shared) {
+      console.log(`adresser: ${r.named} kontaktpersoner, ${r.shared} delade inkorgar `
+        + `av ${r.pages} lästa sidor`);
+    }
+  } catch (err) {
+    console.error('leadScan:', err.message);
+  }
+}
+
 async function followupTick() {
   try {
     await checkFollowups();
@@ -243,6 +263,7 @@ setInterval(embedTick, EMBED_EVERY);
 setInterval(pruneTick, PRUNE_EVERY);
 setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
+setInterval(leadScanTick, LEADSCAN_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');

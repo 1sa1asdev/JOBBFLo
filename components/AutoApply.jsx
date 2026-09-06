@@ -155,7 +155,7 @@ function LeadForm({ searchId, onAdded }) {
 // addresses, or a lower threshold, or nothing at all.
 function Varfor({ v, s }) {
   const rader = [
-    [v.utanAdress, 'publicerar ingen mejladress', 'Hitta adresser'],
+    [v.utanAdress, 'publicerar ingen mejladress', null],
     [v.adressRedanKontaktad, 'går till en adress du redan skrivit till', null],
     [v.redanAnsokt, 'har du redan sökt', null],
     [v.forLagPoang, `fick under ${s.auto_apply_min_score} poäng`, null],
@@ -653,6 +653,15 @@ export default function AutoApply({ onFindSimilar }) {
                       <>
                         <p className="hint">Inga annonser uppfyller regeln just nu.</p>
                         {s.varfor && <Varfor v={s.varfor} s={s} />}
+                        {s.leads?.utanAdress > 0 && (
+                          <p className="hint lead-progress">
+                            Kampanjen letar upp adresserna själv: <b>{s.leads.lasta
+                              .toLocaleString('sv-SE')}</b> av {s.leads.utanAdress
+                              .toLocaleString('sv-SE')} sidor lästa,{' '}
+                            <b>{s.leads.attBekrafta.toLocaleString('sv-SE')}</b> adresser
+                            väntar på ditt godkännande i <b>Hitta adresser</b>.
+                          </p>
+                        )}
                       </>
                     )}
                     {queue.map((c) => (

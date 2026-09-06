@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
 import { candidatesFor, runAutoApply, whyNothing } from '../../../src/autoapply.js';
+import { leadProgress } from '../../../src/leadqueue.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,10 @@ export async function GET() {
     // threshold is too high look identical at rest, and the user cannot
     // act on "Inga annonser uppfyller regeln just nu".
     if (!s.candidates.length) s.varfor = await whyNothing(s.id);
+
+    // Address-hunting is part of the campaign now, so its progress
+    // belongs on the campaign's card rather than only in Hitta adresser.
+    if (s.auto_apply_enabled) s.leads = await leadProgress(s.id);
 
     // The funnel, because "5 matchningar" out of 1183 ads read is a very
     // different picture from 5 out of 12, and the card showed only the

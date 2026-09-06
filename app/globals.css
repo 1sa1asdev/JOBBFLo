@@ -1801,3 +1801,6 @@
   .varfor li::before{content:'·';position:absolute;left:-11px;}
   .varfor b{color:var(--ink);font-variant-numeric:tabular-nums;}
   .varfor-vart{color:var(--flag);}
+
+  .lead-progress{margin-top:7px;}
+  .lead-progress b{color:var(--ink);font-variant-numeric:tabular-nums;}
