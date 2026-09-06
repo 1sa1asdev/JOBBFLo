@@ -21,16 +21,30 @@ export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   if (!searchId) return NextResponse.json({ error: 'search krävs' }, { status: 400 });
 
+  // Campaigns only, enforced rather than merely arranged. Reading other
+  // people's servers is a cost this app pays on the user's behalf, and
+  // it belongs to the one flow where they have approved a rule that
+  // sends letters. An ordinary saved search is browsing — nothing there
+  // justifies fetching a stranger's page, and the tab living under
+  // Auto-ansökan is a UI arrangement, not a guarantee.
   const { rows: [s] } = await pool.query(
-    `SELECT query_embedding FROM searches WHERE id = $1`, [searchId]);
+    `SELECT query_embedding FROM searches
+     WHERE id = $1 AND deleted_at IS NULL AND campaign_created_at IS NOT NULL`,
+    [searchId]);
+  if (!s) {
+    return NextResponse.json(
+      { error: 'adressökning görs bara för kampanjer, inte för vanliga sökningar' },
+      { status: 403 }
+    );
+  }
 
   // Ads with a contact already found come first — those are one click
   // from being reachable — and CV similarity orders within that.
-  const order = s?.query_embedding
+  const order = s.query_embedding
     ? `ORDER BY (ls.ad_id IS NULL), (a.embedding IS NULL),
                 a.embedding <=> $2::vector, a.published_at DESC NULLS LAST`
     : `ORDER BY (ls.ad_id IS NULL), a.published_at DESC NULLS LAST`;
-  const args = s?.query_embedding ? [searchId, s.query_embedding] : [searchId];
+  const args = s.query_embedding ? [searchId, s.query_embedding] : [searchId];
 
   const { rows } = await pool.query(
     `SELECT a.id, a.title, a.employer, a.municipality, a.apply_url, a.deadline,
@@ -68,7 +82,7 @@ export async function GET(req) {
     leads,
     total: n.total,
     blocked: leads.filter((l) => l.blocked).length,
-    ranked: Boolean(s?.query_embedding),
+    ranked: Boolean(s.query_embedding),
   });
 }
 
