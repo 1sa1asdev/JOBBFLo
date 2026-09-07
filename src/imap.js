@@ -345,6 +345,7 @@ export async function runImapLoop({ signal } = {}) {
     // timer would go on polling a dead connection every two minutes for
     // as long as the worker lives.
     let sentPoll = null;
+    let inboxPoll = null;
     try {
       await imap.connect();
       console.log('imap: connected');
@@ -366,19 +367,46 @@ export async function runImapLoop({ signal } = {}) {
         catchUpSent(imap).catch((e) => console.error('sent-poll:', e.message));
       }, 5 * 60 * 1000);
 
+      // ------------------------------------------------------------
+      // Do not trust IDLE to be the only way mail arrives.
+      //
+      // This connection went seven hours without ingesting anything
+      // while the worker was plainly alive and doing other work: the
+      // last stored reply was 02:05, and twenty employer answers sat in
+      // Gmail above the cursor, matched and unread. No error, no close
+      // event — the exact failure CLAUDE.md warns is worse than any
+      // latency problem, and a silent one.
+      //
+      // A catch-up on a timer costs one FETCH from the cursor, which is
+      // nothing when there is no new mail, and makes the worst case a
+      // two-minute delay instead of indefinite silence. The noop is the
+      // other half: a socket that has quietly died answers it with an
+      // error, which tears the connection down and lets the loop
+      // reconnect rather than waiting on a 'close' that never comes.
+      inboxPoll = setInterval(async () => {
+        try {
+          await imap.noop();
+          await catchUp(imap);
+        } catch (e) {
+          console.error('imap-poll:', e.message);
+          imap.close();
+        }
+      }, 2 * 60 * 1000);
+
       // imapflow keeps IDLE alive internally; block until the connection dies
       await new Promise((resolve, reject) => {
         imap.on('close', resolve);
         imap.on('error', reject);
         signal?.addEventListener('abort', () => imap.logout().catch(() => {}), { once: true });
       });
-      clearInterval(sentPoll);
+      clearInterval(sentPoll); clearInterval(inboxPoll);
       console.log('imap: connection closed');
     } catch (err) {
       console.error('imap:', err.message);
       try { await imap.logout(); } catch { /* already gone */ }
     }
     if (sentPoll) clearInterval(sentPoll);
+    if (inboxPoll) clearInterval(inboxPoll);
     if (signal?.aborted) break;
     await new Promise((r) => setTimeout(r, backoff));
     backoff = Math.min(backoff * 2, 60_000);
