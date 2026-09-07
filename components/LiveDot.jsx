@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 // Lives on its own because more than one view polls now. Pass the
 // timestamp of the last real change — not of the last poll, or the dot
 // says "uppdaterat" every few seconds and stops meaning anything.
-export default function LiveDot({ pulsed }) {
+export default function LiveDot({ pulsed, checked }) {
   const [recent, setRecent] = useState(false);
   useEffect(() => {
     if (!pulsed) return undefined;
@@ -17,12 +17,23 @@ export default function LiveDot({ pulsed }) {
     const t = setTimeout(() => setRecent(false), 2500);
     return () => clearTimeout(t);
   }, [pulsed]);
+
+  // The flash lasts 2.5s, so anyone not looking at that moment sees a
+  // dot that says "Live" whether the poll is running or died twenty
+  // minutes ago. The clock is the part that can be checked: if it is
+  // not within the last few seconds, the view is not live, and now you
+  // can tell without asking.
+  const klocka = checked
+    ? new Date(checked).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+
   return (
     <span
       className={`live-dot${recent ? ' hit' : ''}`}
-      title={recent ? 'Ny uppdatering' : 'Live — uppdateras automatiskt'}
+      title={klocka ? `Senast hämtad ${klocka}` : 'Live — uppdateras automatiskt'}
     >
       <i />{recent ? 'Uppdaterat' : 'Live'}
+      {klocka && <em className="live-at">{klocka}</em>}
     </span>
   );
 }

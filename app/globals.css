@@ -1807,3 +1807,8 @@
 
   .lead-drop{color:var(--mute);}
   .lead-drop:hover:not(:disabled){color:var(--flag);border-color:var(--flag);}
+
+  .live-at{
+    font-style:normal;margin-left:6px;color:var(--mute);
+    font-variant-numeric:tabular-nums;font-size:9px;
+  }

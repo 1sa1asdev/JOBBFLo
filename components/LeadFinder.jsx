@@ -30,12 +30,14 @@ export default function LeadFinder({ campaigns, onChanged }) {
   const [done, setDone] = useState({});      // adId -> saved address
   const [typed, setTyped] = useState({});
   const [pulsed, setPulsed] = useState(null);
+  const [checked, setChecked] = useState(null);
   const [err, setErr] = useState(null);
 
   const load = useCallback(async () => {
     if (!searchId) return;
     try {
       const next = await api(`/api/autoapply/leads?search=${searchId}`);
+      setChecked(Date.now());
       // Only flash when the count actually moved — a poll that says
       // "uppdaterat" every ten seconds regardless is noise, and stops
       // meaning anything by the third time.
@@ -100,7 +102,7 @@ export default function LeadFinder({ campaigns, onChanged }) {
     <div className="auto-body">
       <div className="auto-head">
         <div className="idx">06 / Hitta adresser</div>
-        <h2>Annonser utan mejladress <LiveDot pulsed={pulsed} /></h2>
+        <h2>Annonser utan mejladress <LiveDot pulsed={pulsed} checked={checked} /></h2>
         <p className="auto-lede">
           <b>{data.total.toLocaleString('sv-SE')}</b> annonser i kampanjen publicerar ingen
           adress, så kampanjen kan inte skriva till dem. Appen öppnar sidan, läser den och

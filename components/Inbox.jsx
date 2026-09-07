@@ -205,6 +205,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [pulsed, setPulsed] = useState(null); // timestamp of last live update
+  const [checked, setChecked] = useState(null); // timestamp of the last poll that answered
   const [campaign, setCampaign] = useState('all');   // auto-inbox: which campaign
   const [collapsed, setCollapsed] = useState({});
   const notify = useNotify();
@@ -243,6 +244,10 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const version = useRef(null);
   usePoll(async () => {
     const { version: v } = await api('/api/pulse');
+    // Stamped on every successful poll, not only on a change: the point
+    // of the clock is to show the connection is alive, and a beacon
+    // that has not moved is the normal case.
+    setChecked(Date.now());
     if (v === version.current) return;
     const first = version.current === null;
     version.current = v;
@@ -302,7 +307,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
           <div className="idx">{source === 'auto' ? '04 / Automatiska ansökningar' : '03 / Ansökningar'}</div>
           <h2>
             {source === 'auto' ? 'Auto-inkorg' : 'Inkorg'}
-            <LiveDot pulsed={pulsed} />
+            <LiveDot pulsed={pulsed} checked={checked} />
             <button
               className={`notify-toggle${notify.enabled ? ' on' : ''}`}
               onClick={notify.toggle}
