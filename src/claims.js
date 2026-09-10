@@ -28,22 +28,52 @@ const SYSTEM = `Du granskar ett personligt brev mot en kandidats CV.
 
 Din enda uppgift: hitta PÅSTÅENDEN om kandidaten som CV:t inte styrker.
 
-Ett påstående är något kontrollerbart — erfarenhet, antal år, verktyg,
-utbildning, arbetsgivare, resultat, roller. Åsikter och avsikter är inte
-påståenden: "jag brinner för", "jag skulle passa bra", "jag vill lära
-mig" ska aldrig flaggas.
+Ett påstående är något kontrollerbart om det som REDAN HÄNT — erfarenhet,
+antal år, verktyg kandidaten använt, utbildning, arbetsgivare, resultat,
+roller.
+
+Detta är INTE påståenden och ska aldrig flaggas:
+- åsikter och avsikter: "jag brinner för", "jag skulle passa bra"
+- vad kandidaten söker eller vill: "jag söker en LIA-plats", "jag vill lära mig"
+- datum och perioder kandidaten är TILLGÄNGLIG: "mellan januari och maj"
+  är önskemål om framtiden, inte en uppgift ur CV:t
+- egna projekt och fritidsbyggen som brevet självt presenterar som egna
+  ("jag bygger just nu X") — CV:t behöver inte känna till dem
+- kontaktuppgifter, hälsningar, artighetsfraser
 
 Bedöm varje påstående mot CV:t:
 - "styrkt": CV:t säger detta, eller något som direkt innebär det.
 - "ostyrkt": CV:t säger det inte. Även om det låter rimligt.
-- "motsagt": CV:t säger något annat (fel antal år, fel roll, fel verktyg).
+- "motsagt": CV:t säger något OFÖRENLIGT — fel arbetsgivare, fel
+  rolltitel, färre år än brevet påstår. Att CV:t är tyst om något är
+  ostyrkt, aldrig motsagt. Reservera "motsagt" för när de två texterna
+  inte kan vara sanna samtidigt.
 
 Var strikt med siffror. "Tre års erfarenhet" är ostyrkt om CV:t inte
 visar tre år. Var generös med omformuleringar: CV:t "React, Node" styrker
 "erfarenhet av React och Node".
 
+En uppräkning där de flesta finns i CV:t men något saknas är ostyrkt,
+inte motsagt — flagga den och citera hela uppräkningen.
+
 Svara med JSON:
-{"claims":[{"quote":"ordagrann mening ur brevet","verdict":"styrkt|ostyrkt|motsagt","why":"kort skäl"}]}
+{"claims":[{"quote":"ordagrann text ur BREVET","verdict":"styrkt|ostyrkt|motsagt","cv_quote":"ordagrann text ur CV:T som styrker det, eller null","why":"kort skäl"}]}
+
+cv_quote är beviset. Är påståendet styrkt MÅSTE du klistra in den rad ur
+CV:t som styrker det, ordagrant och på CV:ts eget språk. Kan du inte hitta
+en sådan rad är påståendet ostyrkt. Detta gäller varje påstående du tar
+med — ta med både styrkta och ostyrkta.
+
+CV:T KAN VARA PÅ ETT ANNAT SPRÅK ÄN BREVET. Ett CV på engelska styrker
+ett brev på svenska: "Substitute Care Assistant, Åtvidabergs Kommun"
+styrker "substitutvårdare i Åtvidabergs kommun", "Web Developer" styrker
+"webbutvecklare". Översätt innan du dömer — annars flaggar du sant
+innehåll bara för att orden ser olika ut.
+
+Innan du flaggar något som ostyrkt: läs igenom HELA CV:t en gång till
+och leta efter arbetsgivaren, verktyget eller rollen, på BÅDA språken.
+CV:t är kort. Är du osäker är svaret "styrkt" — en falsk flagga stoppar
+ett brev som var korrekt, vilket är värre än att missa en.
 
 quote MÅSTE vara kopierad ordagrant ur brevet, max 20 ord. Ta bara med
 påståenden som är ostyrkta eller motsagda — styrkta behöver inte
@@ -53,10 +83,13 @@ export async function checkClaims({ letter, cvText, cvProfile = null }) {
   if (!letter?.trim() || !cvText?.trim()) return { claims: [], checked: false };
 
   const r = await llmJson({
-    // The cheap tier. This runs once per letter on a path that sends
-    // a hundred a day, and the task is comparison rather than
-    // judgement — it has both texts in front of it.
-    tier: 'fast',
+    // Measured, not assumed. On 'fast' this flagged "substitut-
+    // vårdbiträde i Åtvidabergs kommun" as unsupported against a CV
+    // that names Åtvidaberg — six letters produced 21 flags, most of
+    // them wrong. A gate that fires on false positives stops a working
+    // campaign, which is worse than the problem it guards against, so
+    // this runs on the scoring tier instead.
+    tier: 'bulk',
     maxTokens: 1200,
     system: SYSTEM,
     messages: [{
@@ -67,11 +100,32 @@ export async function checkClaims({ letter, cvText, cvProfile = null }) {
     }],
   });
 
-  // A flag against a sentence that is not in the letter cannot be shown
-  // to the user and cannot be acted on — same rule as the ad quotes,
-  // and for the same reason.
-  const claims = verifyQuotes(r?.claims || [], letter)
-    .filter((c) => c.verbatim && c.verdict !== 'styrkt');
+  // Two verifications, and the second is the one that matters.
+  //
+  // Prompt tuning could not stop this model flagging "Substitute Care
+  // Assistant på Åtvidabergs Kommun" against a CV containing exactly
+  // that line — four rounds of instructions, including telling it the
+  // CV may be in another language, and it kept saying unsupported. So
+  // its verdict is no longer trusted: it must paste the CV line that
+  // supports the claim, and THAT is checked here, deterministically.
+  //
+  // Found in the CV → supported, whatever the model called it. Not
+  // found → the flag stands. A model that hallucinates evidence gets
+  // caught by the same substring test the ad quotes already use, and a
+  // model that overlooks evidence can no longer veto a true sentence.
+  const inLetter = verifyQuotes(r?.claims || [], letter).filter((c) => c.verbatim);
+  const withProof = verifyQuotes(
+    inLetter.map((c) => ({ ...c, quote: c.cv_quote || '' })), cvText,
+  ).map((c, i) => ({ ...inLetter[i], proven: c.verbatim }));
+
+  // A word-novelty backstop was tried here and removed. The idea was
+  // that a flag must name something concrete the CV lacks — which works
+  // in principle and collapses in this case, because the CV is in
+  // English and the letters are in Swedish. Nearly every Swedish word
+  // is "absent from the CV", so the filter passed everything and the
+  // count went from 20 flags to 34. Recorded because it is the obvious
+  // next idea and it does not work here.
+  const claims = withProof.filter((c) => !c.proven && c.verdict !== 'styrkt');
 
   return {
     claims,
