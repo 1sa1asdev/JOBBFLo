@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { scanForEmails, blockedBy } from './leadscan.js';
+import { scanForEmails, blockedBy, normaliseUrl } from './leadscan.js';
 import { extractFromText } from './textcontacts.js';
 
 // ------------------------------------------------------------
@@ -75,7 +75,24 @@ export async function scanCampaignLeads({ pages = PAGES_PER_TICK } = {}) {
 
   let named = 0; let shared = 0; let none = 0; let skipped = 0;
   for (const ad of rows) {
-    if (blockedBy(ad.apply_url)) { skipped += 1; continue; }
+    // A blocked domain has to be RECORDED, not just skipped. The query
+    // above takes ads with no lead_scans row, so an ad skipped without
+    // one comes back next tick and every tick after — and the scanner
+    // spent two hours re-choosing the same 36 Academic Work ads while
+    // 582 others behind them were never read. Writing the row is what
+    // moves the queue on.
+    const blockerad = blockedBy(ad.apply_url);
+    if (blockerad) {
+      skipped += 1;
+      await pool.query(
+        `INSERT INTO lead_scans (ad_id, ok, contacts, only_shared, reason, host)
+         VALUES ($1, false, '[]'::jsonb, false, $2, $3)
+         ON CONFLICT (ad_id) DO NOTHING`,
+        [ad.id, `${blockerad} tillåter inte att sidan läses automatiskt`,
+         new URL(normaliseUrl(ad.apply_url)).host]
+      );
+      continue;
+    }
 
     let r;
     try { r = await scanForEmails(ad.apply_url); }
@@ -146,7 +163,16 @@ export async function leadProgress(searchId) {
 // real company, and the letter still lands in the queue the ATS was
 // built to feed — worth offering, never worth assuming.
 // ------------------------------------------------------------
-const STOPORD = /(ab|as|asa|oy|hb|kb|group|sweden|sverige|nordic|scandinavia|holding|consulting|international|the)/g;
+// Word boundaries are load-bearing, and they were not merely wrong
+// here — they were literal backspace characters. Written from a
+// Python heredoc where backslash-b means backspace, so the file ended up with
+// a literal-control-character pattern that matches a control character
+// no employer name contains, and therefore never stripped anything.
+// Built with RegExp from a string so the escape survives whatever
+// writes this file next.
+const STOPORD = new RegExp(
+  '\b(ab|as|asa|oy|hb|kb|group|sweden|sverige|nordic|scandinavia'
+  + '|holding|consulting|international|the)\b', 'g');
 const bara = (t) => String(t || '').toLowerCase().replace(STOPORD, '').replace(/[^a-z0-9]/g, '');
 
 export function verifiable(scan, ad) {
@@ -212,7 +238,12 @@ export async function confirmVerified({ limit = 500 } = {}) {
       styrkta += 1;
     }
     await pool.query(
-      `UPDATE ads SET apply_email = $2, apply_email_source = 'scanned'
+      // found_at too: 509 of the 521 scanned addresses had none,
+      // because only the manual confirm route set it. Nothing broke,
+      // but "addresses found this hour" read as zero while the scanner
+      // was working.
+      `UPDATE ads SET apply_email = $2, apply_email_source = 'scanned',
+         apply_email_found_at = now()
        WHERE id = $1 AND apply_email IS NULL`,
       [r.ad_id, v.email]
     );
