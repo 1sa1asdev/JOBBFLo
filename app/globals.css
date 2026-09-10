@@ -1874,3 +1874,11 @@
   .dash-step b{color:var(--ink);font-variant-numeric:tabular-nums;}
   .dash-step em{font-style:normal;color:var(--tag-border);margin-right:9px;}
   .dash-cost{margin-top:20px;}
+
+  .inbox-search{display:flex;gap:6px;margin:10px 0 8px;}
+  .inbox-search .ct-input{flex:1;min-width:0;}
+  .inbox-sort{flex:0 0 auto;width:auto;font-size:11px;}
+  .filt-n{
+    font-variant-numeric:tabular-nums;opacity:.55;margin-left:3px;font-size:9px;
+  }
+  .inbox-filters{flex-wrap:wrap;}

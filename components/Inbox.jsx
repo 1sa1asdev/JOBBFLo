@@ -208,6 +208,8 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [checked, setChecked] = useState(null); // timestamp of the last poll that answered
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('recent');
   const [campaign, setCampaign] = useState('all');   // auto-inbox: which campaign
   const [collapsed, setCollapsed] = useState({});
   const notify = useNotify();
@@ -274,12 +276,52 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     setTimeout(() => setSyncNote(null), 6000);
   }
 
+  // ------------------------------------------------------------
+  // Filters that answer a question the user actually has.
+  //
+  // The old four were Alla / Att göra / Väntar svar / Ghostade, and
+  // "Att göra" meant "the app drafted a suggestion" — which is about
+  // what the APP did, not about what is owed. The honest version of
+  // that question is: did they speak last? If the newest message in the
+  // thread came from the employer, the ball is with the user, whether
+  // or not a draft happens to exist.
+  //
+  // The rest exist because 250 applications with 91 replies is not a
+  // list anyone reads top to bottom. Free text is the one that carries
+  // most of the weight — you remember the company, not the position in
+  // a list.
+  const owed = (t) => t.last_direction === 'inbound';
+  const dagarSedan = (t) => Math.floor(
+    (Date.now() - new Date(t.last_msg_at || t.sent_at)) / 86400000);
+
+  const q = query.trim().toLowerCase();
   const filtered = threads.filter((t) => {
-    if (filter === 'unread') return Number(t.pending_suggestions) > 0;
+    if (q && !`${t.title} ${t.employer} ${t.last_from_name || ''} ${t.last_from_addr || ''}`
+      .toLowerCase().includes(q)) return false;
+    if (filter === 'owed') return owed(t);
+    if (filter === 'interview') return t.status === 'interview';
+    if (filter === 'replied') return t.status === 'replied' || t.status === 'interview';
+    if (filter === 'rejected') return t.status === 'rejected';
     if (filter === 'awaiting') return t.status === 'sent';
     if (filter === 'ghosted') return t.status === 'ghosted';
     return true;
+  }).sort((a, b) => {
+    // Oldest first is not a preference here — it is the order in which
+    // threads go cold. An employer who wrote nine days ago is the one
+    // about to conclude you are not interested.
+    if (sort === 'oldest') return dagarSedan(b) - dagarSedan(a);
+    return 0;   // server order: most recent activity first
   });
+
+  const antal = {
+    all: threads.length,
+    owed: threads.filter(owed).length,
+    interview: threads.filter((t) => t.status === 'interview').length,
+    replied: threads.filter((t) => t.status === 'replied' || t.status === 'interview').length,
+    rejected: threads.filter((t) => t.status === 'rejected').length,
+    awaiting: threads.filter((t) => t.status === 'sent').length,
+    ghosted: threads.filter((t) => t.status === 'ghosted').length,
+  };
 
   // The auto-inbox is organised by campaign; the manual one stays flat,
   // because a letter you wrote yourself belongs to no campaign.
@@ -347,10 +389,27 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
               {notify.enabled ? '🔔' : '🔕'}
             </button>
           </h2>
+          <div className="inbox-search">
+            <input
+              className="ct-input" value={query} placeholder="Sök företag, roll eller person…"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <select className="ct-input inbox-sort" value={sort}
+              onChange={(e) => setSort(e.target.value)}>
+              <option value="recent">Senaste först</option>
+              <option value="oldest">Längst utan svar först</option>
+            </select>
+          </div>
           <div className="inbox-filters">
-            {[['all', 'Alla'], ['unread', 'Att göra'], ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']].map(([k, label]) => (
-              <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{label}</button>
-            ))}
+            {[['all', 'Alla'], ['owed', 'Din tur'], ['interview', 'Intervju'],
+              ['replied', 'Svar inne'], ['rejected', 'Avslag'],
+              ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']]
+              .filter(([k]) => k === 'all' || antal[k] > 0)
+              .map(([k, label]) => (
+                <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                  {label} <span className="filt-n">{antal[k]}</span>
+                </button>
+              ))}
           </div>
           {source === 'auto' && grouped.length > 1 && (
             <div className="camp-bar">
