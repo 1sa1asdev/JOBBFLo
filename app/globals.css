@@ -1927,3 +1927,10 @@
     overflow:hidden;max-height:2.1em;
   }
   .card .reasoning{cursor:text;}
+
+  /* The link stands in for the button until the button has a fact
+     behind it, so the row always offers exactly one next step. */
+  .applied-btn.as-link{
+    display:inline-flex;align-items:center;justify-content:center;
+    text-decoration:none;white-space:nowrap;
+  }

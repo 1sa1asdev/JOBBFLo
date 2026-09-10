@@ -113,6 +113,12 @@ export async function GET(req, { params }) {
   const { rows } = await pool.query(
     `SELECT r.*, m.matched, m.scored_at, m.lead_project_id, m.queue_rank,
        a.published_at, a.apply_email, a.apply_url, a.employer_type, a.fingerprint,
+       -- The two things that make "✓ Sökt" mean something: the user
+       -- opened the ad's own link from here, or wrote a letter for it.
+       -- Without either, marking it applied is a claim about something
+       -- the user has not done yet.
+       (a.apply_url_opened_at IS NOT NULL) AS link_opened,
+       (app.letter_text IS NOT NULL)       AS has_letter,
        a.lat, a.lon,
        a.raw->'workplace_address'->>'street_address' AS street,
        a.raw->'workplace_address'->>'city'           AS city,

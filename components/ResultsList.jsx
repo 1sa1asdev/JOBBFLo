@@ -149,6 +149,16 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setScanning(false);
   }
 
+  // Records that the link was opened, then lets the browser follow it.
+  // Deliberately not awaited: the navigation must not wait on our own
+  // bookkeeping, and a failed write only means the button stays locked
+  // — which is the safe direction for a control that hides an ad.
+  function openApplyLink(adId) {
+    api(`/api/ads/${adId}/opened`, { method: 'POST' })
+      .then(() => load())
+      .catch(() => { /* the link still opens; the button stays locked */ });
+  }
+
   // Free. Never enqueues a model call — that is the entire point of
   // keeping this separate from scoring.
   async function toggleStar(adId, on) {
@@ -546,16 +556,38 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                     way such a job stops looking untouched — and it sits
                     outside the chain above because you can apply to a job
                     whether or not you ever had it judged. */}
-                {!isSent && !r.apply_email && r.apply_url && (
-                  <button
-                    className="applied-btn"
-                    disabled={busyAd === r.ad_id}
-                    title="Registrera att du sökt via annonsens länk — inget mejl skickas"
-                    onClick={(e) => { e.stopPropagation(); markApplied(r.ad_id); }}
-                  >
-                    {busyAd === r.ad_id ? <Dots label="Sparar" /> : '✓ Sökt'}
-                  </button>
-                )}
+                {!isSent && !r.apply_email && r.apply_url && (() => {
+                  // Off until the app has seen something. Marking an ad
+                  // applied hides it from the list for good, and the
+                  // application itself happens on the employer's site
+                  // where nothing here can watch it — so the button
+                  // needs a fact behind it: the link was opened from
+                  // this app, or a letter exists for the ad. Until then
+                  // the link itself is the action, and it is the thing
+                  // that unlocks the button.
+                  const kanMarkas = r.link_opened || r.has_letter;
+                  return kanMarkas ? (
+                    <button
+                      className="applied-btn"
+                      disabled={busyAd === r.ad_id}
+                      title="Registrera att du sökt via annonsens länk — inget mejl skickas"
+                      onClick={(e) => { e.stopPropagation(); markApplied(r.ad_id); }}
+                    >
+                      {busyAd === r.ad_id ? <Dots label="Sparar" /> : '✓ Sökt'}
+                    </button>
+                  ) : (
+                    <a
+                      className="applied-btn as-link"
+                      href={r.apply_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Öppnar annonsen. När du varit där kan du markera den som sökt."
+                      onClick={(e) => { e.stopPropagation(); openApplyLink(r.ad_id); }}
+                    >
+                      Öppna annons ↗
+                    </a>
+                  );
+                })()}
               </div>
             </div>
           );
