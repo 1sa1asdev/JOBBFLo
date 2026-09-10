@@ -587,7 +587,17 @@
   .meta-col .row b{color:var(--ink);font-weight:600;text-align:right;}
   .meta-col .expiry.soon,.meta-col .expiry.soon b{color:var(--flag);}
 
-  .action-col{display:flex;align-items:center;justify-content:flex-end;min-width:0;}
+  /* Top-aligned, not centred. Cards are no longer all the same height
+     now that the text is clamped, so centring put the button at a
+     different height on every row — 45px down on one, 59px on the next
+     — and the eye had to re-find it for each ad. Aligned to the top it
+     sits on the title's line, in the same place every time.
+     column + gap because a row can carry two controls (Sökt/Öppna
+     under the main action) and they should stack, not compete. */
+  .action-col{
+    display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-start;
+    gap:6px;min-width:0;
+  }
   .open-btn{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
     max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     border:1px solid var(--line);background:var(--ink);color:var(--paper);
@@ -1922,10 +1932,15 @@
   .card .reasoning.clamp{
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   }
+  /* Clamped by HEIGHT, not by line-clamp. -webkit-box replaces the
+     flex layout this row depends on, so the tags stopped wrapping and
+     ran 111px past the card's edge, cut off mid-word
+     ("TILLSVIDAREANSTÄLLNING (INKL. EVENTUELL…"). Keeping flex means
+     they wrap as before and the extra rows are simply not shown. */
   .card .cand-facts.clamp{
-    display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
-    overflow:hidden;max-height:2.1em;
+    max-height:22px;overflow:hidden;
   }
+  .card .cand-facts{min-width:0;}
   .card .reasoning{cursor:text;}
 
   /* The link stands in for the button until the button has a fact
