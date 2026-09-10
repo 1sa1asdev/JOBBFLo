@@ -114,12 +114,24 @@ async function upsertAd(client, a) {
        removed_at = EXCLUDED.removed_at,
        ats_vendor = EXCLUDED.ats_vendor,
        raw = EXCLUDED.raw
+     -- Only write when something actually differs. The stream re-sends
+     -- roughly the same 570 ads on every poll whatever window is asked
+     -- for, so at a one-minute interval this was rewriting ~380 rows a
+     -- minute that had not changed — a dead row per ad per poll for
+     -- vacuum to clean up, and the embedding and scan paths seeing
+     -- churn where there was none.
+     WHERE ads.raw IS DISTINCT FROM EXCLUDED.raw
+        OR ads.removed_at IS DISTINCT FROM EXCLUDED.removed_at
      RETURNING id, (xmax = 0) AS inserted`,
     [a.source, a.external_id, a.fingerprint, a.title, a.employer, a.employer_type,
      a.municipality, a.region, a.description, a.apply_email, a.apply_url,
      a.ats_vendor, a.published_at, a.deadline, a.removed_at, a.raw]
   );
-  return rows[0];
+  // No row means the WHERE above found nothing to change. That is the
+  // common case now, and it is not an error — the caller counts it
+  // separately rather than letting a destructure throw into the catch
+  // and report it as "skipped", which would read as a failure.
+  return rows[0] || null;
 }
 
 // ------------------------------------------------------------
@@ -152,23 +164,31 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
     const ads = await res.json();
     console.log(`  ${ads.length} ads in stream`);
 
-    let created = 0, updated = 0, removed = 0, skipped = 0;
+    let created = 0, updated = 0, removed = 0, skipped = 0, unchanged = 0;
     for (const raw of ads) {
       try {
         // removed ads come through the stream stripped of everything but
         // id + removed flag — never upsert those, just mark ours removed
         if (raw.removed) {
-          await client.query(
-            `UPDATE ads SET removed_at = COALESCE(removed_at, $2)
-             WHERE source = 'platsbanken' AND external_id = $1`,
+          // Only the ones not already marked. COALESCE made this
+          // idempotent in its effect but not in its cost: the stream
+          // re-sends the same withdrawn ads on every poll, so this
+          // rewrote 191 rows a minute to set them to the value they
+          // already held. The count now means "newly withdrawn", which
+          // is also the only number worth printing.
+          const { rowCount } = await client.query(
+            `UPDATE ads SET removed_at = $2
+             WHERE source = 'platsbanken' AND external_id = $1
+               AND removed_at IS NULL`,
             [String(raw.id), raw.removed_date || new Date().toISOString()]
           );
-          removed++;
+          removed += rowCount;
           continue;
         }
         if (!raw.headline) { skipped++; continue; }
-        const { inserted } = await upsertAd(client, mapAd(raw));
-        if (inserted) created++;
+        const r = await upsertAd(client, mapAd(raw));
+        if (!r) unchanged++;
+        else if (r.inserted) created++;
         else updated++;
       } catch (err) {
         skipped++;
@@ -180,8 +200,9 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
       `UPDATE poll_state SET cursor_ts = now(), last_run_at = now() WHERE key = 'jobstream'`
     );
 
-    console.log(`  +${created} new  ~${updated} updated  -${removed} removed  (${skipped} skipped)`);
-    return { created, updated, removed, skipped, total: ads.length };
+    console.log(`  +${created} new  ~${updated} updated  -${removed} removed`
+      + `  =${unchanged} unchanged  (${skipped} skipped)`);
+    return { created, updated, removed, skipped, unchanged, total: ads.length };
   } finally {
     client.release();
   }

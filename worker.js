@@ -22,7 +22,16 @@ import {
   pruneStaleAds, embeddingCoverage, releaseExpiredVectors, refreshQueryVectors,
 } from './src/refresh.js';
 
-const POLL_EVERY = 15 * 60 * 1000;      // JobStream: one global pull
+// JobStream, once a minute. New ads arrive at about three a minute
+// during working hours — measured, 4136 over a day — so a minute is
+// close to the rate the source actually produces, and the cursor makes
+// an empty poll almost free.
+//
+// Not five seconds. That would be 17,280 requests a day to a public API
+// to catch ads that appear three a minute, with 99% of the polls
+// returning nothing — and because the campaign sweep is driven by
+// arrivals, it would drag a second API along at the same rate.
+const POLL_EVERY = 60 * 1000;
 const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
 const DRAIN_EVERY = 20 * 1000;          // judge queued ads — the user is watching these land
 const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
@@ -59,11 +68,20 @@ const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild 
 // enabled campaign checks the FRONT of its result set — one page, no
 // model, no cost beyond an HTTP request — and the deep sweep keeps its
 // place. Nothing new in the stream means nothing happens.
+let senasteSvep = 0;
 async function pollTick() {
   try {
     const r = await pollJobStream();
     const nya = (r?.created || 0) + (r?.updated || 0);
     if (!nya) return;
+
+    // The stream is polled every minute; the campaigns are not swept
+    // that often. A sweep is a JobSearch request per campaign, and once
+    // the ads are in the pool there is no hurry — five minutes is
+    // already fifteen times fresher than the hourly scan it replaced.
+    const nu = Date.now();
+    if (nu - senasteSvep < 5 * 60 * 1000) return;
+    senasteSvep = nu;
 
     const { rows: kampanjer } = await pool.query(
       `SELECT id, name FROM searches
