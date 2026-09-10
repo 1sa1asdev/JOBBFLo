@@ -603,6 +603,30 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
         continue;
       }
 
+      // A connection that never opened is not a campaign fault.
+      //
+      // "connect ECONNREFUSED 172.253.148.108:465" paused this campaign
+      // at 18:47 and it needed a person to press PÅ again — while both
+      // the host and the worker container could reach smtp.gmail.com:465
+      // perfectly well a few minutes later. A refused socket, a reset,
+      // a DNS hiccup: these are the failures that DO fix themselves,
+      // and the next tick is a minute away. Pausing on them means a
+      // campaign silently stops overnight for a blip nobody saw.
+      //
+      // The distinction is the same one scoring already makes between
+      // transient and permanent. What still pauses: a rejected login, a
+      // bad key, a quota — none of which the next employer will cure.
+      if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|Connection closed/i
+        .test(err.message)) {
+        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
+                    detail: `nätverksfel, försöker igen: ${err.message.slice(0, 120)}` });
+        results.skipped.push({ title: c.title, detail: 'nätverksfel — försöker igen' });
+        // Stop this run rather than hammering a connection that is
+        // refusing, but leave the campaign on.
+        results.reason = 'nätverksfel mot Gmail — försöker igen nästa körning';
+        break;
+      }
+
       // anything else stops the whole campaign — a bad key, a dead
       // SMTP session or an LLM outage will not fix itself on the next
       // employer

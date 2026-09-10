@@ -257,6 +257,12 @@ async function autoApplyTick() {
     for (const r of results) {
       if (r.sent) console.log(`auto-apply: ${r.sent} skickade för "${r.search}"`);
       if (r.paused) console.log(`auto-apply: "${r.search}" pausad`);
+      // A run that stopped on a network fault is worth a line: it is
+      // not a pause and not a quiet nothing, and without it the only
+      // trace of a Gmail outage is letters that did not go out.
+      else if (r.reason?.startsWith('nätverksfel')) {
+        console.log(`auto-apply: "${r.search}" — ${r.reason}`);
+      }
     }
   } catch (err) {
     console.error('autoApply:', err.message);
