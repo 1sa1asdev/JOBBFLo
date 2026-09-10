@@ -224,9 +224,13 @@ Dagab AB; rekrytering@dagab.se`}
                   placeholder="mejladress"
                   onChange={(e) => ändra(i, 'email', e.target.value)}
                 />
-                {r.person && (
-                  <span className="lead-rev-person" title={r.title || ''}>{r.person}</span>
-                )}
+                {/* Always rendered, empty or not. A grid places children
+                    in order, so omitting this cell on rows without a
+                    name shifted every later cell one column left — the
+                    status landed in the 37px name column and the ✕ in
+                    the status column, which read as the row having lost
+                    its buttons. */}
+                <span className="lead-rev-person" title={r.title || ''}>{r.person || ''}</span>
                 <span className="lead-rev-status" title={r.detalj || ''}>
                   {r.status === 'ok' ? (r.gissadArbetsgivare ? 'gissad' : '✓')
                     : r.status === 'ändrad' ? 'ändrad'
