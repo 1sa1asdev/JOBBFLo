@@ -103,20 +103,33 @@ function LeadForm({ searchId, onAdded }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [klart, setKlart] = useState(null);
+  const [tolkatMed, setTolkatMed] = useState(null);
 
   // Parse locally, check against the database. The split matters: the
   // shape of the paste is the client's problem and the duplicates are
   // the server's, because only it knows who has already been written to.
   async function granska() {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setTolkatMed(null);
     try {
-      const tolkade = parseContacts(text).filter((r) => r.status !== 'oläsbar' || r.rad);
+      // Local first, model second. The local parse is instant and
+      // handles a clean column, so the list appears immediately; the
+      // model then re-reads the same text and usually does better on
+      // blocks, signatures and prose. If it fails or is slow, what is
+      // already on screen stands — a model outage costs quality here,
+      // never the feature.
+      let tolkade = parseContacts(text).filter((r) => r.email || r.rad);
+      let källa = 'lokalt';
+      try {
+        const ai = await api('/api/autoapply/lead/parse', { method: 'POST', body: { text } });
+        if (ai?.contacts?.length) { tolkade = ai.contacts; källa = 'modell'; }
+      } catch { /* keeps the local parse */ }
+
       const r = await api('/api/autoapply/lead/bulk', {
         method: 'PUT',
         body: { contacts: tolkade.map((k) => ({ ...k, status: undefined })) },
       });
-      // Keep what the parser knew that the server does not care about.
       setRader(r.contacts.map((k, i) => ({ ...tolkade[i], ...k })));
+      setTolkatMed(källa);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   }
@@ -188,7 +201,8 @@ Dagab AB; rekrytering@dagab.se`}
         <>
           <div className="lead-review-top">
             <b>{rader.length} rader</b>
-            <span>{ok} klara{ändrade > 0 ? ` · ${ändrade} ändrade` : ''}
+            <span>{tolkatMed === 'modell' ? 'läst av modellen · ' : ''}
+              {ok} klara{ändrade > 0 ? ` · ${ändrade} ändrade` : ''}
               {rader.length - ok - ändrade > 0 ? ` · ${rader.length - ok - ändrade} går inte att lägga till` : ''}</span>
           </div>
 
@@ -210,6 +224,9 @@ Dagab AB; rekrytering@dagab.se`}
                   placeholder="mejladress"
                   onChange={(e) => ändra(i, 'email', e.target.value)}
                 />
+                {r.person && (
+                  <span className="lead-rev-person" title={r.title || ''}>{r.person}</span>
+                )}
                 <span className="lead-rev-status" title={r.detalj || ''}>
                   {r.status === 'ok' ? (r.gissadArbetsgivare ? 'gissad' : '✓')
                     : r.status === 'ändrad' ? 'ändrad'
