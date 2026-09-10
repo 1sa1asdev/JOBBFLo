@@ -175,6 +175,27 @@ function Varfor({ v, s }) {
   );
 }
 
+// One line standing in for six blocks of settings. Reads as a sentence
+// because that is how the user would say it out loud — the point is to
+// answer "is this still set up the way I meant" without unfolding.
+function settingsSummary(s) {
+  const delar = [];
+  const orter = s.location?.length;
+  if (orter) delar.push(`${orter} ${orter === 1 ? 'ort' : 'orter'}`);
+  delar.push(`minst ${s.auto_apply_min_score} poäng`);
+  delar.push(`max ${s.auto_apply_daily_limit}/dygn`);
+  if (orter > 1 && s.location_ratio) delar.push('fördelat per ort');
+  if (s.must_criteria) delar.push('fritextkrav');
+  if (s.send_from && s.send_to) {
+    delar.push(`${s.send_from.slice(0, 5)}–${s.send_to.slice(0, 5)}`);
+  } else if (s.send_days) {
+    delar.push(`${s.send_days.length} dagar i veckan`);
+  }
+  if (s.send_batch_size != null) delar.push(`${s.send_batch_size} åt gången`);
+  if (!s.auto_apply_require_score) delar.push('utan bedömning');
+  return delar.join(' · ');
+}
+
 export default function AutoApply({ onFindSimilar }) {
   const [view, setView] = useState('campaigns');   // campaigns | letter | inbox
   const [letterFor, setLetterFor] = useState(null);   // search being written for
@@ -427,6 +448,23 @@ export default function AutoApply({ onFindSimilar }) {
                     <div className="auto-paused">⏸ Pausad: {s.auto_apply_paused_reason}</div>
                   )}
 
+                  {/* ------------------------------------------------
+                      Settings fold away; state does not.
+                      The card was 1551px — 2.2 screens for one campaign
+                      — and the top of it was six blocks of settings you
+                      set once. What you open this view to read, the
+                      funnel and the queue and why nothing went out, sat
+                      a thousand pixels below the fold.
+                      Summarised in one line instead, with everything
+                      still one click away. <details> rather than state,
+                      so the browser remembers it per card and it works
+                      without JavaScript.
+                      ------------------------------------------------ */}
+                  <details className="auto-settings">
+                    <summary>
+                      <span className="auto-settings-sum">{settingsSummary(s)}</span>
+                      <span className="auto-settings-cue">Inställningar</span>
+                    </summary>
                   {/* A campaign can cover several places at once —
                       Linköping and Stockholm is one campaign, not two.
                       Same control as the search strip, because it is
@@ -610,6 +648,7 @@ export default function AutoApply({ onFindSimilar }) {
                             fortfarande nå {s.auto_apply_min_score}.</>}
                     </p>
                   </div>
+                  </details>
 
                   {/* Where the candidates actually go. "5 matchningar" out
                       of 1183 ads read is a different story from 5 out of
