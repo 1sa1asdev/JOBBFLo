@@ -1985,3 +1985,22 @@
   .auto-settings[open] .auto-settings-cue::before{content:'▾ ';}
   .auto-settings[open] > summary{border-bottom:1px solid var(--line);margin-bottom:4px;}
   .auto-settings > summary:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+
+  /* ====== HOPFÄLLDA KAMPANJKORT ====== */
+  .auto-card.folded{padding-bottom:0;}
+  .auto-head-main{
+    display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;
+    cursor:pointer;min-width:0;flex:1;
+  }
+  .auto-head-main:focus-visible{outline:2px solid var(--flag);outline-offset:3px;}
+  .auto-caret{
+    color:var(--mute);font-family:'IBM Plex Mono',monospace;font-size:11px;
+    flex:0 0 auto;
+  }
+  .auto-head-main:hover .auto-caret{color:var(--ink);}
+  .auto-folded-state{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--mute);
+    border:1px solid var(--tag-border);padding:2px 7px;
+  }
+  .auto-card.folded .auto-card-head{padding-bottom:13px;}

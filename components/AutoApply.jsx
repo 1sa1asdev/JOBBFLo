@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import Inbox from './Inbox.jsx';
@@ -206,6 +206,16 @@ export default function AutoApply({ onFindSimilar }) {
   const [ran, setRan] = useState({});          // searchId -> faktisk körning
   const [creating, setCreating] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
+  // Which campaigns are unfolded. Component state rather than <details>
+  // because this list re-renders every eight seconds on the poll, and
+  // React would reset an `open` attribute it owns on every one of them
+  // — the card would snap shut under the user's hands.
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleCard = (id) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const load = useCallback(async () => {
     try { setData(await api('/api/autoapply')); }
@@ -213,6 +223,18 @@ export default function AutoApply({ onFindSimilar }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // A single campaign opens by itself: folding is for telling several
+  // apart, and with one there is nothing to tell apart. Runs once —
+  // guarded on a ref rather than on the set, so re-folding it stays
+  // folded instead of springing open on the next poll.
+  const didAutoOpen = useRef(false);
+  useEffect(() => {
+    const kampanjer = data?.searches;
+    if (didAutoOpen.current || !kampanjer?.length) return;
+    didAutoOpen.current = true;
+    if (kampanjer.length === 1) setExpanded(new Set([kampanjer[0].id]));
+  }, [data?.searches]);
   usePoll(load, { interval: 8000, enabled: view === 'campaigns' });
 
   async function update(searchId, patch) {
@@ -382,9 +404,28 @@ export default function AutoApply({ onFindSimilar }) {
               // row would leave that restriction invisible.
               const timed = Boolean(s.send_days || s.send_from || s.send_to);
               return (
-                <div className={`auto-card${s.auto_apply_enabled ? ' on' : ''}`} key={s.id}>
+                <div className={`auto-card${s.auto_apply_enabled ? ' on' : ''}`
+                  + `${expanded.has(s.id) ? ' expanded' : ' folded'}`} key={s.id}>
+                  {/* The head is the whole card when folded. Everything
+                      that decides "do I need to look at this one" lives
+                      here: name, totals, whether it is on, and — folded
+                      only — what it is waiting for.
+                      The PÅ/AV switch and the ✕ stay reachable without
+                      unfolding; the switch is the emergency stop, and a
+                      stop you have to open something to reach is not
+                      one. */}
                   <div className="auto-card-head">
-                    <div>
+                    <div
+                      className="auto-head-main"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={expanded.has(s.id)}
+                      onClick={() => toggleCard(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCard(s.id); }
+                      }}
+                    >
+                      <span className="auto-caret">{expanded.has(s.id) ? '▾' : '▸'}</span>
                       <span className="auto-name">{s.name}</span>
                       <span className="auto-stats">
                         {s.sent_total} skickade totalt · {s.sent_today} idag
@@ -398,6 +439,15 @@ export default function AutoApply({ onFindSimilar }) {
                             ? <> · <span className="scanning">söker igenom</span> {Math.min(s.fetch_offset || 0, s.fetch_total)} av {s.fetch_total}</>
                             : <> · <span className="scanning">söker …</span></>}
                       </span>
+                      {!expanded.has(s.id) && (
+                        <span className="auto-folded-state">
+                          {(s.candidates?.length || 0) > 0
+                            ? `${s.candidates.length} i kö`
+                            : s.varfor
+                              ? `inget i kö · ${(s.varfor.utanAdress || 0).toLocaleString('sv-SE')} utan adress`
+                              : 'inget i kö'}
+                        </span>
+                      )}
                     </div>
                     <div className="auto-head-acts">
                     <button
@@ -436,6 +486,8 @@ export default function AutoApply({ onFindSimilar }) {
                     </div>
                   )}
 
+                  {expanded.has(s.id) && (
+                    <>
                   {!s.campaign_letter_approved_at && (
                     <div className="auto-needletter">
                       Inget godkänt kampanjbrev.{' '}
@@ -812,6 +864,8 @@ export default function AutoApply({ onFindSimilar }) {
                         </div>
                       ))}
                   </div>
+                    </>
+                  )}
                 </div>
               );
             })}
