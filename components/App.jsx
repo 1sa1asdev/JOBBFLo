@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import Dashboard from './Dashboard';
 import { useRowAlign } from '../lib/useRowAlign.js';
 import Library from './Library.jsx';
 import Chat from './Chat.jsx';
@@ -133,6 +134,9 @@ export default function App() {
         <button role="tab" aria-selected={workspace === 'auto'} onClick={() => setWorkspace('auto')}>
           Auto-ansökan {autoCount > 0 && <span className="badge">{autoCount}</span>}
         </button>
+        <button role="tab" aria-selected={workspace === 'dash'} onClick={() => setWorkspace('dash')}>
+          Översikt
+        </button>
         <button
           className={`topnav-profile${showProfile ? ' active' : ''}`}
           aria-pressed={showProfile}
@@ -199,6 +203,8 @@ export default function App() {
             )}
           </div>
         </div>
+      ) : workspace === 'dash' ? (
+        <Dashboard />
       ) : workspace === 'auto' ? (
         <AutoApply
           onFindSimilar={(searchId) => {
