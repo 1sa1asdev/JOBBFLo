@@ -1882,3 +1882,8 @@
     font-variant-numeric:tabular-nums;opacity:.55;margin-left:3px;font-size:9px;
   }
   .inbox-filters{flex-wrap:wrap;}
+
+  button.brand{
+    background:none;border:none;padding:0;cursor:pointer;font:inherit;
+    color:inherit;letter-spacing:inherit;
+  }

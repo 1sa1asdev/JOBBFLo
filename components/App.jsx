@@ -13,7 +13,7 @@ import Inbox from './Inbox.jsx';
 import AutoApply from './AutoApply.jsx';
 
 export default function App() {
-  const [workspace, setWorkspace] = useState('search'); // search | inbox
+  const [workspace, setWorkspace] = useState('dash'); // dash | search | inbox | auto
   const [view, setView] = useState('list'); // list | letter | profile
   const [searches, setSearches] = useState([]);
   const [activeSearchId, setActiveSearchId] = useState(null);
@@ -124,7 +124,13 @@ export default function App() {
   return (
     <>
       <div className="topnav" role="tablist">
-        <span className="brand">Jobbflo</span>
+        {/* The brand is the way home from anywhere, which is what a
+            brand in the top-left is for. */}
+        <button className="brand" onClick={() => setWorkspace('dash')}
+          title="Till översikten">Jobbflo</button>
+        <button role="tab" aria-selected={workspace === 'dash'} onClick={() => setWorkspace('dash')}>
+          Översikt
+        </button>
         <button role="tab" aria-selected={workspace === 'search'} onClick={() => setWorkspace('search')}>
           Sökning
         </button>
@@ -133,9 +139,6 @@ export default function App() {
         </button>
         <button role="tab" aria-selected={workspace === 'auto'} onClick={() => setWorkspace('auto')}>
           Auto-ansökan {autoCount > 0 && <span className="badge">{autoCount}</span>}
-        </button>
-        <button role="tab" aria-selected={workspace === 'dash'} onClick={() => setWorkspace('dash')}>
-          Översikt
         </button>
         <button
           className={`topnav-profile${showProfile ? ' active' : ''}`}
