@@ -1812,3 +1812,15 @@
     font-style:normal;margin-left:6px;color:var(--mute);
     font-variant-numeric:tabular-nums;font-size:9px;
   }
+
+  .sync-btn{
+    margin-left:10px;border:1px solid var(--tag-border);background:none;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--mute);cursor:pointer;padding:3px 8px;
+  }
+  .sync-btn:hover:not(:disabled){color:var(--ink);border-color:var(--ink);}
+  .sync-btn:disabled{opacity:.6;cursor:default;}
+  .sync-note{
+    margin-left:7px;font-family:'IBM Plex Mono',monospace;font-size:9px;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--flag);
+  }

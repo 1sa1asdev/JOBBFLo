@@ -306,10 +306,16 @@ export async function catchUpSent(imap) {
   }
 }
 
-async function catchUp(imap) {
+// medSkickat=false skips the Sent pass, which is one IMAP SEARCH per
+// unanswered thread and takes 35 seconds where INBOX takes two. Nobody
+// waits 35 seconds for a button, and the thing they pressed it for is
+// new mail — what they sent themselves, they already know about.
+async function catchUp(imap, { medSkickat = true } = {}) {
   // Sent first, so a thread the user already answered is up to date
   // before anything decides it needs a draft.
-  await catchUpSent(imap).catch((e) => console.error('sent-catchup:', e.message));
+  if (medSkickat) {
+    await catchUpSent(imap).catch((e) => console.error('sent-catchup:', e.message));
+  }
 
   const box = await imap.mailboxOpen(MAILBOX);
   const state = await getState();
@@ -337,6 +343,38 @@ async function catchUp(imap) {
 // connection down and we come back with exponential backoff.
 // 'exists' fires when new mail arrives during IDLE.
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// One catch-up, on demand, from the UI.
+//
+// The worker's IDLE loop is the normal path and this is not a
+// replacement for it — it exists because the loop went silent for seven
+// hours once, and the only way to find out was to ask someone to look.
+// A button that fetches is a thing the user can press instead of
+// wondering.
+//
+// Opens its own short-lived connection. Gmail allows several at once,
+// and sharing the worker's would mean reaching across two processes
+// that only share Postgres. Idempotent: every insert is guarded on
+// message_id, so pressing it twice stores nothing twice.
+//
+// INBOX only. The Sent pass costs 35 seconds against two for this, and
+// the user pressing "hämta post" is asking about replies, not about
+// mail they wrote themselves — the worker picks that up on its own
+// timer.
+// ------------------------------------------------------------
+export async function syncNow() {
+  const imap = client();
+  const före = await pool.query(`SELECT count(*)::int AS n FROM email_messages`);
+  try {
+    await imap.connect();
+    await catchUp(imap, { medSkickat: false });
+  } finally {
+    await imap.logout().catch(() => { /* closing is best-effort */ });
+  }
+  const efter = await pool.query(`SELECT count(*)::int AS n FROM email_messages`);
+  return { nya: efter.rows[0].n - före.rows[0].n, totalt: efter.rows[0].n };
+}
+
 export async function runImapLoop({ signal } = {}) {
   let backoff = 2000;
   while (!signal?.aborted) {

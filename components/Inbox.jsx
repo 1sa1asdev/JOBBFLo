@@ -206,6 +206,8 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [error, setError] = useState(null);
   const [pulsed, setPulsed] = useState(null); // timestamp of last live update
   const [checked, setChecked] = useState(null); // timestamp of the last poll that answered
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState(null);
   const [campaign, setCampaign] = useState('all');   // auto-inbox: which campaign
   const [collapsed, setCollapsed] = useState({});
   const notify = useNotify();
@@ -255,6 +257,22 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     if (activeId) await loadThread(activeId);
     if (!first) setPulsed(Date.now());
   }, { interval: 3000 });
+
+  // Says what it found, including when that is nothing — "0 nya" is the
+  // answer to "is it stuck?", and silence is not.
+  async function syncMail() {
+    setSyncing(true); setSyncNote(null); setError(null);
+    try {
+      const r = await api('/api/inbox/sync', { method: 'POST' });
+      await load();
+      if (activeId) await loadThread(activeId);
+      setChecked(Date.now());
+      if (r.nya > 0) setPulsed(Date.now());
+      setSyncNote(r.nya > 0 ? `${r.nya} nya` : 'inget nytt');
+    } catch (e) { setSyncNote(e.message.slice(0, 60)); }
+    setSyncing(false);
+    setTimeout(() => setSyncNote(null), 6000);
+  }
 
   const filtered = threads.filter((t) => {
     if (filter === 'unread') return Number(t.pending_suggestions) > 0;
@@ -308,6 +326,15 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
           <h2>
             {source === 'auto' ? 'Auto-inkorg' : 'Inkorg'}
             <LiveDot pulsed={pulsed} checked={checked} />
+            {/* The poll keeps the app level with the DATABASE; this
+                fetches from Gmail. Different things, and the difference
+                only shows up when the worker's IDLE connection goes
+                quiet — which it has. */}
+            <button className="sync-btn" onClick={syncMail} disabled={syncing}
+              title="Hämta ny post från Gmail nu">
+              {syncing ? <>Hämtar<Dots label="Hämtar" /></> : '↻ Hämta post'}
+            </button>
+            {syncNote && <span className="sync-note">{syncNote}</span>}
             <button
               className={`notify-toggle${notify.enabled ? ' on' : ''}`}
               onClick={notify.toggle}
