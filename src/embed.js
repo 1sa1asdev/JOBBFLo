@@ -166,18 +166,42 @@ export async function embedCv() {
   return v.length;
 }
 
-// A search's own vector: its criteria plus whichever CV applies to it.
+// A search's own vector, built from its criteria alone. See below
+// for why the CV is deliberately not in it.
 export async function embedSearchQuery(searchId) {
   const { rows: [s] } = await pool.query(
-    `SELECT s.criteria_text, COALESCE(s.cv_profile, p.cv_profile) AS cv_profile,
-            COALESCE(s.cv_text, p.cv_text) AS cv_text
-     FROM searches s JOIN profile p ON p.id = s.profile_id
-     WHERE s.id = $1`, [searchId]);
+    `SELECT criteria_text FROM searches WHERE id = $1`, [searchId]);
   if (!s) return null;
 
-  const { renderCvProfile } = await import('./cvprofile.js');
-  const text = [s.criteria_text, renderCvProfile(s.cv_profile) || s.cv_text]
-    .filter(Boolean).join('\n\n');
+  // ------------------------------------------------------------
+  // The criteria decide, the CV colours in.
+  //
+  // Both used to go in flat, and the CV is ten times longer — so the
+  // vector was mostly a description of the candidate. That is harmless
+  // while a search agrees with the CV, and actively wrong when it does
+  // not: "deltid stockholm restaurang, cafe och bar" ranked
+  // IT-tekniker, Extrajobb som IT-servicetekniker and webbredaktör
+  // above every restaurant job, because the tech CV outvoted the eight
+  // words the user actually typed. The one real restaurangbiträde in
+  // the pool came sixth.
+  //
+  // A search that differs from the CV is not a mistake to be corrected;
+  // it is usually the whole point — part-time work alongside studies,
+  // in this case.
+  //
+  // Weighting the criteria and trimming the CV was tried first and was
+  // not enough: every distance landed between 0.389 and 0.402, the CV
+  // pulling the whole pool toward one centre. Criteria alone separates
+  // cleanly — 0.352 for "Diskare till barer i Stockholm", then
+  // Servitör, à la carte, restaurangbiträde, Bartender.
+  //
+  // So the CV is out of this vector entirely. It has not lost its job:
+  // it decides SCORES, where a model reads the whole ad against the
+  // whole candidate. This vector answers a narrower question — is this
+  // ad about the thing the user asked for — and the CV was only ever
+  // noise in that.
+  const text = (s.criteria_text || '').trim();
+  if (!text) return null;
   const cfg = embedConfig();
   const [v] = await embedTexts([text]);
 

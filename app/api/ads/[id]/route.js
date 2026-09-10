@@ -18,7 +18,13 @@ export async function GET(req, { params }) {
          WHERE m.ad_id = $1 AND m.search_id = $2`
       : `SELECT m.*, p.name AS lead_project_name FROM match_results m
          LEFT JOIN projects p ON p.id = m.lead_project_id
-         WHERE m.ad_id = $1 ORDER BY m.score DESC LIMIT 1`,
+         -- NULLS LAST is load-bearing. An ad can sit in several
+         -- searches: judged in one, an untouched candidate in another.
+         -- Postgres sorts NULLs FIRST on DESC, so a plain score DESC
+         -- picked the unjudged row and the ad opened with no verdict
+         -- and no matched quotes — for 83 ads here, each of which had
+         -- a score someone had paid for.
+         WHERE m.ad_id = $1 ORDER BY m.score DESC NULLS LAST LIMIT 1`,
     searchId ? [id, searchId] : [id]
   );
 
