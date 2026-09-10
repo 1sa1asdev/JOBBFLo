@@ -1887,3 +1887,25 @@
     background:none;border:none;padding:0;cursor:pointer;font:inherit;
     color:inherit;letter-spacing:inherit;
   }
+
+  /* ====== INKORGSFACK (gmail-stil) ====== */
+  .tray-bar{
+    display:flex;gap:0;margin:10px 0 0;border-bottom:1px solid var(--line);
+    overflow-x:auto;scrollbar-width:none;
+  }
+  .tray-bar::-webkit-scrollbar{display:none;}
+  .tray-bar button{
+    flex:0 0 auto;background:none;border:none;border-bottom:2px solid transparent;
+    padding:7px 13px 6px;cursor:pointer;color:var(--mute);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.04em;
+    text-transform:uppercase;white-space:nowrap;
+  }
+  .tray-bar button:hover{color:var(--ink);}
+  .tray-bar button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink);}
+  .tray-n{
+    margin-left:6px;background:var(--flag);color:var(--paper);
+    border-radius:8px;padding:0 5px;font-size:9px;font-variant-numeric:tabular-nums;
+  }
+  .tray-gone{
+    font-style:normal;margin-left:5px;font-size:8px;color:var(--flag);opacity:.8;
+  }

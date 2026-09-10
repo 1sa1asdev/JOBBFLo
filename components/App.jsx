@@ -43,7 +43,12 @@ export default function App() {
   // added to the Inkorg badge. Clicking it then showed fewer threads
   // than the number promised, with no way to tell where the rest were.
   const loadInboxCount = useCallback(async () => {
-    const pending = (rows) => rows.filter((t) => Number(t.pending_suggestions) > 0).length;
+    // Whose turn it is, not what the app drafted. A badge counting
+    // suggestions was counting the app's own output — it could sit at 3
+    // with nothing owed, or at 0 with an employer waiting a week. The
+    // trays inside the inbox count the same thing, so the parts add up
+    // to the number on the tab.
+    const pending = (rows) => rows.filter((t) => t.last_direction === 'inbound').length;
     try {
       const [mine, auto] = await Promise.all([
         api('/api/inbox?source=user'),

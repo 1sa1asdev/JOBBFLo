@@ -208,6 +208,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const [checked, setChecked] = useState(null); // timestamp of the last poll that answered
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState(null);
+  const [tray, setTray] = useState('alla');   // manual inbox: which search
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('recent');
   const [campaign, setCampaign] = useState('all');   // auto-inbox: which campaign
@@ -294,8 +295,41 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const dagarSedan = (t) => Math.floor(
     (Date.now() - new Date(t.last_msg_at || t.sent_at)) / 86400000);
 
+  // ------------------------------------------------------------
+  // Trays, one per search.
+  //
+  // The auto-inbox groups by campaign because each campaign is a
+  // separate bet. The manual inbox had no such structure — every
+  // application you made by hand or through an ad's own link in one
+  // flat list, whichever search you found it in.
+  //
+  // Same idea, laid out like Gmail's tabs rather than as collapsible
+  // headings: here the groups are few and you switch between them,
+  // rather than scrolling past them. The count on each is the same
+  // "your turn" the top-level badge counts, so the trays add up to the
+  // number on the Inkorg tab instead of quietly disagreeing with it.
+  const trays = (() => {
+    const m = new Map();
+    for (const t of threads) {
+      const key = t.origin_search_id || 'ingen';
+      if (!m.has(key)) {
+        m.set(key, {
+          key,
+          namn: t.search_name || 'Utan sökning',
+          borttagen: Boolean(t.search_deleted_at),
+          threads: [],
+        });
+      }
+      m.get(key).threads.push(t);
+    }
+    return [...m.values()]
+      .map((g) => ({ ...g, dinTur: g.threads.filter((t) => t.last_direction === 'inbound').length }))
+      .sort((a, b) => b.dinTur - a.dinTur || b.threads.length - a.threads.length);
+  })();
+
   const q = query.trim().toLowerCase();
   const filtered = threads.filter((t) => {
+    if (source !== 'auto' && tray !== 'alla' && (t.origin_search_id || 'ingen') !== tray) return false;
     if (q && !`${t.title} ${t.employer} ${t.last_from_name || ''} ${t.last_from_addr || ''}`
       .toLowerCase().includes(q)) return false;
     if (filter === 'owed') return owed(t);
@@ -389,6 +423,26 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
               {notify.enabled ? '🔔' : '🔕'}
             </button>
           </h2>
+          {source !== 'auto' && trays.length > 1 && (
+            <div className="tray-bar" role="tablist">
+              <button role="tab" aria-selected={tray === 'alla'} onClick={() => setTray('alla')}>
+                Alla
+                {trays.reduce((s, g) => s + g.dinTur, 0) > 0 && (
+                  <span className="tray-n">{trays.reduce((s, g) => s + g.dinTur, 0)}</span>
+                )}
+              </button>
+              {trays.map((g) => (
+                <button key={g.key} role="tab" aria-selected={tray === g.key}
+                  onClick={() => setTray(g.key)}
+                  title={g.borttagen ? 'Sökningen är borttagen — trådarna finns kvar' : g.namn}>
+                  {g.namn}
+                  {g.borttagen && <em className="tray-gone">borttagen</em>}
+                  {g.dinTur > 0 && <span className="tray-n">{g.dinTur}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="inbox-search">
             <input
               className="ct-input" value={query} placeholder="Sök företag, roll eller person…"
