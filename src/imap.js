@@ -62,9 +62,17 @@ const OPEN_STATUSES = `('sent','replied','interview')`;
 async function findByMessageId(msgId) {
   if (!msgId) return null;
   const { rows } = await pool.query(
+    // Any message id in a thread identifies the thread, whichever way
+    // it travelled. Restricting this to outbound was fine while only
+    // employer replies came through here — those answer OUR letter. A
+    // reply the user writes in Gmail answers the EMPLOYER's message,
+    // and that id is stored inbound, so the confident path missed it
+    // and fell through to the domain guess, which then refused:
+    // "devendra.s.singh@hitachienergy.com: domain matches 7 open
+    // applications — not guessing". Correct refusal, wrong question.
     `SELECT id FROM applications WHERE message_id = $1
      UNION
-     SELECT application_id AS id FROM email_messages WHERE message_id = $1 AND direction = 'outbound'`,
+     SELECT application_id AS id FROM email_messages WHERE message_id = $1`,
     [msgId]
   );
   return rows[0]?.id || null;
@@ -280,26 +288,54 @@ export async function catchUpSent(imap) {
   );
   if (!trådar.length) return;
 
+  // One pass over Sent, not one search per thread.
+  //
+  // Twenty-four threads meant twenty-four SEARCHes and twenty-four
+  // source fetches: three minutes and sixteen seconds, on a poll that
+  // fires every five — so it was still working when the next one
+  // started, holding the mailbox lock and keeping INBOX from being
+  // read. A reply written in Gmail could sit unseen for hours.
+  //
+  // Instead: one date-bounded fetch of ENVELOPES, which carry To,
+  // Message-ID and In-Reply-To without downloading a single body. The
+  // matching happens here, and only the handful that match a known
+  // thread are fetched in full.
+  const tillAdress = new Map();
+  const våraId = new Set();
+  let äldst = Date.now();
+  for (const t of trådar) {
+    tillAdress.set(String(t.sent_to).toLowerCase(), t);
+    våraId.add(t.message_id);
+    äldst = Math.min(äldst, new Date(t.sent_at).getTime());
+  }
+
   const lock = await imap.getMailboxLock(path, { readOnly: true });
   try {
-    for (const t of trådar) {
-      let uids = [];
-      try {
-        uids = await imap.search(
-          { to: t.sent_to, since: new Date(t.sent_at) }, { uid: true }) || [];
-      } catch (err) {
-        console.error(`sent-search: ${err.message}`);
-        continue;
-      }
-      if (!uids.length) continue;
+    let kandidater = [];
+    try {
+      kandidater = await imap.search({ since: new Date(äldst) }, { uid: true }) || [];
+    } catch (err) {
+      console.error(`sent-search: ${err.message}`);
+      return;
+    }
+    if (!kandidater.length) return;
 
-      for await (const msg of imap.fetch(uids, { uid: true, source: true }, { uid: true })) {
-        const parsed = await simpleParser(msg.source);
-        // The app's own letter to this employer, which is already
-        // stored — everything else in the thread is the user's own.
-        if (parsed.messageId === t.message_id) continue;
-        await handleSent(parsed, msg.uid).catch((e) => console.error('sent:', e.message));
-      }
+    const värda = [];
+    for await (const msg of imap.fetch(kandidater, { uid: true, envelope: true }, { uid: true })) {
+      const env = msg.envelope || {};
+      const till = (env.to || []).map((a) => String(a.address || '').toLowerCase());
+      const tråd = till.map((a) => tillAdress.get(a)).find(Boolean);
+      if (!tråd) continue;
+      // Our own letter to that employer is already stored; everything
+      // else addressed to them is the user's own writing.
+      if (env.messageId && våraId.has(env.messageId)) continue;
+      värda.push(msg.uid);
+    }
+    if (!värda.length) return;
+
+    for await (const msg of imap.fetch(värda, { uid: true, source: true }, { uid: true })) {
+      const parsed = await simpleParser(msg.source);
+      await handleSent(parsed, msg.uid).catch((e) => console.error('sent:', e.message));
     }
   } finally {
     lock.release();
@@ -375,6 +411,24 @@ export async function syncNow() {
   return { nya: efter.rows[0].n - före.rows[0].n, totalt: efter.rows[0].n };
 }
 
+// The Sent pass, on its own connection.
+//
+// INBOX answers in two seconds and this takes thirty, and the button
+// was pressed to see whether anything came IN. So the caller starts
+// this and does not wait for it: the count comes back at once, and a
+// reply the user wrote in Gmail lands a few seconds later — which the
+// inbox's own three-second poll then shows without anyone doing
+// anything.
+export async function syncSentNow() {
+  const imap = client();
+  try {
+    await imap.connect();
+    await catchUpSent(imap);
+  } finally {
+    await imap.logout().catch(() => { /* closing is best-effort */ });
+  }
+}
+
 export async function runImapLoop({ signal } = {}) {
   let backoff = 2000;
   while (!signal?.aborted) {
@@ -384,6 +438,7 @@ export async function runImapLoop({ signal } = {}) {
     // as long as the worker lives.
     let sentPoll = null;
     let inboxPoll = null;
+    let begäranPoll = null;
     try {
       await imap.connect();
       console.log('imap: connected');
@@ -431,13 +486,58 @@ export async function runImapLoop({ signal } = {}) {
         }
       }, 2 * 60 * 1000);
 
+      // The UI's "Hämta post" button, answered on this connection.
+      //
+      // Opening a fresh one costs 17 seconds against Gmail — 10.5 to
+      // connect, 6.7 to open a 28,377-message INBOX — before a single
+      // message is read. This one is already open, so the same work is
+      // about two seconds. Postgres is the only channel between the two
+      // processes, so the request arrives as a row and this checks for
+      // it every three seconds; the heartbeat beside it is how the
+      // route knows whether anyone is listening.
+      begäranPoll = setInterval(async () => {
+        try {
+          await pool.query(
+            `INSERT INTO poll_state (key, last_run_at) VALUES ('imap_worker_alive', now())
+             ON CONFLICT (key) DO UPDATE SET last_run_at = now()`);
+          // cursor_ts is when the UI asked; last_run_at is when this
+          // finished. Claiming with a marker and stamping completion
+          // afterwards lets the route wait for "done" rather than for
+          // the message count to move — which never moves when there is
+          // no new mail, so the wait always ran to its full timeout in
+          // the ordinary case.
+          const { rows: [b] } = await pool.query(
+            `UPDATE poll_state SET note = 'pågår'
+             WHERE key = 'imap_sync_request'
+               AND note IS DISTINCT FROM 'pågår'
+               AND (last_run_at IS NULL OR cursor_ts > last_run_at)
+             RETURNING cursor_ts`);
+          if (!b) return;
+          try {
+            // INBOX first, and the button is answered the moment it is
+            // done. Sent takes several seconds more on the same
+            // connection, and the press was about what came IN — a
+            // reply the user wrote themselves lands a few seconds later
+            // and the inbox's own poll shows it without another press.
+            await catchUp(imap, { medSkickat: false });
+          } finally {
+            await pool.query(
+              `UPDATE poll_state SET last_run_at = now(), note = 'klar'
+               WHERE key = 'imap_sync_request'`);
+          }
+          await catchUpSent(imap).catch((e) => console.error('sent-sync:', e.message));
+        } catch (e) {
+          console.error('sync-begäran:', e.message);
+        }
+      }, 3000);
+
       // imapflow keeps IDLE alive internally; block until the connection dies
       await new Promise((resolve, reject) => {
         imap.on('close', resolve);
         imap.on('error', reject);
         signal?.addEventListener('abort', () => imap.logout().catch(() => {}), { once: true });
       });
-      clearInterval(sentPoll); clearInterval(inboxPoll);
+      clearInterval(sentPoll); clearInterval(inboxPoll); clearInterval(begäranPoll);
       console.log('imap: connection closed');
     } catch (err) {
       console.error('imap:', err.message);
@@ -445,6 +545,7 @@ export async function runImapLoop({ signal } = {}) {
     }
     if (sentPoll) clearInterval(sentPoll);
     if (inboxPoll) clearInterval(inboxPoll);
+    if (begäranPoll) clearInterval(begäranPoll);
     if (signal?.aborted) break;
     await new Promise((r) => setTimeout(r, backoff));
     backoff = Math.min(backoff * 2, 60_000);

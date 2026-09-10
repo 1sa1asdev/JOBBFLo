@@ -127,11 +127,22 @@ async function upsertAd(client, a) {
      a.municipality, a.region, a.description, a.apply_email, a.apply_url,
      a.ats_vendor, a.published_at, a.deadline, a.removed_at, a.raw]
   );
-  // No row means the WHERE above found nothing to change. That is the
-  // common case now, and it is not an error — the caller counts it
-  // separately rather than letting a destructure throw into the catch
-  // and report it as "skipped", which would read as a failure.
-  return rows[0] || null;
+  if (rows[0]) return { ...rows[0], unchanged: false };
+
+  // No row means the WHERE above found nothing to change — the common
+  // case. The id is still needed: backfillSearch uses these ids to
+  // decide which ads become candidates for a search, so returning null
+  // did not merely crash it, it would have quietly stopped every
+  // unchanged ad from being matched into any search.
+  //
+  // A SELECT rather than a no-op UPDATE. Both return the id; only one
+  // of them leaves a dead row behind per ad per poll, which is the
+  // whole reason the WHERE is there.
+  const { rows: [fanns] } = await client.query(
+    `SELECT id FROM ads WHERE source = $1 AND external_id = $2`,
+    [a.source, a.external_id]
+  );
+  return fanns ? { id: fanns.id, inserted: false, unchanged: true } : null;
 }
 
 // ------------------------------------------------------------
@@ -187,7 +198,8 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
         }
         if (!raw.headline) { skipped++; continue; }
         const r = await upsertAd(client, mapAd(raw));
-        if (!r) unchanged++;
+        if (!r) skipped++;
+        else if (r.unchanged) unchanged++;
         else if (r.inserted) created++;
         else updated++;
       } catch (err) {
@@ -358,8 +370,8 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
         const got = raw.working_hours_type?.concept_id;
         if (got && !softWorktime.has(got)) { skipped += 1; continue; }
       }
-      const { id } = await upsertAd(client, mapAd(raw));
-      ids.push(id);
+      const r = await upsertAd(client, mapAd(raw));
+      if (r?.id) ids.push(r.id);
     }
     const total = body.total?.value ?? null;
     console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches`
