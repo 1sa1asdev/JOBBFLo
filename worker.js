@@ -14,7 +14,7 @@ import { pool } from './src/db.js';
 import { pollJobStream } from './src/fetchJobs.js';
 import { scanSearch, scorePending, queueSearch, MAX_SCORE_ATTEMPTS } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
-import { runAllAutoApply } from './src/autoapply.js';
+import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
@@ -39,6 +39,10 @@ const AUTOAPPLY_EVERY = 60 * 1000;
 // us nothing. The campaign is not blocked on it either way — this fills
 // a list the user confirms from.
 const LEADSCAN_EVERY = 4 * 60 * 1000;
+// Keeping a campaign's verdicts flowing. Separate from sending on
+// purpose — see requestVerdicts() for why a campaign that may not send
+// right now must still keep judging.
+const JUDGE_EVERY = 2 * 60 * 1000;
 const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
 // ------------------------------------------------------------
@@ -257,6 +261,27 @@ async function leadScanTick() {
   }
 }
 
+// Tops up what the drain has to work on, so the found-jobs list keeps
+// filling in instead of freezing between sends. Bounded by the ads that
+// are actually reachable and by profile.daily_score_limit — this asks
+// for verdicts, it does not decide how many may be paid for.
+async function judgeTick() {
+  try {
+    const { rows: kampanjer } = await pool.query(
+      `SELECT id, name FROM searches
+       WHERE auto_apply_enabled AND deleted_at IS NULL
+         AND campaign_created_at IS NOT NULL AND auto_apply_require_score`
+    );
+    for (const k of kampanjer) {
+      const asked = await requestVerdicts(k.id, { antal: 25 })
+        .catch((e) => { console.error(`begär bedömningar ${k.name}:`, e.message); return 0; });
+      if (asked) console.log(`bedömningar: begärde ${asked} för "${k.name}"`);
+    }
+  } catch (err) {
+    console.error('judgeTick:', err.message);
+  }
+}
+
 async function followupTick() {
   try {
     await checkFollowups();
@@ -307,6 +332,7 @@ setInterval(pruneTick, PRUNE_EVERY);
 setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 setInterval(leadScanTick, LEADSCAN_EVERY);
+setInterval(judgeTick, JUDGE_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');

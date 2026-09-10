@@ -268,6 +268,95 @@ export async function whyNothing(searchId) {
 }
 
 // ------------------------------------------------------------
+// Keep a campaign's verdicts flowing, whatever the send gate says.
+//
+// This used to live inside the send path, below the window and batch
+// checks — so a campaign outside its hours, inside a batch gap or at
+// its daily cap requested nothing, and the judging stopped with the
+// sending. Measured on a live campaign: 26 unjudged ads with an
+// address, 1 requested, nothing scored in an hour. The list looked
+// frozen because it was.
+//
+// Judging and sending answer different questions. Sending is gated
+// because letters go to strangers; judging is what makes the list worth
+// looking at, and its own budget (profile.daily_score_limit) is what
+// caps its cost. So it runs on its own.
+// ------------------------------------------------------------
+export async function requestVerdicts(searchId, { antal = 20 } = {}) {
+  const { rows: [search] } = await pool.query(
+    `SELECT s.*, p.id AS profile_id FROM searches s JOIN profile p ON p.id = s.profile_id
+     WHERE s.id = $1 AND s.deleted_at IS NULL`, [searchId]
+  );
+  if (!search) return 0;
+// ----------------------------------------------------------
+// Ask for the verdicts this campaign needs.
+//
+// Scoring is gated on score_requested_at: nothing is judged until a
+// human asks, which is what stops this branch paying to read
+// thousands of ads nobody cares about. A campaign never clicks that
+// button, so a campaign requiring a score had no way to ever obtain
+// one — the first real campaign here found 600 ads, 35 of them
+// mailable, 0 scored, and would have sat there indefinitely.
+//
+// A campaign IS that request, made once and standing: the user
+// approved a rule saying "evaluate ads like this and write to them".
+// So it queues its own, and only ever ads it could actually send to —
+// an ad with no address is one it cannot use, and paying to judge it
+// would be the exact waste the gate exists to prevent.
+//
+// Asked for in a batch a few times the day's room, because most
+// candidates fall below the threshold. The daily score budget still
+// applies; anything over it simply waits for tomorrow.
+// A campaign that does not require scores has nothing to request; its
+// ads go out on the API filters alone, which is the whole point of that
+// switch.
+if (!search.auto_apply_require_score) return 0;
+
+  // Which ads to spend the verdicts on. This LIMIT used to have no
+  // ORDER BY at all, so it picked whichever rows Postgres handed back
+  // — out of 600 found and 35 mailable, the 35 judged were an
+  // accident of storage order.
+  //
+  // Ranked by embedding distance when the search has a query vector:
+  // pgvector's <=> is cosine distance, so ASC is most-similar-first,
+  // and the CV+criteria vector is a far better guess at "worth paying
+  // to read" than nothing at all. Ads with no embedding sort last
+  // rather than dropping out — unranked is not disqualified, and the
+  // pool is only ~half embedded.
+  const ranked = search.query_embedding
+    ? `ORDER BY (a.embedding IS NULL),
+                a.embedding <=> $3::vector,
+                a.published_at DESC NULLS LAST`
+    : `ORDER BY a.published_at DESC NULLS LAST`;
+
+  const args = [searchId, antal];
+  if (search.query_embedding) args.push(search.query_embedding);
+
+  const { rowCount: asked } = await pool.query(
+    `UPDATE match_results m SET score_requested_at = now(), queued_at = now()
+     WHERE m.search_id = $1
+       AND m.score IS NULL
+       AND m.score_requested_at IS NULL
+       AND m.ad_id IN (
+         SELECT r.ad_id FROM search_results r JOIN ads a ON a.id = r.ad_id
+         WHERE r.search_id = $1 AND NOT r.suppressed
+           AND a.apply_email IS NOT NULL
+           -- A hand-added lead has no ad text to judge, and needs no
+           -- verdict anyway (see candidatesFor). Paying to score its
+           -- placeholder description would be the purest waste here.
+           AND a.source <> 'manual'
+           AND a.removed_at IS NULL
+           AND (a.deadline IS NULL OR a.deadline >= current_date)
+           AND r.application_status IS NULL
+         ${ranked}
+         LIMIT $2
+       )`,
+    args
+  );
+  return asked;
+}
+
+// ------------------------------------------------------------
 // Run one search's campaign. dryRun reports what WOULD be sent.
 // ------------------------------------------------------------
 export async function runAutoApply(searchId, opts = {}) {
@@ -397,71 +486,11 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
   }
   const room = paced ? Math.min(dayLeft, search.send_batch_size) : dayLeft;
 
-  // ----------------------------------------------------------
-  // Ask for the verdicts this campaign needs.
-  //
-  // Scoring is gated on score_requested_at: nothing is judged until a
-  // human asks, which is what stops this branch paying to read
-  // thousands of ads nobody cares about. A campaign never clicks that
-  // button, so a campaign requiring a score had no way to ever obtain
-  // one — the first real campaign here found 600 ads, 35 of them
-  // mailable, 0 scored, and would have sat there indefinitely.
-  //
-  // A campaign IS that request, made once and standing: the user
-  // approved a rule saying "evaluate ads like this and write to them".
-  // So it queues its own, and only ever ads it could actually send to —
-  // an ad with no address is one it cannot use, and paying to judge it
-  // would be the exact waste the gate exists to prevent.
-  //
-  // Asked for in a batch a few times the day's room, because most
-  // candidates fall below the threshold. The daily score budget still
-  // applies; anything over it simply waits for tomorrow.
-  if (search.auto_apply_require_score && !dryRun) {
-    // Which ads to spend the verdicts on. This LIMIT used to have no
-    // ORDER BY at all, so it picked whichever rows Postgres handed back
-    // — out of 600 found and 35 mailable, the 35 judged were an
-    // accident of storage order.
-    //
-    // Ranked by embedding distance when the search has a query vector:
-    // pgvector's <=> is cosine distance, so ASC is most-similar-first,
-    // and the CV+criteria vector is a far better guess at "worth paying
-    // to read" than nothing at all. Ads with no embedding sort last
-    // rather than dropping out — unranked is not disqualified, and the
-    // pool is only ~half embedded.
-    const ranked = search.query_embedding
-      ? `ORDER BY (a.embedding IS NULL),
-                  a.embedding <=> $3::vector,
-                  a.published_at DESC NULLS LAST`
-      : `ORDER BY a.published_at DESC NULLS LAST`;
-
-    const args = [searchId, Math.max(room * 5, 20)];
-    if (search.query_embedding) args.push(search.query_embedding);
-
-    const { rowCount: asked } = await pool.query(
-      `UPDATE match_results m SET score_requested_at = now(), queued_at = now()
-       WHERE m.search_id = $1
-         AND m.score IS NULL
-         AND m.score_requested_at IS NULL
-         AND m.ad_id IN (
-           SELECT r.ad_id FROM search_results r JOIN ads a ON a.id = r.ad_id
-           WHERE r.search_id = $1 AND NOT r.suppressed
-             AND a.apply_email IS NOT NULL
-             -- A hand-added lead has no ad text to judge, and needs no
-             -- verdict anyway (see candidatesFor). Paying to score its
-             -- placeholder description would be the purest waste here.
-             AND a.source <> 'manual'
-             AND a.removed_at IS NULL
-             AND (a.deadline IS NULL OR a.deadline >= current_date)
-             AND r.application_status IS NULL
-           ${ranked}
-           LIMIT $2
-         )`,
-      args
-    );
-    if (asked) {
-      console.log(`kampanj "${search.name}": begärde bedömning av ${asked} annonser`
-        + (search.query_embedding ? ' (rankade efter CV-likhet)' : ''));
-    }
+  // Verdicts are requested here too, so a manual run gets fresh
+  // judgements immediately rather than waiting for the worker's tick.
+  if (!dryRun) {
+    await requestVerdicts(searchId, { antal: Math.max(room * 5, 20) })
+      .catch((e) => console.error('begär bedömningar:', e.message));
   }
 
   // Fetch a wider pool than `room` so the ratio has something to choose
