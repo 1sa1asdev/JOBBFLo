@@ -29,6 +29,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   // Bedomda = what you actually paid to have judged.
   const [view, setView] = useState('alla');
   const [busyAd, setBusyAd] = useState(null);
+  const [open, setOpen] = useState(() => new Set());  // ad_ids with the text expanded
   const [counts, setCounts] = useState({ hittade: 0, favoriter: 0, bedomda: 0, iKon: 0 });
   const [home, setHome] = useState(null);
   const [maxKm, setMaxKm] = useState(null);   // null = ingen gräns
@@ -424,7 +425,25 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                     {flags.map((t) => <span key={t} className="tag">{t.toUpperCase()}</span>)}
                   </div>
                 )}
-                <div className="reasoning">
+                {/* Clamped to two lines by default. The card was 295px
+                    tall, which put two ads on a 900px screen out of 662
+                    found — the list you triage in was showing you less
+                    than one percent of itself at a time.
+                    Clicking the text alone expands it; clicking anywhere
+                    else still opens the ad, which is where the full
+                    description lives anyway. */}
+                <div
+                  className={`reasoning${open.has(r.ad_id) ? '' : ' clamp'}`}
+                  title={open.has(r.ad_id) ? 'Klicka för att fälla ihop' : 'Klicka för att läsa mer'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen((s) => {
+                      const next = new Set(s);
+                      if (next.has(r.ad_id)) next.delete(r.ad_id); else next.add(r.ad_id);
+                      return next;
+                    });
+                  }}
+                >
                   {isSent
                     ? <span className="rsent">
                         {r.sent_by === 'external' ? 'Ansökt via annonsens länk' : 'Ansökan skickad'}
@@ -448,7 +467,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                         <b>Bedömning:</b> {r.summary}
                       </>}
                 </div>
-                <div className="cand-facts">
+                <div className={`cand-facts${open.has(r.ad_id) ? '' : ' clamp'}`}>
                   {/* Distance first: it is the fact most likely to rule an
                       ad out, and it costs nothing to compute. */}
                   {r.distance_km != null && (
