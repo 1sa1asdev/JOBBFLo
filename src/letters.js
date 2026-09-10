@@ -17,20 +17,54 @@ BREVETS STRUKTUR — följ exakt, annars är brevet oanvändbart:
   Vänliga hälsningar,
   <kandidatens namn>
 
-Regler:
+DEN VIKTIGASTE REGELN — läs den innan du skriver något:
+
+Du får ENDAST nämna erfarenhet som står i CV:t eller projektlistan. Inte
+erfarenhet som vore lämplig. Inte erfarenhet som annonsen efterfrågar.
+Inte erfarenhet som låter rimlig för någon med den här bakgrunden.
+
+Det här går fel på ett bestämt sätt: annonsen söker någon med
+café-erfarenhet, CV:t saknar den, och brevet skriver ändå "jag har
+arbetat i café med kassa och högt tempo". Brevet skickas till en riktig
+arbetsgivare i kandidatens namn. Det är inte ett fel i formuleringen —
+det är en påhittad anställning.
+
+SAKNAS ERFARENHETEN: skriv det rakt. Säg vad kandidaten faktiskt har som
+ligger närmast, och att hen lär sig snabbt. "Jag har ingen tidigare
+café-erfarenhet, men har arbetat med kundkontakt inom vård och är van
+vid högt tempo" är ett bättre brev än ett påhittat, och det enda som är
+sant.
+
+Överdriv inte heller: ett kursprojekt är ett kursprojekt, inte "erfarenhet
+av att bygga produktionssystem". En roll på tre månader är inte "flera
+års erfarenhet".
+
+Övriga regler:
 - Kort: 150–250 ord. Inga floskler ("passionerad", "driven", "brinner för",
   "övertygad om att mina färdigheter", "bidra till att stärka ert team").
 - Konkret: nämn projekt och erfarenheter, inte adjektiv.
 - Utgå från kandidatens ton-instruktioner om sådana finns.
-- Svara på det annonsen faktiskt efterfrågar — använd de citerade kraven.
-- Ljug aldrig. Påstå inget som inte har stöd i CV:t eller projekten.
+- Svara på det annonsen faktiskt efterfrågar — använd de citerade kraven,
+  men bara med det kandidaten faktiskt har.
 - Hälsningsfras i början och avslutning med namn är OBLIGATORISKA.
 - Skriv ALDRIG mejladress, telefonnummer eller länkar. Appen lägger till
   kontaktuppgifterna automatiskt efter namnet, hämtade från profilen —
   de i CV:t kan vara gamla, och brevet skickas från profilens adress.
 
 Svara ENDAST med JSON, inga kodstaket:
-{"subject": "Ansökan: <tjänstetitel>", "body": "brevet med \\n\\n mellan stycken", "change_note": "en mening om vad du gjorde"}`;
+{"subject": "Ansökan: <tjänstetitel>",
+ "body": "brevet med \\n\\n mellan stycken",
+ "belagg": [{"pastaende": "det brevet påstår om kandidaten",
+             "cv_rad": "raden ur CV:t eller projektet som styrker det, ordagrant"}],
+ "change_note": "en mening om vad du gjorde"}
+
+belagg är inte dokumentation, det är arbetsmomentet. Innan du skriver
+klart: gå igenom varje mening som påstår något om kandidatens bakgrund
+och leta upp raden i CV:t som styrker den. Hittar du ingen rad — stryk
+meningen ur brevet. cv_rad måste vara kopierad ordagrant ur CV:t eller
+projektlistan ovan, på deras eget språk (CV:t kan vara på engelska även
+när brevet är på svenska). Håll varje cv_rad kort — en rad räcker, inte
+hela stycket.`;
 
 function letterContext({ profile, projects, ad, match }) {
   const projectList = projects
@@ -197,7 +231,11 @@ export async function draftLetter(adId, { originSearchId = null } = {}) {
 
   const draft = await llmJson({
     tier: 'write',
-    maxTokens: 2000,
+    // The evidence array is part of the response now, and on a letter
+    // with several claims it pushed past 2000 — the model stopped
+    // mid-JSON and every retry did the same, so the letter failed
+    // rather than arriving unverified. Headroom is cheaper than that.
+    maxTokens: 3500,
     system: LETTER_SYSTEM,
     messages: [{ role: 'user', content: letterContext(ctx) }],
   });
