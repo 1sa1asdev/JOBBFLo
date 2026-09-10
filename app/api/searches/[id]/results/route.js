@@ -65,13 +65,45 @@ export async function GET(req, { params }) {
     ? ` AND (a.lat IS NULL OR ${rowDist} <= ${Number(maxKm)})`
     : '';
 
+  // ------------------------------------------------------------
+  // What the list is ordered by, and why the embedding belongs here.
+  //
+  // 34 223 ads carry a vector and three searches carry a query vector,
+  // and until now none of it touched the list the user actually reads:
+  // the order was score (null for nearly every row), then the keyword
+  // prefilter, then publication date. So the list was chronological —
+  // the most recent ad first, whether or not it had anything to do with
+  // the user.
+  //
+  // A paid verdict still leads. A score means a model read the whole ad
+  // against the criteria, and no distance in embedding space outranks
+  // that. Below it the vector decides, which is where the difference
+  // shows: 1200 unscored candidates in date order is a pile, and in
+  // similarity order it is a shortlist.
+  //
+  // <=> is cosine DISTANCE, so ASC is most similar — the operator reads
+  // backwards from what the name suggests. Ads with no vector yet sort
+  // after the ranked ones rather than in front of them, on the old
+  // keyword-and-date order.
+  const { rows: [sv] } = await pool.query(
+    `SELECT query_embedding FROM searches WHERE id = $1`, [id]);
+  const rankBy = sv?.query_embedding ? `$6::vector` : null;
+
   const orderSql = sort === 'distance' && hasHome
     ? `${rowDist} ASC NULLS LAST, r.score DESC NULLS LAST`
-    : `(r.score IS NULL), r.score DESC, m.queue_rank DESC NULLS LAST,
-       a.published_at DESC NULLS LAST`;
+    : rankBy
+      ? `(r.score IS NULL), r.score DESC,
+         (a.embedding IS NULL), a.embedding <=> ${rankBy},
+         m.queue_rank DESC NULLS LAST, a.published_at DESC NULLS LAST`
+      : `(r.score IS NULL), r.score DESC, m.queue_rank DESC NULLS LAST,
+         a.published_at DESC NULLS LAST`;
 
   const where = `r.search_id = $1 AND NOT r.suppressed AND ${viewSql} AND ${applySql}${rowKmFilter}`;
+  // $6 only exists when the order actually references it. Binding a
+  // parameter the SQL does not mention is a hard Postgres error, not a
+  // no-op — this has cost a route on this project more than once.
   const args = [id, limit, offset, me?.home_lat ?? 0, me?.home_lon ?? 0];
+  if (rankBy && sort !== 'distance') args.push(sv.query_embedding);
 
   // counts query binds: $1 id, $2 lat, $3 lon
   const countKmFilter = hasHome && maxKm
