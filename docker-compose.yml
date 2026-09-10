@@ -1,0 +1,46 @@
+# The worker, as a container that comes back by itself.
+#
+# Postgres already restarts on its own (unless-stopped, named volume);
+# the worker did not, so every reboot left the app blind until someone
+# opened a terminal. It watches JobStream, holds the IMAP connection and
+# runs the campaigns — all the parts that are supposed to work while
+# nobody is looking.
+#
+# What this does NOT do, and cannot: run while the machine is off. A
+# laptop that is closed overnight is a laptop that finds no ads
+# overnight. What it does is make the gap self-healing — the JobStream
+# cursor lives in poll_state, so on boot the worker asks for everything
+# published since it last ran rather than starting from now. Twelve
+# hours off means a longer first poll, not twelve hours of missing ads.
+#
+#   docker compose up -d worker     start it
+#   docker compose logs -f worker   watch it
+#   docker compose stop worker      stop it (stays stopped across reboots)
+#
+# Only run one worker at a time — the advisory lock in autoapply.js
+# makes a second one harmless, but it will not do useful work either.
+services:
+  worker:
+    image: node:20-alpine
+    container_name: jobbflo-worker
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+      # node_modules is built on the host, for Windows. Anything with a
+      # native binding would be the wrong architecture in here, so the
+      # container keeps its own copy in a volume that shadows the bind
+      # mount, and installs into it on first start.
+      - worker_modules:/app/node_modules
+    env_file: .env
+    environment:
+      # localhost inside a container is the container. The database is
+      # on the host, published on 6543.
+      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:6543/jobbjakt
+      TZ: Europe/Stockholm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sh -c "npm ci --omit=dev --no-audit --no-fund && node worker.js --jobbflo-worker"
+
+volumes:
+  worker_modules:

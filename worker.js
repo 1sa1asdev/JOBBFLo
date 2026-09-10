@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import { pool } from './src/db.js';
 import { pollJobStream } from './src/fetchJobs.js';
-import { scanSearch, scorePending, MAX_SCORE_ATTEMPTS } from './src/score.js';
+import { scanSearch, scorePending, queueSearch, MAX_SCORE_ATTEMPTS } from './src/score.js';
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
@@ -41,9 +41,39 @@ const AUTOAPPLY_EVERY = 60 * 1000;
 const LEADSCAN_EVERY = 4 * 60 * 1000;
 const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
+// ------------------------------------------------------------
+// New ads reach a campaign because ads arrived, not because an hour
+// passed.
+//
+// A campaign's candidates come from the JobSearch API, walked with a
+// cursor that goes deeper every scan. That is right for sweeping a
+// pool of 1200, and wrong for today's ad: the cursor may be nine
+// hundred in, the scan interval is an hour, and a job posted at 09:00
+// could sit unseen until 10:00 while the sweep reads page ten.
+//
+// So the JobStream poll drives it. When ads actually arrive, every
+// enabled campaign checks the FRONT of its result set — one page, no
+// model, no cost beyond an HTTP request — and the deep sweep keeps its
+// place. Nothing new in the stream means nothing happens.
 async function pollTick() {
   try {
-    await pollJobStream();
+    const r = await pollJobStream();
+    const nya = (r?.created || 0) + (r?.updated || 0);
+    if (!nya) return;
+
+    const { rows: kampanjer } = await pool.query(
+      `SELECT id, name FROM searches
+       WHERE deleted_at IS NULL AND scan_enabled AND auto_apply_enabled
+         AND campaign_created_at IS NOT NULL`
+    );
+    for (const k of kampanjer) {
+      try {
+        const { found } = await queueSearch(k.id, { pages: 1, fromStart: true });
+        if (found) console.log(`nya annonser: ${found} till "${k.name}"`);
+      } catch (e) {
+        console.error(`färsk-svep ${k.name}:`, e.message);
+      }
+    }
   } catch (err) {
     console.error('poll:', err.message);
   }

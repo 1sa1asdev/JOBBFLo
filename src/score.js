@@ -225,7 +225,15 @@ async function loadSearchContext(searchId, { needCv = true } = {}) {
 // mean showing the user hundreds of ads that silently vanish once
 // a model got to them.
 // ------------------------------------------------------------
-export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pages = 1 } = {}) {
+// fromStart reads page one regardless of where the sweep's cursor sits,
+// and leaves that cursor where it was. The two are one feature: a
+// newly published ad is at the front of the result set, and the deep
+// sweep may be nine hundred ads into the back of it — so the only way
+// to see today's ads without abandoning the sweep's position is to look
+// at the front and then put the cursor back.
+export async function queueSearch(searchId, {
+  fetchLimit = 100, limit = null, pages = 1, fromStart = false,
+} = {}) {
   const { search } = await loadSearchContext(searchId);
 
   const { backfillSearch } = await import('./fetchJobs.js');
@@ -234,7 +242,8 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
   // advances the cursor; when it passes the reported total it wraps to
   // 0 so the next scan picks up newly published ads. Finding is free,
   // so paging deep costs one HTTP request per page and nothing else.
-  let offset = search.fetch_offset || 0;
+  const cursorFöre = search.fetch_offset || 0;
+  let offset = fromStart ? 0 : cursorFöre;
   let total = search.fetch_total ?? null;
   let dropped = [];
   const adIds = [];
@@ -255,9 +264,15 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
     // total or JobSearch's offset ceiling
     if (!read || (total != null && offset >= total) || offset >= 2000) {
       offset = 0;
-      await pool.query(
-        `UPDATE searches SET fetch_done_at = now() WHERE id = $1`, [searchId]
-      );
+      // Only a real sweep can declare itself finished. A front-of-list
+      // check on a small result set reaches the end after one page, and
+      // letting that stamp fetch_done_at would tell a campaign whose
+      // first sweep is still running that it had swept everything.
+      if (!fromStart) {
+        await pool.query(
+          `UPDATE searches SET fetch_done_at = now() WHERE id = $1`, [searchId]
+        );
+      }
       break;
     }
   }
@@ -279,7 +294,11 @@ export async function queueSearch(searchId, { fetchLimit = 100, limit = null, pa
   await pool.query(
     `UPDATE searches SET fetch_offset = $2, fetch_total = $3,
        dropped_filters = COALESCE($4, dropped_filters) WHERE id = $1`,
-    [searchId, offset, total, dropped.length ? dropped : null]
+    // A front-of-list check must not cost the sweep its place. Writing
+    // the offset this pass happened to reach would rewind a campaign
+    // that is nine hundred ads deep back to one hundred, and it would
+    // re-read the same early pages every time a new ad arrived.
+    [searchId, fromStart ? cursorFöre : offset, total, dropped.length ? dropped : null]
   );
 
   // Restricted to the ads layer 1 actually selected for THIS search.
