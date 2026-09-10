@@ -2004,3 +2004,46 @@
     border:1px solid var(--tag-border);padding:2px 7px;
   }
   .auto-card.folded .auto-card-head{padding-bottom:13px;}
+
+  /* ====== KLISTRA IN KONTAKTLISTA ====== */
+  .lead-paste{
+    width:100%;font-family:'IBM Plex Mono',monospace;font-size:11px;
+    line-height:var(--lh-body);resize:vertical;
+  }
+  .lead-review-top{
+    display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+    padding:8px 0;border-bottom:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--mute);
+  }
+  .lead-review-top b{color:var(--ink);}
+  .lead-review{max-height:320px;overflow-y:auto;margin-bottom:10px;}
+  .lead-rev-row{
+    display:grid;grid-template-columns:1fr 1fr 96px 26px;gap:6px;
+    align-items:center;padding:5px 0;border-bottom:1px solid var(--line);
+  }
+  .lead-rev-row .ct-input{font-size:11px;padding:5px 7px;min-width:0;}
+  .lead-rev-status{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--mute);text-align:right;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .lead-rev-row.ok .lead-rev-status{color:var(--ok);}
+  .lead-rev-row.redan_kontaktad .lead-rev-status,
+  .lead-rev-row.dubblett .lead-rev-status,
+  .lead-rev-row.ogiltig .lead-rev-status,
+  .lead-rev-row.oläsbar .lead-rev-status,
+  .lead-rev-row.saknar_arbetsgivare .lead-rev-status{color:var(--flag);}
+  .lead-rev-row.redan_kontaktad .ct-input,
+  .lead-rev-row.dubblett .ct-input,
+  .lead-rev-row.ogiltig .ct-input,
+  .lead-rev-row.oläsbar .ct-input{opacity:.55;}
+  .lead-rev-del{
+    background:none;border:none;cursor:pointer;color:var(--mute);font-size:12px;
+    padding:2px;line-height:var(--lh-flat);
+  }
+  .lead-rev-del:hover{color:var(--flag);}
+  .lead-done{
+    margin-top:10px;padding:8px 11px;border-left:3px solid var(--ok);
+    background:var(--panel);font-size:12px;
+  }

@@ -8,6 +8,7 @@ import Dots from './Dots';
 import LocationPicker from './LocationPicker.jsx';
 import CampaignWizard from './CampaignWizard.jsx';
 import LeadFinder from './LeadFinder.jsx';
+import { parseContacts } from '../lib/parseContacts.js';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns, in their own workspace.
@@ -97,54 +98,154 @@ function RatioPicker({ places, ratio, dailyLimit, onSave }) {
 // ------------------------------------------------------------
 function LeadForm({ searchId, onAdded }) {
   const [open, setOpen] = useState(false);
-  const [employer, setEmployer] = useState('');
-  const [email, setEmail] = useState('');
-  const [title, setTitle] = useState('');
+  const [text, setText] = useState('');
+  const [rader, setRader] = useState(null);     // granskad lista, eller null
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [klart, setKlart] = useState(null);
 
-  async function add() {
+  // Parse locally, check against the database. The split matters: the
+  // shape of the paste is the client's problem and the duplicates are
+  // the server's, because only it knows who has already been written to.
+  async function granska() {
     setBusy(true); setErr(null);
     try {
-      await api('/api/autoapply/lead', {
-        method: 'POST', body: { searchId, employer, email, title },
+      const tolkade = parseContacts(text).filter((r) => r.status !== 'oläsbar' || r.rad);
+      const r = await api('/api/autoapply/lead/bulk', {
+        method: 'PUT',
+        body: { contacts: tolkade.map((k) => ({ ...k, status: undefined })) },
       });
-      setEmployer(''); setEmail(''); setTitle(''); setOpen(false);
+      // Keep what the parser knew that the server does not care about.
+      setRader(r.contacts.map((k, i) => ({ ...tolkade[i], ...k })));
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  async function spara() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api('/api/autoapply/lead/bulk', {
+        method: 'POST',
+        body: { searchId, contacts: rader.filter((k) => k.status === 'ok') },
+      });
+      setKlart(r);
+      setText(''); setRader(null);
       onAdded?.();
     } catch (e) { setErr(e.message); }
     setBusy(false);
   }
 
+  function ändra(i, fält, v) {
+    setRader((prev) => prev.map((r, j) => (j === i
+      // Editing a row clears its verdict rather than keeping a stale
+      // one — a corrected address has not been checked yet, and showing
+      // the old "redan kontaktad" beside new text would be a lie.
+      ? { ...r, [fält]: v, status: 'ändrad', detalj: null }
+      : r)));
+  }
+
   if (!open) {
     return (
-      <button className="btn lead-open" onClick={() => setOpen(true)}>
-        + Lägg till egen kontakt
+      <button className="btn lead-open" onClick={() => { setOpen(true); setKlart(null); }}>
+        + Lägg till egna kontakter
       </button>
     );
   }
 
+  const ok = rader?.filter((r) => r.status === 'ok').length || 0;
+  const ändrade = rader?.filter((r) => r.status === 'ändrad').length || 0;
+
   return (
     <div className="lead-form">
-      <div className="lead-row">
-        <input className="ct-input" placeholder="Arbetsgivare" value={employer}
-          onChange={(e) => setEmployer(e.target.value)} />
-        <input className="ct-input" placeholder="mejladress" value={email}
-          onChange={(e) => setEmail(e.target.value)} />
-      </div>
-      <input className="ct-input" placeholder="Roll (valfritt)" value={title}
-        onChange={(e) => setTitle(e.target.value)} />
-      <p className="hint">
-        Går in i kampanjens kö direkt utan bedömning — du har redan valt den själv.
-        Kampanjbrevet skickas som det är, och samma adress kontaktas aldrig två gånger.
-      </p>
-      {err && <div className="err-note">{err}</div>}
-      <div className="lead-acts">
-        <button className="btn primary" disabled={busy || !employer.trim() || !email.trim()}
-          onClick={add}>
-          {busy ? <>Lägger till<Dots label="Lägger till" /></> : 'Lägg till'}
-        </button>
-        <button className="btn" onClick={() => { setOpen(false); setErr(null); }}>Avbryt</button>
-      </div>
+      {!rader ? (
+        <>
+          <textarea
+            className="ct-input lead-paste"
+            rows={7}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={`Klistra in din lista — en kontakt per rad.
+
+Anna Ek, Foo Bemanning AB, anna.ek@foobemanning.se
+kontakt@techrytera.se
+Dagab AB; rekrytering@dagab.se`}
+          />
+          <p className="hint">
+            Adressen är det enda som måste finnas. Arbetsgivare och namn plockas
+            ur raden när de går att läsa — du får rätta listan innan något sparas.
+          </p>
+          {err && <div className="err-note">{err}</div>}
+          <div className="lead-acts">
+            <button className="btn primary" disabled={busy || !text.trim()} onClick={granska}>
+              {busy ? <>Läser<Dots label="Läser" /></> : 'Granska listan →'}
+            </button>
+            <button className="btn" onClick={() => { setOpen(false); setText(''); setErr(null); }}>
+              Avbryt
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="lead-review-top">
+            <b>{rader.length} rader</b>
+            <span>{ok} klara{ändrade > 0 ? ` · ${ändrade} ändrade` : ''}
+              {rader.length - ok - ändrade > 0 ? ` · ${rader.length - ok - ändrade} går inte att lägga till` : ''}</span>
+          </div>
+
+          <div className="lead-review">
+            {rader.map((r, i) => (
+              <div className={`lead-rev-row ${r.status}`} key={`${r.rad}-${i}`}>
+                <input
+                  className="ct-input" value={r.employer || ''}
+                  // The line the parser could not read, shown in place of
+                  // an empty box. Two blank fields say "something failed";
+                  // the original text says which line, which is the only
+                  // version you can act on.
+                  placeholder={r.email ? 'Arbetsgivare' : (r.rad || 'Arbetsgivare')}
+                  title={r.email ? '' : `Kunde inte läsa: ${r.rad}`}
+                  onChange={(e) => ändra(i, 'employer', e.target.value)}
+                />
+                <input
+                  className="ct-input" value={r.email || ''}
+                  placeholder="mejladress"
+                  onChange={(e) => ändra(i, 'email', e.target.value)}
+                />
+                <span className="lead-rev-status" title={r.detalj || ''}>
+                  {r.status === 'ok' ? (r.gissadArbetsgivare ? 'gissad' : '✓')
+                    : r.status === 'ändrad' ? 'ändrad'
+                    : r.status === 'redan_kontaktad' ? 'redan kontaktad'
+                    : r.status === 'dubblett' ? 'dubblett'
+                    : r.status === 'saknar_arbetsgivare' ? 'saknar namn'
+                    : r.status === 'oläsbar' ? 'ingen adress'
+                    : 'ogiltig'}
+                </span>
+                <button className="lead-rev-del" title="Ta bort raden"
+                  onClick={() => setRader((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            ))}
+          </div>
+
+          <p className="hint">
+            Bara rader märkta ✓ läggs till. Rätta en rad och tryck <b>Kontrollera igen</b>
+            {' '}— adresser du redan skrivit till hittas först då.
+          </p>
+          {err && <div className="err-note">{err}</div>}
+          <div className="lead-acts">
+            <button className="btn primary" disabled={busy || !ok} onClick={spara}>
+              {busy ? <>Sparar<Dots label="Sparar" /></> : `Lägg till ${ok} kontakter`}
+            </button>
+            <button className="btn" disabled={busy} onClick={granska}>Kontrollera igen</button>
+            <button className="btn" onClick={() => setRader(null)}>Tillbaka</button>
+          </div>
+        </>
+      )}
+
+      {klart && (
+        <div className="lead-done">
+          ✓ {klart.tillagda} kontakter tillagda i kampanjens kö.
+          {klart.avvisade?.length > 0 && <> {klart.avvisade.length} lades inte till.</>}
+        </div>
+      )}
     </div>
   );
 }
