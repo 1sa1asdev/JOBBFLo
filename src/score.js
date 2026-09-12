@@ -112,6 +112,28 @@ function adTextForScoring(description) {
   return `${cut.slice(0, lastBreak > AD_CHARS_MAX * 0.6 ? lastBreak : AD_CHARS_MAX)}\n\n[…annonsen fortsätter]`;
 }
 
+// The ad profile is deliberately NOT in this prompt.
+//
+// It belongs here in principle: the candidate block is a structured
+// reading, and the ad arriving as raw prose is exactly the asymmetry
+// ad_profile exists to remove. But measured on six ads, same ads both
+// ways, it cost quote fidelity:
+//
+//   without the profile   23/33 quotes verbatim in the ad  (70%)
+//   with the profile      22/37                            (59%)
+//
+// Given a structured summary to reason from, this model quotes the
+// summary — and matched[].quote / flags[].quote must be verbatim in
+// ad.description or the UI highlights nothing and a letter's claims
+// point at text no employer wrote (CLAUDE.md #5). Printing the evidence
+// beside each requirement helped (0/2 before that, 9/11 after) and
+// still did not reach the baseline.
+//
+// So the profile serves the embedding, where there are no quotes to get
+// wrong, and scoring keeps reading the ad's own words. Worth revisiting
+// on a stronger bulk model: the 70% baseline is llama-3.1-8b-instant,
+// and gemini-2.5-flash measured 95% on this same invariant.
+
 export async function scoreAd({ ad, profile, projects, criteriaText, mustCriteria }) {
   const projectList = projects
     .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
@@ -154,7 +176,6 @@ Arbetsgivare: ${ad.employer} (${ad.employer_type})
 Ort: ${ad.municipality || '—'}
 Sista ansökningsdag: ${ad.deadline || '—'}
 ${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
-
 ${adTextForScoring(ad.description)}`;
 
   return llmJson({

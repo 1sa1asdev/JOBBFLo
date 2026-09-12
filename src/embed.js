@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { renderAdProfile } from './adprofile.js';
 
 // ------------------------------------------------------------
 // Embeddings: the free half of matching.
@@ -103,6 +104,44 @@ const toVector = (v) => `[${v.join(',')}]`;
 // most of the signal and the description adds context; the tail of a
 // long ad is benefits boilerplate that dilutes the vector.
 export function adEmbedText(ad) {
+  // The profile when the ad has one, raw text until then.
+  //
+  // This is the half of the symmetry that decides ranking. A search
+  // vector is built from criteria; an ad vector built from raw prose
+  // shares a space with it only insofar as two writing styles happen to
+  // share vocabulary. Built from the profile, the ad is
+  // "## ROLL / ## KRAV / ## UPPGIFTER" in the same field words the CV
+  // profile uses — so a care ad and care experience land near each
+  // other because they say the same thing, not because the ad's prose
+  // happened to sound like a CV.
+  //
+  // Falling back rather than waiting: profiles fill in over days
+  // against a rate-limited model, and an ad with no vector is invisible
+  // to ranking, which is worse than one ranked from its own prose.
+  // Off by default, and the measurement is why. scripts/prove-adprofile.js
+  // embeds the same three jobs written three ways — an AF notice,
+  // Teamtailor marketing copy, a scraped fragment — and reports two
+  // numbers. Three runs:
+  //
+  //            format dependence      discrimination
+  //   run 1    -52%                   -16%
+  //   run 2    -22%                   -19%
+  //   run 3    -48%                   -14%
+  //
+  // The profile does what it was built for: the format stops deciding.
+  // But it costs discrimination every single time — the gap between the
+  // right job and the wrong ones narrows 14–20%, because every ad
+  // rendered into "## ROLL / ## KRAV / ## UPPGIFTER" reads a little
+  // more like every other ad. Ranking exists to separate; a 15% loss
+  // there is not paid for by a gain that swings between 22% and 52%
+  // depending on what the profile model felt like that minute.
+  //
+  // So the profile is built, stored and used — it just does not decide
+  // ranking yet. Turn this on to try it: EMBED_FROM_PROFILE=1.
+  if (ad.ad_profile && process.env.EMBED_FROM_PROFILE === '1') {
+    const rendered = renderAdProfile(ad.ad_profile);
+    if (rendered) return rendered;
+  }
   return [
     ad.title,
     ad.occupation,
@@ -119,6 +158,7 @@ export function adEmbedText(ad) {
 export async function embedPendingAds({ limit = 64 } = {}) {
   const { rows: ads } = await pool.query(
     `SELECT a.id, a.title, a.employer, a.municipality, a.description,
+            a.ad_profile,
             a.raw->'occupation'->>'label' AS occupation
      FROM ads a
      -- Never pay to embed an ad that can no longer be applied to. This
