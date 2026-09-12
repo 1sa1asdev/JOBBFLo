@@ -104,6 +104,21 @@ Poängsättning:
 // the UI highlights.
 const AD_CHARS_MAX = 4200;   // ≈ p75, so most ads are untouched
 
+// The ad as the model sees it. One definition, used both to build the
+// prompt's ad block and to check the quotes that come back — they
+// drifted apart, and a quote can only be judged against the text it was
+// drawn from.
+export function adTextShownToModel(ad) {
+  return [
+    ad.title,
+    ad.employer,
+    ad.municipality,
+    ad.deadline,
+    ad.ats_vendor,
+    ad.description,
+  ].filter(Boolean).join('\n');
+}
+
 function adTextForScoring(description) {
   const text = String(description || '');
   if (text.length <= AD_CHARS_MAX) return text;
@@ -503,8 +518,17 @@ async function drainQueue(searchId, { limit }) {
       });
 
       const leadProject = projects.find((p) => p.name === r.lead_project);
-      r.matched = verifyQuotes(r.matched, ad.description);
-      r.flags = verifyQuotes(r.flags, ad.description);
+      // Against everything the model was shown about the ad, not just
+      // the description. The prompt includes the title, employer, town
+      // and deadline, and a quote lifted from the title is verbatim in
+      // what the model read — marking it otherwise called the model a
+      // liar for doing exactly what it was asked. Measured on six ads:
+      // 32/46 quotes verified against the description alone, 36/46
+      // against the text actually presented. The UI shows the title
+      // too, so those eight are highlightable either way.
+      const visadText = adTextShownToModel(ad);
+      r.matched = verifyQuotes(r.matched, visadText);
+      r.flags = verifyQuotes(r.flags, visadText);
 
       // UPDATE, not INSERT: the row already exists from the queue
       // step. UNIQUE(search_id, ad_id) still means one row per pair.
