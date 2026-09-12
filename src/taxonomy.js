@@ -36,9 +36,21 @@ const ALIASES = {
 let cache = null;      // { [type]: Map(lowercased label -> concept id) }
 let loading = null;
 
+// The API parameter and the taxonomy type are not always the same word.
+// occupation-group is the filter's name; the concepts live under
+// ssyk-level-4, and asking the taxonomy for "occupation-group" returns
+// 200 with an empty list — so the axis looked supported, resolved
+// nothing, and every group label fell through to free-text q where the
+// words get AND-ed. It was the one filter that should have narrowed
+// hardest and the one doing the least.
+const TAXONOMY_TYP = {
+  'occupation-group': 'ssyk-level-4',
+};
+
 async function fetchType(type) {
-  const res = await fetch(`${TAXONOMY}?type=${type}`, { headers: { accept: 'application/json' } });
-  if (!res.ok) throw new Error(`taxonomy ${type}: ${res.status}`);
+  const typ = TAXONOMY_TYP[type] || type;
+  const res = await fetch(`${TAXONOMY}?type=${typ}`, { headers: { accept: 'application/json' } });
+  if (!res.ok) throw new Error(`taxonomy ${typ}: ${res.status}`);
   const concepts = await res.json();
   const map = new Map();
   const labels = [];       // original casing, for display in pickers

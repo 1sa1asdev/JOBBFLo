@@ -29,12 +29,16 @@ Tillgängliga filter:
   Vikariat | Behovsanställning | Säsongsanställning.
   Detta är ANSTÄLLNINGSFORM, inte omfattning. Lägg ALDRIG "deltid" eller "heltid" här —
   API:t svarar då med noll träffar utan felmeddelande.
-- occupation-group: yrkesgrupp, t.ex. "Mjukvaru- och systemutvecklare m.fl.",
-  "Undersköterskor, hemtjänst, äldreboende". Smalare än occupation-field och
-  betydligt billigare för bedömningen — använd den när yrket är tydligt.
+- occupation-group: yrkesgrupp, t.ex. "Mjukvaru- och systemutvecklare m.fl.".
+  VIKTIGT: yrkesaxlarna OR:as av API:t. Sätter du både occupation-field och
+  occupation-group får du det BREDARE av de två, inte snittet — uppmätt:
+  fält+orter 1288, fält+grupp+orter 1288, bara grupp+orter 566.
+  Sätt alltså ENDAST den smalaste axel du är säker på. Är yrket tydligt:
+  occupation-group i stället för occupation-field, inte utöver.
 - occupation-name: exakt yrkesbenämning, t.ex. "Undersköterska",
-  "Systemutvecklare/Programmerare". Smalast av alla. Sätt den bara när
-  kandidaten namnger yrket; gissar du fel blir resultatet tomt.
+  "Systemutvecklare/Programmerare". Smalast av alla, och OR:as likadant —
+  sätt den ensam, utan fält och grupp. Bara när kandidaten namnger yrket;
+  gissar du fel blir resultatet tomt.
 - experience: true|false. OBS: heter INTE experience-required — det namnet
   accepteras av API:t och filtrerar ingenting alls (43202 träffar, dvs allt).
   false = jobb som inte kräver erfarenhet, 3035 av 43202 annonser.
