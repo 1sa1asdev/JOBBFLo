@@ -29,7 +29,17 @@ Tillgängliga filter:
   Vikariat | Behovsanställning | Säsongsanställning.
   Detta är ANSTÄLLNINGSFORM, inte omfattning. Lägg ALDRIG "deltid" eller "heltid" här —
   API:t svarar då med noll träffar utan felmeddelande.
-- experience-required: true|false
+- occupation-group: yrkesgrupp, t.ex. "Mjukvaru- och systemutvecklare m.fl.",
+  "Undersköterskor, hemtjänst, äldreboende". Smalare än occupation-field och
+  betydligt billigare för bedömningen — använd den när yrket är tydligt.
+- occupation-name: exakt yrkesbenämning, t.ex. "Undersköterska",
+  "Systemutvecklare/Programmerare". Smalast av alla. Sätt den bara när
+  kandidaten namnger yrket; gissar du fel blir resultatet tomt.
+- experience: true|false. OBS: heter INTE experience-required — det namnet
+  accepteras av API:t och filtrerar ingenting alls (43202 träffar, dvs allt).
+  false = jobb som inte kräver erfarenhet, 3035 av 43202 annonser.
+- trainee: true — praktik- och traineeplatser (12 annonser just nu)
+- larling: true — lärlingsplatser (19 annonser)
 - remote: true|false
 - published-after (ISO-datum)
 
@@ -49,7 +59,13 @@ Utelämna det bara när kandidaten uttryckligen söker brett över flera bransch
 VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
 - remote: sätt ENDAST om kandidaten kräver helt distansarbete. "Hybrid är okej",
   "kan pendla", "helst distans" är önskemål → lägg i "unmapped", inte som filter.
-- employment-type och experience-required: utelämna om det inte är ett uttryckligt krav.
+- employment-type: utelämna om det inte är ett uttryckligt krav.
+- trainee och larling är mycket små urval (12 respektive 19 annonser i hela
+  landet) — sätt dem bara om kandidaten uttryckligen söker just det.
+- Dessa finns i API:t men filtrerar ingenting, uppmätt mot det ofiltrerade
+  totalet: open-for-all, driving-licence-required, hire-work, timeframe,
+  parttime.greater-than, parttime.less-than. Använd dem aldrig — ett filter
+  som inte gör något läser som en avsmalning som ägt rum.
 - Skriv aldrig engelska värden ("part-time", "permanent") — använd de svenska
   etiketterna ovan ordagrant.
 Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedöma än 0.`;

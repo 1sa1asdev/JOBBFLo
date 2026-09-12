@@ -265,9 +265,28 @@ function buildQuery(filters, limit, offset = 0) {
   // "unscored" but unreachable.
   if (offset > 0) params.set('offset', String(Math.min(offset, 2000)));
   if (filters.q) params.set('q', filters.q);
-  for (const key of ['occupation-field', 'occupation-group', 'municipality', 'region',
-                     'employment-type', 'worktime-extent', 'experience-required',
-                     'remote', 'published-after']) {
+  // Every key here is one the API measurably acts on. Probed against
+  // the live endpoint: an unfiltered search returns 43202 ads, and a
+  // parameter that still returns 43202 is being ignored no matter that
+  // it answered 200.
+  //
+  //   experience=false            3035   ✓
+  //   experience-required=false  43202   ← dead, and we sent it for months
+  //   trainee=true                  12   ✓
+  //   larling=true                  19   ✓
+  //   remote=true                  643   ✓
+  //   open-for-all=true          43202   ← accepted, ignored
+  //   driving-licence-required   43202   ← accepted, ignored
+  //   parttime.greater-than=50   43202   ← accepted, ignored
+  //   timeframe=24               43202   ← accepted, ignored
+  //
+  // The ignored ones are left out rather than sent hopefully: a filter
+  // that does nothing is worse than no filter, because it reads as
+  // narrowing that happened.
+  for (const key of ['occupation-field', 'occupation-group', 'occupation-name',
+                     'municipality', 'region',
+                     'employment-type', 'worktime-extent', 'experience',
+                     'trainee', 'larling', 'remote', 'published-after']) {
     const val = filters[key];
     if (val === undefined || val === null) continue;
     for (const v of [].concat(val)) {

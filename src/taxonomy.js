@@ -11,7 +11,7 @@
 
 const TAXONOMY = 'https://taxonomy.api.jobtechdev.se/v1/taxonomy/main/concepts';
 const TYPES = ['municipality', 'region', 'occupation-field', 'occupation-group',
-               'employment-type', 'worktime-extent'];
+               'occupation-name', 'employment-type', 'worktime-extent'];
 
 // Words a candidate (or the model) actually uses, mapped to the label
 // Arbetsförmedlingen uses. "deltid" is NOT an employment-type — that
@@ -111,6 +111,11 @@ export async function resolveFilters(filters = {}) {
     ['region', 'region'],
     ['occupation-field', 'occupation-field'],
     ['occupation-group', 'occupation-group'],
+    // The narrowest occupation axis: "undersköterska" rather than the
+    // whole of Hälso- och sjukvård. Forwarded but never resolved before,
+    // so the one name that would have narrowed best fell through to
+    // free-text q — where its words get AND-ed and return nothing.
+    ['occupation-name', 'occupation-name'],
     ['employment-type', 'employment-type'],
     ['worktime-extent', 'worktime-extent'],
   ]) {
