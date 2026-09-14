@@ -377,7 +377,12 @@ setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 setInterval(leadScanTick, LEADSCAN_EVERY);
 setInterval(judgeTick, JUDGE_EVERY);
-setInterval(adProfileTick, ADPROFILE_EVERY);
+// Opt-in, not on by default. Left running it exhausted the OpenRouter
+// key's total limit: one gemini-2.5-flash call per ad, ~1000 an hour,
+// against 37,000 ads — for profiles that measurably do not help ranking
+// yet (see src/embed.js). Nothing reads them unless EMBED_FROM_PROFILE
+// is on, so building them unasked was spend with no consumer.
+if (process.env.AD_PROFILES === '1') setInterval(adProfileTick, ADPROFILE_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');
