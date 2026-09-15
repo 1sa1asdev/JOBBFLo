@@ -83,6 +83,76 @@ export async function embeddingCoverage() {
 // Nothing re-embeds them afterwards, because embedPendingAds now skips
 // anything past its deadline. Without that pairing this would be an
 // expensive loop: release, re-embed, release again, every single day.
+// ------------------------------------------------------------
+// Let go of an ad the moment it closes.
+//
+// Closing — withdrawn by Arbetsförmedlingen, or past its deadline — used
+// to change almost nothing until pruneStaleAds came round six hours
+// later, and even then it only deleted ads with no history at all.
+// Measured on a normal morning, closed ads were still holding:
+//
+//   837  embeddings on withdrawn ads (releaseExpiredVectors only
+//        looked at deadline, never at removed_at)
+//   218  untouched candidate rows, still listed under Hittade
+//    33  score requests the drain would skip for ever but kept counting
+//   139  address scans for jobs nobody can apply to any more
+//    69  ad profiles
+//
+// This releases all of that, and deliberately nothing else. A closed
+// ad is never ranked, profiled, scored or scanned again, so its vector,
+// profile, queue entries and lead scan are pure weight. What it KEEPS
+// is history: the ad row itself, applications, favourites and paid
+// verdicts — the inbox back-references those (CLAUDE.md), and a
+// verdict on a closed ad is still the record of why a letter went out.
+// Deleting the ad is pruneStaleAds' decision, after its grace period.
+// ------------------------------------------------------------
+const STANGD = `(a.removed_at IS NOT NULL OR (a.deadline IS NOT NULL AND a.deadline < current_date))`;
+
+export async function retireClosedAds({ dryRun = false } = {}) {
+  const räkna = async (sql) => (await pool.query(sql)).rows[0].n;
+
+  const plan = {
+    vektorer: await räkna(`SELECT count(*)::int AS n FROM ads a
+      WHERE (a.embedding IS NOT NULL OR a.ad_profile IS NOT NULL) AND ${STANGD}`),
+    kandidater: await räkna(`SELECT count(*)::int AS n FROM match_results m JOIN ads a ON a.id = m.ad_id
+      WHERE m.score IS NULL AND m.shortlisted_at IS NULL AND ${STANGD}
+        AND NOT EXISTS (SELECT 1 FROM applications ap WHERE ap.ad_id = a.id)`),
+    begaranden: await räkna(`SELECT count(*)::int AS n FROM match_results m JOIN ads a ON a.id = m.ad_id
+      WHERE m.score IS NULL AND m.score_requested_at IS NOT NULL AND ${STANGD}`),
+    skanningar: await räkna(`SELECT count(*)::int AS n FROM lead_scans ls JOIN ads a ON a.id = ls.ad_id
+      WHERE ${STANGD}`),
+  };
+  if (dryRun) return { ...plan, dryRun: true };
+
+  await pool.query(`UPDATE ads a SET
+      embedding = NULL, embedding_model = NULL, embedded_at = NULL,
+      ad_profile = NULL, ad_profile_at = NULL, ad_profile_model = NULL
+    WHERE (a.embedding IS NOT NULL OR a.ad_profile IS NOT NULL) AND ${STANGD}`);
+
+  // Untouched rows only. A favourite or a verdict is a decision somebody
+  // made and stays; a row nobody looked at is a job nobody can apply to.
+  await pool.query(`DELETE FROM match_results m USING ads a
+    WHERE a.id = m.ad_id AND m.score IS NULL AND m.shortlisted_at IS NULL AND ${STANGD}
+      AND NOT EXISTS (SELECT 1 FROM applications ap WHERE ap.ad_id = a.id)`);
+
+  // A favourited closed ad may still carry a request; cancel it, so the
+  // backlog counts only work that can actually happen.
+  await pool.query(`UPDATE match_results m SET score_requested_at = NULL
+    FROM ads a
+    WHERE a.id = m.ad_id AND m.score IS NULL AND m.score_requested_at IS NOT NULL AND ${STANGD}`);
+
+  await pool.query(`DELETE FROM lead_scans ls USING ads a
+    WHERE a.id = ls.ad_id AND ${STANGD}`);
+
+  const summa = plan.vektorer + plan.kandidater + plan.begaranden + plan.skanningar;
+  if (summa) {
+    console.log(`stängda annonser: släppte ${plan.vektorer} vektorer/profiler, `
+      + `${plan.kandidater} kandidater, ${plan.begaranden} bedömningsbegäranden, `
+      + `${plan.skanningar} adresskanningar`);
+  }
+  return plan;
+}
+
 export async function releaseExpiredVectors() {
   const { rowCount } = await pool.query(
     `UPDATE ads SET embedding = NULL, embedding_model = NULL, embedded_at = NULL

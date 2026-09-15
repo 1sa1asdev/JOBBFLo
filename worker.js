@@ -20,7 +20,7 @@ import { buildPendingAdProfiles, antalUtanProfil } from './src/adprofile.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
-  pruneStaleAds, embeddingCoverage, releaseExpiredVectors, refreshQueryVectors,
+  pruneStaleAds, embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
 
 // JobStream, once a minute. New ads arrive at about three a minute
@@ -80,6 +80,16 @@ let senasteSvep = 0;
 async function pollTick() {
   try {
     const r = await pollJobStream();
+
+    // Withdrawals arrive in the stream, so this is the moment they are
+    // known — release what those ads were holding now rather than six
+    // hours from now. The morning's catch-up poll marked 2977 withdrawn
+    // in one go, and all of them kept their vectors and queue rows until
+    // the next prune.
+    if (r?.removed) {
+      await retireClosedAds().catch((e) => console.error('retire:', e.message));
+    }
+
     const nya = (r?.created || 0) + (r?.updated || 0);
     if (!nya) return;
 
@@ -238,7 +248,8 @@ async function vectorsTick() {
     const { rows: [p] } = await pool.query(
       `SELECT embeddings_enabled FROM profile LIMIT 1`);
     if (!p?.embeddings_enabled) return;
-    await releaseExpiredVectors();
+    // Expired vectors are released by retireClosedAds, which also
+    // covers withdrawn ads and runs whether or not embeddings are on.
     await refreshQueryVectors();
   } catch (err) {
     console.error('vectors:', err.message.slice(0, 130));
@@ -250,6 +261,10 @@ async function vectorsTick() {
 // that rule is load-bearing rather than merely polite.
 async function pruneTick() {
   try {
+    // Deadlines pass with the clock, not with an event, so the poll
+    // cannot catch them. Retire before pruning: whatever prune keeps
+    // for its history should not also keep a vector and a queue row.
+    await retireClosedAds();
     await pruneStaleAds();
   } catch (err) {
     console.error('prune:', err.message);

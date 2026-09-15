@@ -472,13 +472,82 @@ async function scoreBudgetLeft(searchId) {
        (SELECT count(*) FROM match_results m2
         JOIN searches s2 ON s2.id = m2.search_id
         WHERE s2.profile_id = p.id
-          AND m2.scored_at >= date_trunc('day', now())) AS used
+          AND m2.scored_at >= date_trunc('day', now())
+          -- a copied verdict cost nothing and must not use up the
+          -- allowance a real judgement would need
+          AND m2.score_reused_from IS NULL) AS used
      FROM searches s JOIN profile p ON p.id = s.profile_id
      WHERE s.id = $1`, [searchId]
   );
   if (!b) return 0;
   return { left: Math.max(0, Number(b.cap) - Number(b.used)),
            cap: Number(b.cap), used: Number(b.used) };
+}
+
+// ------------------------------------------------------------
+// One verdict per job.
+//
+// A repost arrives with a new ad id and the same fingerprint (employer
+// + title + municipality), and the queue used to judge it from scratch:
+// 18 of 1026 scores, Amazon's "DCO Technician" four times at 10 each —
+// and ChopChop's "Restaurangmedarbetare 50%" at 25 one time and 50 the
+// next, for the same job in the same search. A second opinion on an
+// identical ad is not caution, it is a coin toss that costs money.
+//
+// Three conditions, each for a reason:
+//
+//   same search      criteria differ between searches, so a verdict
+//                    only transfers within the search that produced it
+//                    (CLAUDE.md #1: the same ad scores differently in
+//                    different searches, correctly)
+//
+//   not stale        a twin judged before the criteria last changed
+//                    answered a different question
+//
+//   quotes verbatim  reposts are sometimes edited. matched[].quote and
+//                    flags[].quote must appear in THIS ad's text or the
+//                    highlights point at nothing (CLAUDE.md #5) — so a
+//                    single quote that no longer appears means the ad
+//                    changed, and it is scored fresh
+//
+// The ad is not merged or hidden (CLAUDE.md #4): it keeps its own row
+// and stays visible. Only the model call is skipped, and
+// score_reused_from records where the verdict came from, which also
+// keeps it off the daily scoring budget — nothing was paid for.
+// ------------------------------------------------------------
+async function reuseTwinVerdict(searchId, ad, search) {
+  if (!ad.fingerprint) return null;
+  const { rows: [tvilling] } = await pool.query(
+    `SELECT m.id, m.score, m.summary, m.matched, m.flags, m.lead_project_id, m.scored_at
+     FROM match_results m JOIN ads a ON a.id = m.ad_id
+     WHERE m.search_id = $1
+       AND a.fingerprint = $2
+       AND a.id <> $3
+       AND m.score IS NOT NULL
+       AND m.score_reused_from IS NULL          -- copy from originals only
+       AND ($4::timestamptz IS NULL OR m.scored_at >= $4)
+     ORDER BY m.scored_at DESC
+     LIMIT 1`,
+    [searchId, ad.fingerprint, ad.id, search.criteria_changed_at || null]
+  );
+  if (!tvilling) return null;
+
+  const text = adTextShownToModel(ad);
+  const matched = verifyQuotes(tvilling.matched || [], text);
+  const flags = verifyQuotes(tvilling.flags || [], text);
+  if ([...matched, ...flags].some((q) => !q.verbatim)) return null;
+
+  await pool.query(
+    `UPDATE match_results SET
+       score = $3, summary = $4, matched = $5, flags = $6,
+       lead_project_id = $7, scored_at = now(), last_error = NULL,
+       score_reused_from = $8
+     WHERE search_id = $1 AND ad_id = $2`,
+    [searchId, ad.id, tvilling.score, tvilling.summary,
+     JSON.stringify(matched), JSON.stringify(flags),
+     tvilling.lead_project_id, tvilling.id]
+  );
+  return { score: tvilling.score, summary: tvilling.summary, matched, flags };
 }
 
 async function drainQueue(searchId, { limit }) {
@@ -522,6 +591,15 @@ async function drainQueue(searchId, { limit }) {
     if (!now.left) {
       console.log(`dygnsgränsen nådd mitt i kön: ${now.used}/${now.cap} — resten väntar till imorgon`);
       break;
+    }
+
+    // A twin already judged in this search — same job, reposted — hands
+    // over its verdict instead of the model being asked again.
+    const kopia = await reuseTwinVerdict(searchId, ad, search);
+    if (kopia) {
+      results.push({ ad, ...kopia, reused: true });
+      console.log(`  ${String(kopia.score).padStart(3)} · ${ad.title} — ${ad.employer} (samma jobb, återanvänd bedömning)`);
+      continue;
     }
 
     try {
