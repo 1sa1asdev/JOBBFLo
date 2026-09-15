@@ -213,9 +213,32 @@ export async function PATCH(req) {
 
     try {
       const { parseCriteria } = await import('../../../src/score.js');
-      const { filters } = await parseCriteria(text);
+      const { filters: parsed } = await parseCriteria(text);
+      const { mergeReparsed, orterIFilter } = await import('../../../src/filterMerge.js');
+      const { rows: [nu] } = await pool.query(
+        `SELECT api_filters, parsed_filters, location FROM searches WHERE id = $1`, [searchId]);
+      // Hand-switched filters survive a new purpose unless the purpose
+      // itself now says something about them — see filterMerge.js.
+      const { filters } = mergeReparsed({
+        current: nu?.api_filters, prevParsed: nu?.parsed_filters, newParsed: parsed,
+      });
+      // A campaign's places come from its picker, the way creation
+      // treats them (autoapply/new: "an explicit pick BEATS the parse"),
+      // and location_ratio is keyed on exactly those names. Campaigns
+      // made before parsed_filters existed cannot show their pick as a
+      // hand change, so the rule is stated outright rather than inferred.
+      if (nu?.location?.length) {
+        for (const k of ['municipality', 'region']) {
+          if (nu.api_filters?.[k] === undefined) delete filters[k];
+          else filters[k] = nu.api_filters[k];
+        }
+      }
       vals.push(JSON.stringify(filters || {}));
       sets.push(`api_filters = $${vals.length}`);
+      vals.push(JSON.stringify(parsed || {}));
+      sets.push(`parsed_filters = $${vals.length}`);
+      vals.push(orterIFilter(filters));
+      sets.push(`location = $${vals.length}::text[]`);
       criteriaChanged = true;
     } catch (err) {
       // No key, model down, out of credit. Do NOT substitute a crude

@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { parseCriteria, scanSearch } from './score.js';
+import { mergeReparsed, orterIFilter } from './filterMerge.js';
 
 // ------------------------------------------------------------
 // The search-criteria conversation. Each saved search is one
@@ -38,12 +39,19 @@ export async function chatTurn(searchId, userMessage) {
     }],
   });
 
-  // re-parse layer-1 filters from the merged criteria
-  const { filters } = await parseCriteria(criteria);
+  // re-parse layer-1 filters from the merged criteria, keeping what
+  // the user switched by hand unless this message spoke to it
+  const { filters: parsed } = await parseCriteria(criteria);
+  const { filters, behållna } = mergeReparsed({
+    current: search.api_filters, prevParsed: search.parsed_filters, newParsed: parsed,
+  });
+  if (behållna.length) console.log(`omtolkning: behöll handvalda filter ${behållna.join(', ')}`);
 
   await pool.query(
-    `UPDATE searches SET criteria_text = $2, api_filters = $3 WHERE id = $1`,
-    [searchId, criteria, JSON.stringify(filters)]
+    `UPDATE searches SET criteria_text = $2, api_filters = $3, parsed_filters = $4,
+       location = $5::text[]
+     WHERE id = $1`,
+    [searchId, criteria, JSON.stringify(filters), JSON.stringify(parsed || {}), orterIFilter(filters)]
   );
   await pool.query(
     `INSERT INTO search_messages (search_id, role, content) VALUES ($1, 'assistant', $2)`,

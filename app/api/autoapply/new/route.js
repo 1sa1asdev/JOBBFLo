@@ -33,6 +33,9 @@ export async function POST(req) {
     parseError = err.message;
     filters = { q: criteria.slice(0, 200) };   // still search, just less precisely
   }
+  // The parse as read, before the picks below override it: the gap
+  // between the two is what a later re-parse knows to keep.
+  const parsed = { ...filters };
 
   // An explicit pick BEATS the parse. The model reads the same prose to
   // guess a place, and when the user has already said which places they
@@ -75,9 +78,9 @@ export async function POST(req) {
     `INSERT INTO searches (profile_id, name, criteria_text, api_filters,
        auto_apply_enabled, auto_apply_min_score, auto_apply_daily_limit,
        apply_filter, campaign_created_at,
-       location, location_ratio, must_criteria, auto_apply_require_score)
+       location, location_ratio, must_criteria, auto_apply_require_score, parsed_filters)
      VALUES ($1,$2,$3,$4,false,$5,$6,'email',now(),
-       $7::text[], $8::jsonb, $9, $10) RETURNING *`,
+       $7::text[], $8::jsonb, $9, $10, $11) RETURNING *`,
     [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      Math.max(0, Math.min(100, Number(min_score) || 85)),
      // 200, matching the PATCH route. These two clamps drifted apart
@@ -91,7 +94,8 @@ export async function POST(req) {
      picked.length > 1 && location_ratio && Object.keys(location_ratio).length
        ? JSON.stringify(location_ratio) : null,
      String(must_criteria || '').trim() ? String(must_criteria).trim().slice(0, 600) : null,
-     require_score === undefined ? true : Boolean(require_score)]
+     require_score === undefined ? true : Boolean(require_score),
+     JSON.stringify(parsed)]
   );
 
   await pool.query(

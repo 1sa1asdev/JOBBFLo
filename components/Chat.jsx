@@ -5,6 +5,7 @@ import ChatTools from './ChatTools.jsx';
 import CvUpload from './CvUpload.jsx';
 import Dots from './Dots';
 import ApplyFilterAsk from './ApplyFilterAsk.jsx';
+import FilterSuggest from './FilterSuggest.jsx';
 import { APPLY_FILTERS } from '../lib/applyFilter.js';
 
 // One pane, two conversations: search criteria (per saved search,
@@ -161,6 +162,12 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
         {!isLetter && !creatingSearch && search?.id && !busy
           && search.apply_filter == null && (
           <ApplyFilterAsk search={search} onChanged={onSearchChanged} />
+        )}
+        {/* One question at a time: how to apply comes first, because it
+            decides what the counts below would even be spent on. */}
+        {!isLetter && !creatingSearch && search?.id && !busy
+          && search.apply_filter != null && (
+          <FilterSuggest search={search} turn={messages.length} onChanged={onSearchChanged} />
         )}
         {busy && <div className="sys-note">tänker<Dots label="Tänker" /></div>}
         {error && <div className="sys-note">fel: {error}</div>}

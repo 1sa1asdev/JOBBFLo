@@ -925,6 +925,41 @@
     background:var(--card-hover);}
   .apply-ask .aa-opt.picked b{font-weight:700;}
 
+  /* ---- filters in two states: the copilot's next question ---- */
+  .filter-ask .fa-lead{line-height:var(--lh-body);}
+  .filter-ask .fa-lead b{font-weight:700;}
+  .filter-ask .fa-wait{color:var(--mute);}
+  .filter-ask .fa-label{margin:12px 0 6px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--mute);}
+  .filter-ask .fa-chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0;}
+  .filter-ask .fa-none{font-size:11px;color:var(--mute);}
+  .filter-ask .fa-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;
+    border:1px solid var(--ink);background:var(--panel);padding:3px 3px 3px 7px;font-size:11px;
+    line-height:var(--lh-tight);}
+  .filter-ask .fa-k{font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--mute);white-space:nowrap;}
+  .filter-ask .fa-v{color:var(--ink);overflow-wrap:anywhere;min-width:0;}
+  .filter-ask .fa-x{flex:none;width:18px;height:18px;border:none;background:transparent;cursor:pointer;
+    color:var(--mute);font-size:10px;line-height:var(--lh-flat);}
+  .filter-ask .fa-x:hover:not(:disabled){background:var(--ink);color:var(--paper);}
+  .filter-ask .fa-x:disabled{opacity:.5;cursor:default;}
+  .filter-ask .fa-undo{border:1px dashed var(--tag-border);background:transparent;cursor:pointer;
+    padding:3px 7px;font-size:11px;color:var(--ink);}
+  .filter-ask .fa-undo:hover{border-color:var(--ink);}
+  .filter-ask .fa-opts{display:flex;flex-direction:column;gap:5px;}
+  .filter-ask .fa-opt{text-align:left;background:var(--panel);cursor:pointer;
+    border:1px dashed var(--tag-border);padding:7px 10px;min-width:0;}
+  .filter-ask .fa-opt:hover:not(:disabled){border:1px solid var(--ink);background:var(--card-hover);}
+  .filter-ask .fa-opt:disabled{opacity:.55;cursor:default;}
+  .filter-ask .fa-opt-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;min-width:0;}
+  /* Wraps rather than truncates: the chat column is ~300px, and
+     "Yrke: Restaurang…" hid the one word that tells two suggestions apart. */
+  .filter-ask .fa-opt-head b{font-size:12px;color:var(--ink);font-weight:600;
+    line-height:var(--lh-tight);overflow-wrap:anywhere;min-width:0;}
+  .filter-ask .fa-count{flex:none;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink);}
+  .filter-ask .fa-why{display:block;margin-top:2px;font-size:10.5px;line-height:var(--lh-body);color:var(--mute);}
+  .filter-ask .fa-err{margin-top:8px;font-size:10px;color:var(--flag);}
+
   .applyseg{display:flex;align-items:center;gap:7px;}
   .applyseg .as-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;
     letter-spacing:.06em;text-transform:uppercase;color:var(--mute);white-space:nowrap;}

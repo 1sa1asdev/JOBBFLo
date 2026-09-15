@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
 import { parseCriteria, scanSearch } from '../../../src/score.js';
+import { orterIFilter } from '../../../src/filterMerge.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +45,14 @@ export async function POST(req) {
   const { rows: [search] } = await pool.query(
     // Set before the first scan on purpose: asking afterwards would
     // mean that scan had already paid to judge ads the answer excludes.
-    `INSERT INTO searches (profile_id, name, criteria_text, api_filters, apply_filter)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    // parsed_filters starts equal to api_filters (nothing switched by
+    // hand yet), and location mirrors the parsed places so the Ort picker
+    // says what the search actually fetches instead of "hela Sverige".
+    `INSERT INTO searches (profile_id, name, criteria_text, api_filters, apply_filter,
+       parsed_filters, location)
+     VALUES ($1, $2, $3, $4, $5, $4, $6::text[]) RETURNING *`,
     [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
-     apply_filter || null]
+     apply_filter || null, orterIFilter(filters)]
   );
 
   await pool.query(

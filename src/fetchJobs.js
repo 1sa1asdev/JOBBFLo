@@ -249,11 +249,16 @@ const RELAX_CAP = 2000;
 //
 // municipality and region go last and together: a place is the one
 // filter the user almost always typed themselves.
+// `experience`, not `experience-required`: the ladder still named the
+// dead key after the filter itself was fixed, so an experience filter
+// that emptied a search could never be dropped — the ladder went
+// straight past it to the user's cities. Same for the three keys added
+// since, which were not on the ladder at all.
 const BROADENING_LADDER = [
-  ['remote', 'employment-type'],
-  ['experience-required'],
+  ['remote', 'employment-type', 'trainee', 'larling'],
+  ['experience'],
   ['q'],
-  ['occupation-field', 'occupation-group'],
+  ['occupation-name', 'occupation-group', 'occupation-field'],
   ['municipality', 'region'],
 ];
 

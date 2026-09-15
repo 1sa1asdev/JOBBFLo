@@ -12,7 +12,7 @@ const FILTER_SYSTEM = `Du översätter en jobbsökandes egna ord till filter fö
 Tillgängliga filter:
 - q (fritext). VARNING: orden AND:as — "frontend backend utvecklare" kräver att
   ALLA tre finns i samma annons och ger nästan alltid NOLL träffar.
-  Använd högst ETT ord, eller utelämna q helt och lita på occupation-field.
+  Använd högst ETT ord, eller utelämna q helt.
   Räkna aldrig upp synonymer eller alternativ i q — det smalnar av, det breddar inte.
 - occupation-field: EXAKT ett av dessa värden, annars utelämna:
   Administration, ekonomi, juridik | Bygg och anläggning | Chefer och verksamhetsledare |
@@ -52,13 +52,19 @@ Svara ENDAST med JSON, ingen förklaring, inga kodstaket:
 
 Det som hamnar i "unmapped" hanteras i ett senare steg mot annonstexten — var generös med vad du lägger där. Filtren ska vara BREDA: hellre för många träffar än att missa jobb.
 
-VIKTIGT — sätt ALLTID occupation-field om yrket hör hemma i ett tydligt område.
-Utan det returnerar API:t annonser från alla branscher (svetsare, barnskötare,
-säljare) som sedan kostar en dyr bedömning var. Ett fält är nästan alltid
-härledbart: "frontendutvecklare" → Data/IT, "restaurangbiträde" → Hotell,
-restaurang, storhushåll, "undersköterska" → Hälso- och sjukvård.
-Utelämna det bara när kandidaten uttryckligen söker brett över flera branscher
-(t.ex. "vilket extrajobb som helst").
+VIKTIGT — sätt BARA filter som kandidatens ord uttryckligen säger. Härled aldrig.
+Varje filter är också en mängd jobb kandidaten aldrig får se, så appen visar
+vidare avsmalningar som förslag med antal träffar, och kandidaten väljer själv.
+- Yrkesaxlarna (occupation-field/-group/-name) sätts bara när kandidaten själv
+  pekar ut området: "jobb inom IT-branschen" → occupation-field Data/IT,
+  "inom vården" → Hälso- och sjukvård, "restaurangbranschen" → Hotell,
+  restaurang, storhushåll.
+- Ett yrkesord är INTE ett uttalat område: "frontendutvecklare", "utvecklare",
+  "restaurangbiträde", "undersköterska" → inga yrkesfilter; lägg yrket i
+  "unmapped". Appen föreslår yrkesgrupp och yrke därifrån.
+- Ort, omfattning, erfarenhet, distans, anställningsform: samma regel — bara
+  när kandidaten sagt det.
+- Undantag ("ej lager", "inte säljjobb") blir aldrig filter; de går i "unmapped".
 
 VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
 - remote: sätt ENDAST om kandidaten kräver helt distansarbete. "Hybrid är okej",
