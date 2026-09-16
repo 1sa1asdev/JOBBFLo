@@ -6,12 +6,18 @@ additive, not a rewrite.
 
 ## What it does
 
-1. **Finds jobs** — polls Arbetsförmedlingen's JobStream API. LinkedIn and
-   Academic Work are paste-in only (no usable API, ToS forbids scraping).
-2. **Scores them** in two layers — natural-language criteria become API
-   filters (cheap narrowing), then the full ad text is cross-referenced
-   against the user's CV and stated criteria (nuance the taxonomy can't
-   express).
+1. **Finds jobs** — one feed in, one pool. The JobStream poll and the
+   daily snapshot (`janitor.js`) fill `ads`; every search then reads
+   that pool with SQL filters and vector distance (`src/localsearch.js`).
+   Searches never call the job API themselves — two flows of the same
+   data is what this replaced. LinkedIn and Academic Work are paste-in
+   only (no usable API, ToS forbids scraping).
+2. **Grades them** against the CV as a checklist (`src/checklist.js`) —
+   the ad's requirements read once per ad, each answered against the CV
+   with a verbatim quote from both sides, and the score computed in
+   code from those rows. Stored per (ad, CV), so every search reuses it.
+   The number must always be a sum of rows the user can read; a model
+   picking a 0-100 is what this replaced.
 3. **Drafts cover letters**, revised through a chat loop, sent via Gmail
    SMTP after explicit human approval.
 4. **Tracks replies** via IMAP IDLE, classifies them, drafts responses.
@@ -60,6 +66,39 @@ worse than showing a duplicate.
 text and to link letter claims back to the requirement they answer. A
 hallucinated quote breaks the UI silently. Max 15 words each.
 
+The same rule applies to the CV side of a checklist row: an unsourced
+`uppfyllt` is downgraded, because "the CV covers this" with nothing to
+point at is the one failure the checklist exists to prevent.
+
+### 6. One pool, one source
+
+Ads enter through the feed and the snapshot; searches read the pool
+(`src/localsearch.js`). A search must never query the job API for its
+own results — that was two flows of the same data, and the second one
+carried a cursor, an offset ceiling and filters the API had to
+understand. Filters match `concept_id`, never labels: the feed and the
+filter names disagree (an ad says "Tillsvidareanställning (inkl.
+eventuell provanställning)" where the filter says
+"Tillsvidareanställning"), and by label that filter found 588 permanent
+jobs in Göteborg where the API finds 2810.
+
+Corollary: a filter the pool cannot answer is not offered. remote,
+trainee and larling are not in the feed's ad data, and a filter that
+silently matches nothing is worse than no filter.
+
+### 7. The grade is arithmetic over rows the user can read
+
+`ad_checks.score` is computed from `ad_checks.items`, never chosen by a
+model. A model may read requirements and answer them; the weighting
+lives in code (`scoreFromItems`), so the same checklist always gives
+the same number and re-weighting costs nothing.
+
+The checklist is per (ad, CV) — not per search. "Does this CV meet
+these requirements" does not depend on which search found the ad, and
+paying for it twice is what the cache key prevents. A campaign's
+`must_criteria` is one extra row and gets its own key, so a campaign's
+private rule cannot leak into what another search sees.
+
 ---
 
 ## Stack
@@ -86,16 +125,21 @@ Vercel functions are request-scoped and time-limited; an IDLE connection
 must stay open indefinitely. So the system is two deployables:
 
 ```
-┌────────────────────┐         ┌──────────────────────┐
-│  Next.js (Vercel)  │         │  Worker (Railway)    │
-│  UI + API routes   │         │  long-running        │
-│                    │         │                      │
-│  - chat/criteria   │         │  - IMAP IDLE loop    │
-│  - list, letter UI │◄───────►│  - JobStream cron    │
-│  - inbox UI        │ Postgres│  - scoring queue     │
-│  - send (on click) │         │  - followup checker  │
-└────────────────────┘         └──────────────────────┘
+┌────────────────────┐    ┌──────────────────────┐   ┌────────────────────┐
+│  Next.js (Vercel)  │    │  Worker (Railway)    │   │  Janitor           │
+│  UI + API routes   │    │  long-running        │   │  slow pool hygiene │
+│                    │    │                      │   │                    │
+│  - chat/criteria   │    │  - IMAP IDLE loop    │   │  - daily snapshot  │
+│  - list, letter UI │◄──►│  - JobStream poll    │◄─►│  - closes ads that │
+│  - inbox UI        │ PG │  - scoring drain     │PG │    stopped being   │
+│  - send (on click) │    │  - campaigns         │   │    published       │
+└────────────────────┘    └──────────────────────┘   │  - retire + prune  │
+                                                     └────────────────────┘
 ```
+
+The janitor is separate because the snapshot is hundreds of megabytes
+and minutes of work: inside the worker it stalls IMAP, the campaign
+tick and the scoring drain while it runs.
 
 Postgres is the only thing they share. The worker writes; the UI reads and
 handles user-initiated actions. For live inbox updates, poll the API route
@@ -132,13 +176,15 @@ design/
 
 Each step is verifiable before the next. Don't skip ahead to the UI.
 
-**1. Prove the scoring** ← start here
+**1. Prove the grading** ← start here
 ```bash
 npm run db:init && npm run db:seed && npm run try
+node scripts/prove-checklist.js     # arithmetic, quote check, reuse
 ```
-Prints 15 scored ads. *Read them.* If scores are wrong, iterate on the
-prompt in `src/score.js`. Everything else is a wrapper around this call —
-if it's bad, nothing downstream matters.
+Read the checklists, not just the numbers: a wrong requirement or an
+unsourced "uppfyllt" is the failure that matters, and the score is only
+arithmetic over those rows. Iterate on the prompts in `src/adprofile.js`
+(what the ad demands) and `src/checklist.js` (whether the CV answers it).
 
 **2. Send one real application**
 `nodemailer` + letter generation. Test to yourself, then send one real one.
