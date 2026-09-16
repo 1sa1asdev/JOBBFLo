@@ -121,7 +121,7 @@ const VÄRDE = { uppfyllt: 1, delvis: 0.5, okänt: 0.1, saknas: 0 };
 // Missing one is not a deduction, it is a ceiling — a doctor's job is
 // not a 59 for someone without the licence because the language
 // requirements fit.
-const GRIND = new Set(['yrke', 'licens', 'utbildning']);
+const GRIND = new Set(['yrke', 'licens', 'utbildning', 'kampanjkrav']);
 const TAK_BRUTEN_GRIND = 25;
 
 // Personal qualities are stated in almost every ad and cannot be
@@ -288,9 +288,12 @@ export async function checkAd(ad, {
   // A campaign's own hard rule is answered as one more requirement, so
   // it lands in the same checklist the user reads rather than being a
   // separate invisible veto.
+  // It is a gate, unlike the extractor's guessed dealbreakers: the user
+  // wrote this rule themselves and called it a requirement, so an ad
+  // that fails it cannot be talked up by everything else fitting.
   if (mustCriteria?.trim()) {
     krav.push({ id: krav.length, name: mustCriteria.trim().slice(0, 120), field: 'kampanjkrav',
-      weight: 'krav', evidence: null, dealbreaker: true });
+      kind: 'kampanjkrav', weight: 'krav', evidence: null, dealbreaker: true });
   }
 
   if (!krav.length) {
