@@ -24,6 +24,7 @@
 import 'dotenv/config';
 import { pool } from '../src/db.js';
 import { SYSTEM, scoreFromItems } from '../src/checklist.js';
+import { parseJson } from '../src/llm.js';
 import { renderCvProfile } from '../src/cvprofile.js';
 
 const KEY = process.env.OPENROUTER_API_KEY.trim();
@@ -75,8 +76,11 @@ async function fråga(model, extra, krav) {
   const d = await res.json();
   if (d.error) throw new Error(JSON.stringify(d.error).slice(0, 120));
   const txt = d.choices?.[0]?.message?.content || '';
+  // The app's own parser, not a stricter one: a model that wraps its
+  // answer in prose is not broken here if llmJson would have read it,
+  // and judging it broken would be testing my regex, not the model.
   let svar = null;
-  try { svar = JSON.parse(txt.replace(/^```json\s*|```$/g, '').trim()); } catch { /* trasig JSON */ }
+  try { svar = parseJson(txt); } catch { /* trasig JSON */ }
   return {
     svar,
     sekunder: (Date.now() - t0) / 1000,
