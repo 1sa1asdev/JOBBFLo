@@ -61,6 +61,25 @@ REGLER
 - Marknadsföringsspråk är inte krav. "Vi erbjuder en dynamisk arbetsplats" ska
   inte bli någonting.
 - Svenska, utom tekniknamn och egennamn.
+- "kind" säger VILKEN SORTS krav det är. Det avgör hur tungt det väger senare,
+  så var noga:
+  - "yrke": själva yrket eller rollen ("legitimerad sjuksköterska", "elektriker")
+  - "licens": legitimation, behörighet, certifikat, körkort, medborgarskap,
+    säkerhetsprövning — sådant man antingen har eller inte har
+  - "utbildning": examen eller utbildningsnivå
+  - "erfarenhet": erfarenhet av ett område, eller antal år
+  - "teknik": verktyg, system, programmeringsspråk, metoder
+  - "språk": språkkunskaper
+  - "egenskap": personliga egenskaper ("noggrann", "flexibel", "social",
+    "stresstålig", "serviceinriktad"). Sådant står i nästan varje annons och
+    går inte att belägga i ett CV — märk det rätt, gissa aldrig något annat.
+- Skriv ALDRIG samma krav två gånger. Står språkkravet i "languages" ska det
+  inte också ligga i "requires".
+- HÖGST 12 krav totalt i "requires", de tyngsta först: yrke och licens, sedan
+  utbildning och erfarenhet, sedan teknik. Slå ihop det som hör ihop
+  ("HTML, CSS och JavaScript" är ETT krav, inte tre). En annons som listar
+  tjugo saker kräver inte tjugo saker — den räknar upp en kravprofil, och en
+  lista som är längre än tolv rader går varken att läsa eller väga.
 
 Svara ENDAST med JSON, inga kodstaket:
 {
@@ -68,7 +87,7 @@ Svara ENDAST med JSON, inga kodstaket:
   "role": {"title": "rolltiteln som annonsen använder", "field": "vård och omsorg"},
   "seniority": "student | junior | mid | senior",
   "years_required": tal eller null,
-  "requires": [{"name": "körkort B", "field": "transport", "weight": "krav|meriterande", "evidence": "ordagrant ur annonsen"}],
+  "requires": [{"name": "körkort B", "field": "transport", "weight": "krav|meriterande", "kind": "licens", "evidence": "ordagrant ur annonsen"}],
   "tasks": [{"what": "kort mening", "evidence": "ordagrant ur annonsen"}],
   "domains": [{"name": "äldreomsorg", "evidence": "ordagrant"}],
   "languages": [{"name": "Svenska", "level": "flytande", "evidence": "ordagrant"}],
@@ -113,20 +132,57 @@ export async function buildAdProfile(ad) {
     };
   }
 
+  // Cheap first, expensive only when the cheap read came back thin.
+  //
+  // Measured on six ads, same prompt: gemini-2.5-flash costs $0.0047 an
+  // ad and quotes 99% verbatim; gemini-2.5-flash-lite costs $0.0007 —
+  // seven times less — and quotes 98%. The difference is not fidelity,
+  // it is COMPLETENESS: the lite model found 43 requirements where
+  // flash found 73, and on one ad it listed 4 where flash listed 18.
+  //
+  // A missing requirement is the failure that matters here: the
+  // checklist would be judged complete while the ad's actual demands
+  // were never on it. So the cheap read stands only when it comes back
+  // complete AND sourced, and anything thinner is re-read by the better
+  // model. (gpt-oss-120b was measured too: 58s an ad, two broken JSON
+  // answers out of six, 83% verbatim. Not a candidate.)
   let usedModel = null;
-  const p = await llmJson({
+
+  // verifyQuotes reads `quote`; these facts carry theirs in `evidence`.
+  // Passed straight in, every check returned verbatim:false — the flag
+  // was written but nothing ever set it true, so renderAdProfile
+  // printed no evidence at all. cvprofile.js maps the field first,
+  // which is why the CV side worked and this did not.
+  const kontrollera = (p) => {
+    for (const key of CITERADE) {
+      p[key] = verifyQuotes(
+        (p[key] || []).map((f) => ({ ...f, quote: f.evidence })), text
+      ).map(({ quote, ...f }) => f);
+    }
+    return p;
+  };
+
+  const läs = async (tier) => kontrollera(await llmJson({
     onModel: (m) => { usedModel = m; },
-    // Same tier as scoring: this replaces work scoreAd was doing on raw
-    // text anyway, and it is done once per ad instead of once per
-    // (ad × search × criteria change).
-    tier: 'bulk',
-    maxTokens: 2500,
+    tier,
+    // Long ads truncated the JSON at 2500 and the whole read was lost.
+    maxTokens: 4000,
     system: SYSTEM,
     messages: [{ role: 'user', content: text.slice(0, 9000) }],
-  });
+  }));
 
-  for (const key of CITERADE) {
-    p[key] = verifyQuotes(p[key] || [], text);
+  let p = await läs('fast');
+  const antal = p?.requires?.length || 0;
+  // Counted AFTER the check, not before. The cheap model fills the
+  // evidence field almost every time — it just does not always quote:
+  // asked for the ad's words it writes its own, and 89 of 268 rows lost
+  // their quote at verification. A row the user cannot check is exactly
+  // what this step exists to avoid, so paraphrase counts as thin.
+  const belagda = (p?.requires || []).filter((r) => r.verbatim).length;
+  const tunt = text.length > 1200 && (antal < 4 || belagda < antal * 0.6);
+  if (tunt) {
+    console.log(`  annonsprofil: ${antal} krav varav ${belagda} med ordagrant citat — läser om`);
+    p = await läs('bulk');
   }
   p.__model = usedModel;
   return p;
