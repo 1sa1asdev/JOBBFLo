@@ -1,5 +1,6 @@
 import { pool } from './db.js';
-import { loadTaxonomy, resolveFilters } from './taxonomy.js';
+import { loadTaxonomy } from './taxonomy.js';
+import { countLocal } from './localsearch.js';
 import { nearestOccupations } from './taxonomyVectors.js';
 
 // ------------------------------------------------------------
@@ -21,7 +22,6 @@ import { nearestOccupations } from './taxonomyVectors.js';
 // worse than one that gets a little less clever.
 // ------------------------------------------------------------
 
-const JOBSEARCH = 'https://jobsearch.api.jobtechdev.se/search';
 
 // The filters this app can switch, in the order they are offered. The
 // occupation axes are OR-ed by the API (measured: field + group returns
@@ -132,24 +132,13 @@ export async function occupationCandidates(rå, { k = 3 } = {}) {
 // ------------------------------------------------------------
 // What a set of filters returns right now.
 // ------------------------------------------------------------
-const PARAMETRAR = ['q', 'occupation-field', 'occupation-group', 'occupation-name',
-  'municipality', 'region', 'employment-type', 'worktime-extent',
-  'experience', 'trainee', 'larling', 'remote'];
-
+// Counted in the pool, not over HTTP. The suggestions are what a
+// filter WOULD leave to look at, and what the app can actually show is
+// what it holds — a count from the API would promise ads that are not
+// here. It is also the difference between a dozen round trips and a
+// dozen indexed queries: 2.1s became milliseconds.
 export async function hitCount(filters) {
-  const l = await resolveFilters(filters || {});
-  const p = new URLSearchParams({ limit: '0' });
-  for (const k of PARAMETRAR) {
-    for (const v of [].concat(l[k] ?? [])) {
-      if (v != null && String(v).trim() !== '') p.append(k, String(v));
-    }
-  }
-  const res = await fetch(`${JOBSEARCH}?${p}`, {
-    headers: { accept: 'application/json' },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) return null;
-  return (await res.json()).total?.value ?? null;
+  return countLocal(filters || {});
 }
 
 // ------------------------------------------------------------
@@ -207,12 +196,15 @@ export async function suggestFilters(searchId) {
     }
   }
 
+  // Distans, trainee and lärling are gone from this list: the ad data
+  // the app holds does not carry them, so the pool cannot honour them
+  // (see src/localsearch.js). A suggestion the search would then
+  // ignore is worse than no suggestion.
   const enkla = [
     ['experience', false, 'Bara jobb som inte kräver erfarenhet'],
     ['worktime-extent', 'Deltid', 'Bara deltid'],
     ['worktime-extent', 'Heltid', 'Bara heltid'],
-    ['remote', true, 'Bara distansjobb'],
-    ['trainee', true, 'Bara trainee- och praktikplatser'],
+    ['employment-type', 'Tillsvidareanställning', 'Bara tillsvidare'],
   ];
   for (const [key, value, varför] of enkla) {
     if (aktiva[key] != null) continue;

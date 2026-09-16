@@ -1,6 +1,5 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
-import { buildProfileTerms, prefilterAd } from './prefilter.js';
 import { renderCvProfile } from './cvprofile.js';
 
 // ------------------------------------------------------------
@@ -275,154 +274,27 @@ async function loadSearchContext(searchId, { needCv = true } = {}) {
 }
 
 // ------------------------------------------------------------
-// QUEUE — the fast half of a scan. Everything here is free:
-// one Arbetsförmedlingen call plus local prefiltering, no LLM.
-// It writes a match_results row per surviving candidate with
-// score NULL, which is what lets the UI list the jobs about a
-// second after the user asks instead of after the whole batch
-// has been judged.
+// QUEUE — the free half of a scan. It writes a match_results row per
+// candidate with score NULL, which is what lets the UI list the jobs a
+// second after the user asks rather than after a batch has been judged.
 //
-// The prefilter runs HERE rather than at scoring time on purpose:
-// it drops ~95% of what the API returns, and queueing those would
-// mean showing the user hundreds of ads that silently vanish once
-// a model got to them.
+// Match a search against the ad pool.
+//
+// This used to page JobSearch per search, with a cursor, an offset
+// ceiling and a broadening ladder of its own. The pool now answers it
+// — see src/localsearch.js for why, and for the counts that showed the
+// two sources agree. The ads themselves still arrive through the feed.
+//
+// The options are kept so every caller and the worker keep working;
+// there are no pages any more, so only `limit` still means anything.
 // ------------------------------------------------------------
-// fromStart reads page one regardless of where the sweep's cursor sits,
-// and leaves that cursor where it was. The two are one feature: a
-// newly published ad is at the front of the result set, and the deep
-// sweep may be nine hundred ads into the back of it — so the only way
-// to see today's ads without abandoning the sweep's position is to look
-// at the front and then put the cursor back.
-export async function queueSearch(searchId, {
-  fetchLimit = 100, limit = null, pages = 1, fromStart = false,
-} = {}) {
-  const { search } = await loadSearchContext(searchId);
-
-  const { backfillSearch } = await import('./fetchJobs.js');
-
-  // Walk the result set instead of re-reading page one. Each scan
-  // advances the cursor; when it passes the reported total it wraps to
-  // 0 so the next scan picks up newly published ads. Finding is free,
-  // so paging deep costs one HTTP request per page and nothing else.
-  const cursorFöre = search.fetch_offset || 0;
-  let offset = fromStart ? 0 : cursorFöre;
-  let total = search.fetch_total ?? null;
-  let dropped = [];
-  const adIds = [];
-
-  for (let page = 0; page < pages; page++) {
-    const res = await backfillSearch(search.api_filters || {}, fetchLimit, offset);
-    adIds.push(...res.ids);
-    if (res.total != null) total = res.total;
-    if (res.dropped?.length) dropped = res.dropped;
-    // Advance by what the API served, not by what we kept. Ads filtered
-    // out on omfattning still take up their place in the result set, so
-    // counting only the keepers walked the cursor at half speed and
-    // re-read the same window every page.
-    const read = res.fetched ?? res.ids.length;
-    offset = res.offset + read;
-
-    // exhausted: either the API returned a short page or we passed the
-    // total or JobSearch's offset ceiling
-    if (!read || (total != null && offset >= total) || offset >= 2000) {
-      offset = 0;
-      // Only a real sweep can declare itself finished. A front-of-list
-      // check on a small result set reaches the end after one page, and
-      // letting that stamp fetch_done_at would tell a campaign whose
-      // first sweep is still running that it had swept everything.
-      if (!fromStart) {
-        await pool.query(
-          `UPDATE searches SET fetch_done_at = now() WHERE id = $1`, [searchId]
-        );
-      }
-      break;
-    }
-  }
-
-  // Persist the broadening decision, don't just record it. A filter the
-  // API rejects makes EVERY scan fall down the ladder, and the ladder
-  // restarts at offset 0 — so leaving the bad key in api_filters pins
-  // the cursor to page one forever. Strip it once; the warning banner
-  // keeps the user informed that it was dropped.
-  if (dropped.length) {
-    const cleaned = { ...(search.api_filters || {}) };
-    for (const k of dropped) delete cleaned[k];
-    await pool.query(
-      `UPDATE searches SET api_filters = $2 WHERE id = $1`,
-      [searchId, JSON.stringify(cleaned)]
-    );
-  }
-
-  await pool.query(
-    `UPDATE searches SET fetch_offset = $2, fetch_total = $3,
-       dropped_filters = COALESCE($4, dropped_filters) WHERE id = $1`,
-    // A front-of-list check must not cost the sweep its place. Writing
-    // the offset this pass happened to reach would rewind a campaign
-    // that is nine hundred ads deep back to one hundred, and it would
-    // re-read the same early pages every time a new ad arrived.
-    [searchId, fromStart ? cursorFöre : offset, total, dropped.length ? dropped : null]
-  );
-
-  // Restricted to the ads layer 1 actually selected for THIS search.
-  // Without that restriction we'd store the newest ads in the whole
-  // global pool (every job in Sweden). Ads stay global; only the
-  // candidate set is per-search.
-  //
-  // apply_filter is NOT applied here any more. It was a find-time
-  // exclusion because every stored ad used to cost a scoring call, so
-  // hiding the 78% you cannot email saved real money. On this branch
-  // nothing is scored until you ask, so excluding at find time buys
-  // nothing and only hides jobs from the list you browse. It is a
-  // display filter now — see the results route.
-  const { rows: ads } = await pool.query(
-    `SELECT a.* FROM ads a
-     LEFT JOIN match_results m ON m.ad_id = a.id AND m.search_id = $1
-     LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint
-     WHERE m.id IS NULL
-       AND a.removed_at IS NULL
-       AND na.fingerprint IS NULL
-       AND (a.deadline IS NULL OR a.deadline >= current_date)
-       AND ($2::uuid[] IS NULL OR a.id = ANY($2))
-     ORDER BY a.published_at DESC NULLS LAST`,
-    [searchId, adIds]
-  );
-
-  const profileTerms = buildProfileTerms({
-    criteriaText: search.criteria_text, cvText: search.cv_text,
-    apiFilters: search.api_filters || {},
-  });
-  // The prefilter no longer REJECTS anything either — it only ranks.
-  // Its job was to keep ads away from a scorer that ran automatically.
-  // Nothing runs automatically now, and a candidate list that quietly
-  // drops ads is the thing the user is browsing to avoid.
-  const triaged = ads.map((ad) => ({ ad, ...prefilterAd(ad, profileTerms) }));
-  const candidates = triaged.sort((a, b) => b.score - a.score);
-  const skipped = [];
-
-  // Every survivor is stored as a CANDIDATE — shortlisted_at NULL,
-  // score NULL. No model has seen any of them and none will until the
-  // user shortlists it. `limit` therefore defaults to null (no cap):
-  // the old cap of 20 existed because each queued ad meant an LLM
-  // call, and that is no longer true.
-  //
-  // queue_rank still carries the prefilter's confidence, now used to
-  // order the candidate list rather than a scoring queue.
-  const admit = limit == null ? candidates : candidates.slice(0, limit);
-  let found = 0;
-  for (const { ad, score } of admit) {
-    const { rowCount } = await pool.query(
-      `INSERT INTO match_results (search_id, ad_id, queue_rank)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (search_id, ad_id) DO NOTHING`,
-      [searchId, ad.id, score]
-    );
-    found += rowCount;
-  }
-
-  await pool.query(`UPDATE searches SET last_scanned_at = now() WHERE id = $1`, [searchId]);
-  const depth = total != null ? ` — ${offset || total}/${total} genomsökt` : '';
-  console.log(`found ${found} candidates for "${search.name}" (${skipped.length} förfiltrerade)${depth}`);
-  return { found, skipped: skipped.length, seen: ads.length, total, offset };
+export async function queueSearch(searchId, { limit = null } = {}) {
+  const { search } = await loadSearchContext(searchId, { needCv: false });
+  const { matchSearch } = await import('./localsearch.js');
+  const r = await matchSearch(searchId, ...(limit ? [{ limit }] : []));
+  console.log(`found ${r.found} candidates for "${search.name}" — ${r.total} i poolen`
+    + `${r.dropped.length ? `, släppte ${r.dropped.join(', ')}` : ''}`);
+  return { found: r.found, skipped: 0, seen: r.total, total: r.total, offset: 0 };
 }
 
 // ------------------------------------------------------------
