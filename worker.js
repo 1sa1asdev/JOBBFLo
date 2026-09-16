@@ -19,7 +19,7 @@ import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { buildPendingAdProfiles, antalUtanProfil } from './src/adprofile.js';
 import { runImapLoop } from './src/imap.js';
-import { embedPendingAds, embedSearchQuery } from './src/embed.js';
+import { embedPendingAds, embedPendingProfiles, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
@@ -209,6 +209,12 @@ async function embedTick() {
         .catch((e) => console.error(`embed sökvektor ${s2.name}:`, e.message.slice(0, 90)));
     }
 
+    // The second vector: the ad as requirements, against the CV in the
+    // same shape. Cheap (an embedding, not a model call) and only for
+    // ads that have a profile at all.
+    const np = await embedPendingProfiles({ limit: 96 });
+    if (np) console.log(`embed: ${np} kravprofiler vektoriserade`);
+
     const n = await embedPendingAds({ limit: 64 });
     if (n) {
       const c = await embeddingCoverage();
@@ -365,12 +371,16 @@ setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 setInterval(leadScanTick, LEADSCAN_EVERY);
 setInterval(judgeTick, JUDGE_EVERY);
-// Opt-in, not on by default. Left running it exhausted the OpenRouter
-// key's total limit: one gemini-2.5-flash call per ad, ~1000 an hour,
-// against 37,000 ads — for profiles that measurably do not help ranking
-// yet (see src/embed.js). Nothing reads them unless EMBED_FROM_PROFILE
-// is on, so building them unasked was spend with no consumer.
-if (process.env.AD_PROFILES === '1') setInterval(adProfileTick, ADPROFILE_EVERY);
+// On by default now, and bounded by what a search actually holds.
+//
+// It was off because it had no consumer and no bound: one call per ad
+// against 37,000 ads exhausted the key's whole limit for profiles
+// nothing read. Both halves changed. The checklist reads the profile
+// to know what the ad demands, ranking reads its vector to know
+// whether the CV could do the job, and the query only looks at ads
+// inside a search — 1861 rather than 43k, about $0.0007 each, paid
+// once either way since a checked ad buys the same read.
+setInterval(adProfileTick, ADPROFILE_EVERY);
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');

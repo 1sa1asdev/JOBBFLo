@@ -85,15 +85,30 @@ export async function GET(req, { params }) {
   // backwards from what the name suggests. Ads with no vector yet sort
   // after the ranked ones rather than in front of them, on the old
   // keyword-and-date order.
+  // Two vectors, weighted a quarter to three quarters: the criteria one
+  // says this is the kind of job asked for, the profile one says the CV
+  // could do it. Measured against the checklist's scores on 23 ads:
+  // criteria alone 0.26, profile-vs-CV 0.45, the blend 0.45. An ad
+  // without a profile vector falls back to the criteria one rather than
+  // sinking — the profiles fill in over hours.
   const { rows: [sv] } = await pool.query(
-    `SELECT query_embedding FROM searches WHERE id = $1`, [id]);
-  const rankBy = sv?.query_embedding ? `$6::vector` : null;
+    `SELECT s.query_embedding, p.cv_embedding
+     FROM searches s JOIN profile p ON p.id = s.profile_id WHERE s.id = $1`, [id]);
+  const rankBy = sv?.query_embedding ? '$6::vector' : null;
+  const fitBy = rankBy && sv?.cv_embedding ? '$7::vector' : null;
+
+  const vektorOrder = fitBy
+    ? `(a.embedding IS NULL AND a.profile_embedding IS NULL),
+       CASE WHEN a.profile_embedding IS NULL THEN (a.embedding <=> ${rankBy})
+            ELSE 0.25 * (a.embedding <=> ${rankBy})
+               + 0.75 * (a.profile_embedding <=> ${fitBy}) END`
+    : `(a.embedding IS NULL), a.embedding <=> ${rankBy}`;
 
   const orderSql = sort === 'distance' && hasHome
     ? `${rowDist} ASC NULLS LAST, r.score DESC NULLS LAST`
     : rankBy
       ? `(r.score IS NULL), r.score DESC,
-         (a.embedding IS NULL), a.embedding <=> ${rankBy},
+         ${vektorOrder},
          m.queue_rank DESC NULLS LAST, a.published_at DESC NULLS LAST`
       : `(r.score IS NULL), r.score DESC, m.queue_rank DESC NULLS LAST,
          a.published_at DESC NULLS LAST`;
@@ -104,6 +119,7 @@ export async function GET(req, { params }) {
   // no-op — this has cost a route on this project more than once.
   const args = [id, limit, offset, me?.home_lat ?? 0, me?.home_lon ?? 0];
   if (rankBy && sort !== 'distance') args.push(sv.query_embedding);
+  if (fitBy && sort !== 'distance') args.push(sv.cv_embedding);
 
   // counts query binds: $1 id, $2 lat, $3 lon
   const countKmFilter = hasHome && maxKm

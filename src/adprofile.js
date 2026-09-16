@@ -266,6 +266,12 @@ export async function buildPendingAdProfiles({ limit = 20 } = {}) {
      WHERE a.ad_profile IS NULL
        AND a.removed_at IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
+       -- Only ads a search actually holds. Reading all 43k into
+       -- profiles would cost about $30 and nothing would look at most
+       -- of them; the 1861 inside a search are what ranking and the
+       -- checklist both read, and the profile is paid for once either
+       -- way — here, or at the moment the ad is checked.
+       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)
      ORDER BY (SELECT count(*) FROM match_results m WHERE m.ad_id = a.id) DESC,
               a.published_at DESC NULLS LAST
      LIMIT $1`,
@@ -299,11 +305,15 @@ export async function buildPendingAdProfiles({ limit = 20 } = {}) {
   return { done, thin, kvar: await antalUtanProfil() };
 }
 
+// What is left to read, counted the way the builder selects: ads a
+// search holds. Counting the whole pool reported 42,000 outstanding
+// against a queue that will only ever touch 1,861 of them.
 export async function antalUtanProfil() {
   const { rows: [r] } = await pool.query(
-    `SELECT count(*)::int AS n FROM ads
-     WHERE ad_profile IS NULL AND removed_at IS NULL
-       AND (deadline IS NULL OR deadline >= current_date)`
+    `SELECT count(*)::int AS n FROM ads a
+     WHERE a.ad_profile IS NULL AND a.removed_at IS NULL
+       AND (a.deadline IS NULL OR a.deadline >= current_date)
+       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)`
   );
   return r.n;
 }

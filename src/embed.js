@@ -186,6 +186,48 @@ export async function embedPendingAds({ limit = 64 } = {}) {
 }
 
 // ------------------------------------------------------------
+// The second vector: the ad read as requirements, in the same shape
+// the CV is read into.
+//
+// Separate from `embedding` on purpose. That one keeps the ad's own
+// words and answers "is this the kind of job I searched for", which is
+// the question a rendered profile is measurably worse at — every ad
+// turned into "## ROLL / ## KRAV" reads a little like every other ad,
+// and discrimination drops 14-20% (the measurement is above).
+//
+// This one answers the other question: could this candidate do the job.
+// Against the checklist's scores on 23 ads, ad text vs criteria
+// correlates 0.26 and this correlates 0.45.
+//
+// Only ads a search actually holds are profiled and embedded — 1861
+// ads rather than 43k, because reading every ad in Sweden into a
+// profile would cost $30 and nothing would look at most of them.
+// ------------------------------------------------------------
+export async function embedPendingProfiles({ limit = 96 } = {}) {
+  const { rows: ads } = await pool.query(
+    `SELECT a.id, a.ad_profile FROM ads a
+     WHERE a.ad_profile IS NOT NULL
+       AND a.removed_at IS NULL
+       AND (a.deadline IS NULL OR a.deadline >= current_date)
+       AND (a.profile_embedding IS NULL OR a.profile_embedded_at < a.ad_profile_at)
+       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)
+     ORDER BY a.ad_profile_at DESC NULLS LAST
+     LIMIT $1`, [limit]);
+  if (!ads.length) return 0;
+
+  const { renderAdProfile } = await import('./adprofile.js');
+  const texter = ads.map((a) => renderAdProfile(a.ad_profile) || '');
+  const vektorer = await embedTexts(texter);
+
+  for (const [i, ad] of ads.entries()) {
+    await pool.query(
+      `UPDATE ads SET profile_embedding = $2::vector, profile_embedded_at = now()
+       WHERE id = $1`, [ad.id, toVector(vektorer[i])]);
+  }
+  return ads.length;
+}
+
+// ------------------------------------------------------------
 // The query side. Embeds the CV profile rather than the raw CV: it is
 // the cleaner signal and it already exists.
 // ------------------------------------------------------------
