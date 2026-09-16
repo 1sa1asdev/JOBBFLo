@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
-import { buildAdProfile } from './adprofile.js';
+import { buildAdProfile, renderAdProfile } from './adprofile.js';
 import { renderCvProfile } from './cvprofile.js';
 
 // ------------------------------------------------------------
@@ -31,7 +31,7 @@ import { renderCvProfile } from './cvprofile.js';
 // rule (must_criteria, answered here as one extra requirement).
 // ------------------------------------------------------------
 
-const SYSTEM = `Du svarar på om en kandidats CV uppfyller varje krav i en jobbannons.
+export const SYSTEM = `Du svarar på om en kandidats CV uppfyller varje krav i en jobbannons.
 
 Du får KRAVEN (redan utlästa ur annonsen, med annonsens egna ord) och kandidatens CV-profil.
 
@@ -49,6 +49,10 @@ REGLER
 - Bedöm kravet som det står. Lägg inte till egna krav, och mildra inte annonsens.
 - En mening per krav i "varfor", på svenska, max 15 ord.
 - Svara på ALLA krav du får, i samma ordning, med samma "id".
+- Ett krav märkt [KAMPANJREGEL] handlar om ANNONSEN, inte om CV:t. Då får du
+  också annonsens roll och krav. Svara "uppfyllt" om annonsen stämmer med
+  regeln, "saknas" om den bryter mot den, "okänt" om det inte går att avgöra.
+  cv_belagg ska vara null för den raden.
 
 Svara ENDAST med JSON, inga kodstaket:
 {"items": [{"id": 0, "status": "uppfyllt|delvis|saknas|okänt", "cv_belagg": "ordagrant ur CV:t eller null", "varfor": "kort"}]}`;
@@ -157,8 +161,14 @@ export function scoreFromItems(items = []) {
   // "erfarenhet av användarstöd", which dropped a teaching job the CV
   // fits from 85 to 25. Being on that list makes a requirement weigh
   // more (it is in the list twice over), never a stop on its own.
+  // "Okänt" caps for a licence — not holding one is the default, and an
+  // ad that asks for it is asking. It must NOT cap for the campaign
+  // rule: there "okänt" means the model could not tell from the ad, and
+  // treating that as a broken rule stops the campaign on every ad it
+  // was unsure about.
   const brutna = räknade.filter((i) => GRIND.has(i.kind)
-    && (i.status === 'saknas' || i.status === 'okänt'));
+    && (i.status === 'saknas'
+      || (i.status === 'okänt' && i.kind !== 'kampanjkrav')));
   if (brutna.length && score > TAK_BRUTEN_GRIND) score = TAK_BRUTEN_GRIND;
 
   // Thin evidence should not read as certainty. Two met requirements is
@@ -321,9 +331,18 @@ export async function checkAd(ad, {
     system: SYSTEM,
     messages: [{
       role: 'user',
-      content: `## KRAV\n${krav.map((k) => `${k.id}. [${k.weight}] ${k.name}`
+      content: `## KRAV\n${krav.map((k) => `${k.id}. `
+        + `${k.kind === 'kampanjkrav' ? '[KAMPANJREGEL] ' : `[${k.weight}] `}${k.name}`
         + `${k.evidence ? ` — annonsen: "${k.evidence}"` : ''}`).join('\n')}`
-        + `\n\n## CV-PROFIL\n${cvRenderad.slice(0, 9000)}`,
+        + `\n\n## CV-PROFIL\n${cvRenderad.slice(0, 9000)}`
+        // The campaign rule asks about the AD ("bara programmeringsroller,
+        // inga konsultbolag"), so the model needs the ad in front of it.
+        // Asked with only the CV in view it answered "the CV does not say",
+        // which the gate then read as a broken rule — six live verdicts in
+        // a row capped at 25 for a rule none of them had actually failed.
+        + (mustCriteria?.trim()
+          ? `\n\n## ANNONSEN (för kampanjregeln)\n${(renderAdProfile(profil) || '').slice(0, 2500)}`
+          : ''),
     }],
   });
 
