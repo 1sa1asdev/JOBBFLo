@@ -85,30 +85,33 @@ export async function GET(req, { params }) {
   // backwards from what the name suggests. Ads with no vector yet sort
   // after the ranked ones rather than in front of them, on the old
   // keyword-and-date order.
-  // Two vectors, weighted a quarter to three quarters: the criteria one
-  // says this is the kind of job asked for, the profile one says the CV
-  // could do it. Measured against the checklist's scores on 23 ads:
-  // criteria alone 0.26, profile-vs-CV 0.45, the blend 0.45. An ad
-  // without a profile vector falls back to the criteria one rather than
-  // sinking — the profiles fill in over hours.
+  // Ranked by the criteria vector alone, and that is a measurement, not
+  // an oversight.
+  //
+  // ads.profile_embedding exists — the ad read into requirements,
+  // against the CV in the same shape — and blending it in looked like a
+  // clear win when both sides were embedded from raw text in a script
+  // (0.26 against 0.45, correlating with the checklist's own scores).
+  // On the vectors this app actually stores it is the other way round,
+  // because adEmbedText already gives the ad more than its prose —
+  // title, occupation label, employer, municipality. Same 23 ads,
+  // stored vectors:
+  //
+  //   criteria only     0.58      75/25 blend   0.56
+  //   50/50 blend       0.54      profile only  0.48
+  //
+  // So the profile vector is kept and written, and ranking does not use
+  // it yet. It is the raw material for per-requirement matching, where
+  // similarity has an actual job to do.
   const { rows: [sv] } = await pool.query(
-    `SELECT s.query_embedding, p.cv_embedding
-     FROM searches s JOIN profile p ON p.id = s.profile_id WHERE s.id = $1`, [id]);
+    `SELECT query_embedding FROM searches WHERE id = $1`, [id]);
   const rankBy = sv?.query_embedding ? '$6::vector' : null;
-  const fitBy = rankBy && sv?.cv_embedding ? '$7::vector' : null;
-
-  const vektorOrder = fitBy
-    ? `(a.embedding IS NULL AND a.profile_embedding IS NULL),
-       CASE WHEN a.profile_embedding IS NULL THEN (a.embedding <=> ${rankBy})
-            ELSE 0.25 * (a.embedding <=> ${rankBy})
-               + 0.75 * (a.profile_embedding <=> ${fitBy}) END`
-    : `(a.embedding IS NULL), a.embedding <=> ${rankBy}`;
 
   const orderSql = sort === 'distance' && hasHome
     ? `${rowDist} ASC NULLS LAST, r.score DESC NULLS LAST`
     : rankBy
       ? `(r.score IS NULL), r.score DESC,
-         ${vektorOrder},
+         (a.embedding IS NULL), a.embedding <=> ${rankBy},
          m.queue_rank DESC NULLS LAST, a.published_at DESC NULLS LAST`
       : `(r.score IS NULL), r.score DESC, m.queue_rank DESC NULLS LAST,
          a.published_at DESC NULLS LAST`;
@@ -119,7 +122,6 @@ export async function GET(req, { params }) {
   // no-op — this has cost a route on this project more than once.
   const args = [id, limit, offset, me?.home_lat ?? 0, me?.home_lon ?? 0];
   if (rankBy && sort !== 'distance') args.push(sv.query_embedding);
-  if (fitBy && sort !== 'distance') args.push(sv.cv_embedding);
 
   // counts query binds: $1 id, $2 lat, $3 lon
   const countKmFilter = hasHome && maxKm

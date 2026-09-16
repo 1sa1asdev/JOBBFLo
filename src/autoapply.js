@@ -317,39 +317,24 @@ if (!search.auto_apply_require_score) return 0;
   // — out of 600 found and 35 mailable, the 35 judged were an
   // accident of storage order.
   //
-  // Ranked by two vectors, weighted a quarter to three quarters.
+  // Ranked by embedding distance when the search has a query vector:
+  // pgvector's <=> is cosine distance, so ASC is most-similar-first,
+  // and the criteria vector is a far better guess at "worth paying to
+  // read" than nothing at all. Ads with no embedding sort last rather
+  // than dropping out — unranked is not disqualified.
   //
-  // pgvector's <=> is cosine distance, so ASC is most-similar-first.
-  // The criteria vector says "this is the kind of job asked for"; the
-  // profile vector says "this candidate could do it", and the second is
-  // what decides whether a verdict is worth paying for. Measured
-  // against the checklist's own scores on 23 ads: criteria alone 0.26,
-  // profile-vs-CV alone 0.45, and a 25/75 blend also 0.45 — the blend
-  // keeps a campaign from queueing jobs the CV fits but the user never
-  // asked about.
-  //
-  // Ads with no profile vector fall back to the criteria one rather
-  // than dropping out: unprofiled is not disqualified, and the profiles
-  // fill in over hours.
-  const { rows: [pr] } = await pool.query(
-    `SELECT cv_embedding FROM profile WHERE id = $1`, [search.profile_id]);
+  // The second vector (ads.profile_embedding, the ad's requirements
+  // against the CV in the same shape) is deliberately NOT blended in
+  // here. It looked like a large win in a script and measured worse on
+  // the vectors this app stores — the numbers are in the results route.
+  const ranked = search.query_embedding
+    ? `ORDER BY (a.embedding IS NULL),
+                a.embedding <=> $3::vector,
+                a.published_at DESC NULLS LAST`
+    : `ORDER BY a.published_at DESC NULLS LAST`;
 
   const args = [searchId, antal];
   if (search.query_embedding) args.push(search.query_embedding);
-  if (search.query_embedding && pr?.cv_embedding) args.push(pr.cv_embedding);
-
-  const ranked = !search.query_embedding
-    ? `ORDER BY a.published_at DESC NULLS LAST`
-    : pr?.cv_embedding
-      ? `ORDER BY (a.embedding IS NULL AND a.profile_embedding IS NULL),
-                  CASE WHEN a.profile_embedding IS NULL
-                       THEN (a.embedding <=> $3::vector)
-                       ELSE 0.25 * (a.embedding <=> $3::vector)
-                          + 0.75 * (a.profile_embedding <=> $4::vector) END,
-                  a.published_at DESC NULLS LAST`
-      : `ORDER BY (a.embedding IS NULL),
-                  a.embedding <=> $3::vector,
-                  a.published_at DESC NULLS LAST`;
 
   const { rowCount: asked } = await pool.query(
     `UPDATE match_results m SET score_requested_at = now(), queued_at = now()
