@@ -1,6 +1,5 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
-import { renderCvProfile } from './cvprofile.js';
 
 // ------------------------------------------------------------
 // LAYER 1 — natural language -> structured API filters.
@@ -89,50 +88,25 @@ export async function parseCriteria(criteriaText) {
 }
 
 // ------------------------------------------------------------
-// LAYER 2 — cross-reference the FULL ad text against the CV
-// and the user's stated criteria. This is the part that catches
-// what the taxonomy fields can't express.
+// LAYER 2 — the requirement checklist (src/checklist.js).
 //
-// Returns quoted spans so the UI can highlight the ad and link
-// letter claims back to the requirement they answer.
+// This was one prompt that read the whole ad and the whole CV and
+// answered with a 0-100 it chose itself. That number could not be
+// checked, was not stable (the same reposted job came back 25 one
+// time and 50 the next), and was bought again for every search the
+// ad turned up in.
+//
+// It is now two steps that can be checked: the ad’s requirements
+// read once per ad, then each requirement answered against the CV
+// with a verbatim quote from both sides. The score is arithmetic
+// over those rows. What stays in this file is the queue around it —
+// the budget, the twin reuse, the retry rules.
 // ------------------------------------------------------------
-const SCORE_SYSTEM = `Du bedömer hur väl en jobbannons matchar en specifik kandidat.
 
-Du får: kandidatens CV, kandidatens egna ord om vad hen söker, kandidatens projekt, och hela annonstexten.
-
-Bedöm mot BÅDE CV:t och kandidatens uttalade kriterier. Kriterierna väger tyngre än CV:t när de krockar — kandidaten vet vad hen vill ha.
-
-Citat i "matched" och "flags" MÅSTE vara ordagranna utdrag ur annonstexten, max 15 ord, så att de kan markeras i gränssnittet. Hitta aldrig på citat.
-
-Svara ENDAST med JSON, inga kodstaket:
-{
-  "score": 0-100,
-  "summary": "en mening om varför, på svenska",
-  "matched": [{"quote": "ordagrant ur annonsen", "why": "kort"}],
-  "flags":   [{"quote": "ordagrant ur annonsen", "why": "kort", "tag": "kort etikett, t.ex. 'Docker' eller '5+ år'"}],
-  "lead_project": "projektnamn som passar bäst att lyfta i brevet, eller null"
-}
-
-"flags" ska fånga allt som talar EMOT matchningen: teknik kandidaten saknar, erfarenhetskrav, språkkrav, pendling. Etiketten ("tag") aggregeras senare till en kompetensglapp-rapport — håll den kort och konsekvent.
-
-Poängsättning:
-90-100 = nästan perfekt, sök direkt
-70-89  = god match, värd att söka
-50-69  = möjlig, med reservationer
-0-49   = svag match`;
-
-// Requirements live in the first half of an ad; the tail is usually
-// benefits, company boilerplate and application instructions. Capping
-// keeps the long tail (p99 is 6190 chars) from eating a free tier's
-// per-minute budget. Safe for the verbatim-quote invariant: the model
-// can only quote what it was shown, and that text is a prefix of what
-// the UI highlights.
-const AD_CHARS_MAX = 4200;   // ≈ p75, so most ads are untouched
-
-// The ad as the model sees it. One definition, used both to build the
-// prompt's ad block and to check the quotes that come back — they
-// drifted apart, and a quote can only be judged against the text it was
-// drawn from.
+// The ad as the app shows it. Quotes coming back from any step are
+// checked against exactly this, because a quote can only be judged
+// against the text it was drawn from — and this is also what the UI
+// highlights.
 export function adTextShownToModel(ad) {
   return [
     ad.title,
@@ -144,96 +118,6 @@ export function adTextShownToModel(ad) {
   ].filter(Boolean).join('\n');
 }
 
-function adTextForScoring(description) {
-  const text = String(description || '');
-  if (text.length <= AD_CHARS_MAX) return text;
-  const cut = text.slice(0, AD_CHARS_MAX);
-  const lastBreak = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('. '));
-  return `${cut.slice(0, lastBreak > AD_CHARS_MAX * 0.6 ? lastBreak : AD_CHARS_MAX)}\n\n[…annonsen fortsätter]`;
-}
-
-// The ad profile is deliberately NOT in this prompt.
-//
-// It belongs here in principle: the candidate block is a structured
-// reading, and the ad arriving as raw prose is exactly the asymmetry
-// ad_profile exists to remove. But measured on six ads, same ads both
-// ways, it cost quote fidelity:
-//
-//   without the profile   23/33 quotes verbatim in the ad  (70%)
-//   with the profile      22/37                            (59%)
-//
-// Given a structured summary to reason from, this model quotes the
-// summary — and matched[].quote / flags[].quote must be verbatim in
-// ad.description or the UI highlights nothing and a letter's claims
-// point at text no employer wrote (CLAUDE.md #5). Printing the evidence
-// beside each requirement helped (0/2 before that, 9/11 after) and
-// still did not reach the baseline.
-//
-// So the profile serves the embedding, where there are no quotes to get
-// wrong, and scoring keeps reading the ad's own words. Worth revisiting
-// on a stronger bulk model: the 70% baseline is llama-3.1-8b-instant,
-// and gemini-2.5-flash measured 95% on this same invariant.
-
-export async function scoreAd({ ad, profile, projects, criteriaText, mustCriteria }) {
-  const projectList = projects
-    .map((p) => `- ${p.name} (${p.tech.join(', ')}): ${p.summary}`)
-    .join('\n');
-
-  // Prefer the profile: the CV read once by the best model, structured,
-  // and about a third the tokens of the raw text. Scoring is a matching
-  // task — it wants facts, not prose — and a fixed reading means two ads
-  // are judged against the same candidate rather than against whatever
-  // the model happened to infer that call. Falls back to the raw CV
-  // when no profile has been built yet.
-  const candidateBlock = profile.cv_profile_rendered
-    || `## KANDIDATENS CV
-${profile.cv_text}`;
-
-  const input = `${candidateBlock}
-
-## OM KANDIDATEN, I EGNA ORD
-${profile.about_text || '(inget angivet)'}
-
-## KANDIDATENS PROJEKT
-${projectList || '(inga)'}
-
-## VAD KANDIDATEN SÖKER
-${criteriaText}
-${mustCriteria ? `
-## ABSOLUT KRAV — ANNONSEN MÅSTE UPPFYLLA DETTA
-${mustCriteria}
-
-Detta är ett villkor, inte en önskan. Uppfyller annonsen det inte:
-sätt score till högst 15, och lägg till i flags ett objekt med
-tag "ska-krav" och ett ordagrant citat ur annonsen som visar varför
-den inte uppfyller kravet. Är det omöjligt att avgöra från
-annonstexten, behandla kravet som INTE uppfyllt — en gissning här
-leder till ett brev som aldrig skulle ha skickats.
-` : ''}
-## ANNONS
-Titel: ${ad.title}
-Arbetsgivare: ${ad.employer} (${ad.employer_type})
-Ort: ${ad.municipality || '—'}
-Sista ansökningsdag: ${ad.deadline || '—'}
-${ad.ats_vendor ? `Ansökan via: ${ad.ats_vendor}` : ''}
-${adTextForScoring(ad.description)}`;
-
-  return llmJson({
-    tier: 'bulk',
-    maxTokens: 2000,
-    system: SCORE_SYSTEM,
-    messages: [{ role: 'user', content: input }],
-  });
-}
-
-// ------------------------------------------------------------
-// Enforce the verbatim-quote invariant. matched[].quote and
-// flags[].quote drive ad-text highlighting; a paraphrased quote
-// highlights nothing and the evidence link jumps nowhere — a
-// silent UI break. Models comply ~93% of the time, so verify
-// here instead of trusting: mark each quote `verbatim` so the UI
-// can render non-matching ones as plain text, and keep the item
-// (a flag's `tag` still feeds the skills-gap report).
 // ------------------------------------------------------------
 // Whitespace is normalised on BOTH sides before comparing. Source text
 // carries hard line wraps — PDFs especially, but ad descriptions too —
@@ -429,7 +313,11 @@ async function reuseTwinVerdict(searchId, ad, search) {
 }
 
 async function drainQueue(searchId, { limit }) {
-  const { search, projects } = await loadSearchContext(searchId);
+  const { search } = await loadSearchContext(searchId);
+  // Imported here rather than at the top: checklist.js needs
+  // verifyQuotes from this file, and two modules importing each other
+  // at load time is a cycle waiting to hand one of them an undefined.
+  const { checkAd, tillMatchResult } = await import('./checklist.js');
 
   // Checked before the queue is read, so a spent budget costs one cheap
   // count instead of a page of ads we are not allowed to judge.
@@ -481,27 +369,23 @@ async function drainQueue(searchId, { limit }) {
     }
 
     try {
-      const r = await scoreAd({
-        ad,
-        profile: {
-          cv_text: search.cv_text,
-          about_text: search.about_text,
-          cv_profile_rendered: renderCvProfile(search.cv_profile),
-        },
-        projects,
-        criteriaText: search.criteria_text,
+      // The checklist, not a number the model picked: the ad's
+      // requirements answered one by one against the CV, and the score
+      // computed from those rows (src/checklist.js). Stored per
+      // (ad, CV), so a second search that finds the same ad pays
+      // nothing — the question "does this CV meet these requirements"
+      // never depended on which search found the job.
+      const rad = await checkAd(ad, {
+        cvText: search.cv_text,
+        cvProfile: search.cv_profile,
         mustCriteria: search.must_criteria,
       });
+      const r = tillMatchResult(rad);
 
-      const leadProject = projects.find((p) => p.name === r.lead_project);
-      // Against everything the model was shown about the ad, not just
-      // the description. The prompt includes the title, employer, town
-      // and deadline, and a quote lifted from the title is verbatim in
-      // what the model read — marking it otherwise called the model a
-      // liar for doing exactly what it was asked. Measured on six ads:
-      // 32/46 quotes verified against the description alone, 36/46
-      // against the text actually presented. The UI shows the title
-      // too, so those eight are highlightable either way.
+      // The quotes in matched/flags are the ad's own words, taken from
+      // requirement rows that were checked against the ad when they
+      // were read. Re-checked here anyway, against the same text the
+      // UI highlights, because that invariant is worth two lines.
       const visadText = adTextShownToModel(ad);
       r.matched = verifyQuotes(r.matched, visadText);
       r.flags = verifyQuotes(r.flags, visadText);
@@ -511,11 +395,11 @@ async function drainQueue(searchId, { limit }) {
       await pool.query(
         `UPDATE match_results SET
            score = $3, summary = $4, matched = $5, flags = $6,
-           lead_project_id = $7, scored_at = now(), last_error = NULL
+           check_cv_key = $7, scored_at = now(), last_error = NULL
          WHERE search_id = $1 AND ad_id = $2`,
         [searchId, ad.id, r.score, r.summary,
          JSON.stringify(r.matched), JSON.stringify(r.flags),
-         leadProject?.id || null]
+         rad.cv_key]
       );
 
       results.push({ ad, ...r });
@@ -531,8 +415,13 @@ async function drainQueue(searchId, { limit }) {
       // A transient failure records the reason without spending an
       // attempt, so the ad returns on the next tick with the quota
       // refilled.
+      // A key that is out of credit is not this ad's fault either. It
+      // read "Kunde inte bedömas" on every card in the list, and three
+      // ticks of that parks the whole queue permanently — so when the
+      // key is topped up, nothing moves until each ad is reset by hand.
       const transient = err.transient
-        || /429|rate|quota|timeout|ETIMEDOUT|ECONNRESET|användbart svar/i.test(err.message || '');
+        || /429|rate|quota|timeout|ETIMEDOUT|ECONNRESET|användbart svar/i.test(err.message || '')
+        || /\b(401|402|403)\b|nyckeln avvisades|key limit|insufficient|credit/i.test(err.message || '');
       await pool.query(
         `UPDATE match_results SET attempts = attempts + $4, last_error = $3
          WHERE search_id = $1 AND ad_id = $2`,

@@ -5,7 +5,8 @@
 //   - scan queue: queues ads for searches whose scan_interval elapsed
 //   - scoring drain: judges queued ads, one score at a time
 //   - embedding: makes new ads rankable without a model call
-//   - prune: retires ads nobody touched, keeps anything with history
+//   - releases what a withdrawn ad was holding, the moment the stream
+//     says so (the slower pool hygiene lives in janitor.js)
 //   - follow-up checker (drafts only, never sends)
 // Postgres is the only channel to the UI.
 // ------------------------------------------------------------
@@ -20,7 +21,7 @@ import { buildPendingAdProfiles, antalUtanProfil } from './src/adprofile.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
-  pruneStaleAds, embeddingCoverage, refreshQueryVectors, retireClosedAds,
+  embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
 
 // JobStream, once a minute. New ads arrive at about three a minute
@@ -37,7 +38,6 @@ const SCORE_EVERY = 5 * 60 * 1000;      // check which searches are due
 const DRAIN_EVERY = 20 * 1000;          // judge queued ads — the user is watching these land
 const FOLLOWUP_EVERY = 60 * 60 * 1000;  // follow-up drafts
 const EMBED_EVERY = 60 * 1000;          // embed newly found ads, free and local
-const PRUNE_EVERY = 6 * 60 * 60 * 1000; // retire ads nobody touched
 // Once a minute, not once every half hour. The pacing lives in the
 // campaign now — batch size and a quiet gap between batches — so the
 // tick only has to come round often enough to notice when a gap has
@@ -66,16 +66,11 @@ const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild 
 // New ads reach a campaign because ads arrived, not because an hour
 // passed.
 //
-// A campaign's candidates come from the JobSearch API, walked with a
-// cursor that goes deeper every scan. That is right for sweeping a
-// pool of 1200, and wrong for today's ad: the cursor may be nine
-// hundred in, the scan interval is an hour, and a job posted at 09:00
-// could sit unseen until 10:00 while the sweep reads page ten.
-//
-// So the JobStream poll drives it. When ads actually arrive, every
-// enabled campaign checks the FRONT of its result set — one page, no
-// model, no cost beyond an HTTP request — and the deep sweep keeps its
-// place. Nothing new in the stream means nothing happens.
+// A campaign's scan interval is an hour, so a job posted at 09:00 could
+// sit unseen until 10:00. The stream poll drives it instead: when ads
+// actually arrive, every enabled campaign re-matches against the pool —
+// one indexed query, no model, no API call. Nothing new in the stream
+// means nothing happens.
 let senasteSvep = 0;
 async function pollTick() {
   try {
@@ -245,20 +240,11 @@ async function vectorsTick() {
   }
 }
 
-// Retire ads that no longer exist. Never touches one with an
-// application, a favourite or a score — see src/refresh.js for why
-// that rule is load-bearing rather than merely polite.
-async function pruneTick() {
-  try {
-    // Deadlines pass with the clock, not with an event, so the poll
-    // cannot catch them. Retire before pruning: whatever prune keeps
-    // for its history should not also keep a vector and a queue row.
-    await retireClosedAds();
-    await pruneStaleAds();
-  } catch (err) {
-    console.error('prune:', err.message);
-  }
-}
+// Retiring and pruning moved to janitor.js, which also pulls the full
+// published list and closes ads that quietly stopped being published.
+// What stays here is the event-driven half: when the stream says an ad
+// was withdrawn, pollTick releases what it was holding immediately
+// rather than six hours later.
 
 // The only path in this app that sends without a per-letter click.
 // Campaigns are opt-in per search, capped per day, and pause on the
@@ -367,7 +353,6 @@ pollTick();
 scoreTick();
 drainTick();
 embedTick();
-pruneTick();
 vectorsTick();
 followupTick();
 autoApplyTick();
@@ -376,7 +361,6 @@ setInterval(scoreTick, SCORE_EVERY);
 setInterval(drainTick, DRAIN_EVERY);
 setInterval(followupTick, FOLLOWUP_EVERY);
 setInterval(embedTick, EMBED_EVERY);
-setInterval(pruneTick, PRUNE_EVERY);
 setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 setInterval(leadScanTick, LEADSCAN_EVERY);

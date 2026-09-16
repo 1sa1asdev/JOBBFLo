@@ -76,7 +76,7 @@ export function employerType(name = '') {
 // ------------------------------------------------------------
 // normalize a JobTech ad into our shape
 // ------------------------------------------------------------
-function mapAd(ad) {
+export function mapAd(ad) {
   const employer = ad.employer?.name || ad.employer?.workplace || 'Okänd arbetsgivare';
   const municipality = ad.workplace_address?.municipality || null;
 
@@ -100,7 +100,7 @@ function mapAd(ad) {
   };
 }
 
-async function upsertAd(client, a) {
+export async function upsertAd(client, a) {
   const { rows } = await client.query(
     `INSERT INTO ads (source, external_id, fingerprint, title, employer, employer_type,
                       municipality, region, description, apply_email, apply_url,

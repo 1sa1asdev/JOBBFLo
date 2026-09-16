@@ -35,5 +35,15 @@ export async function GET(req, { params }) {
     `SELECT * FROM applications WHERE ad_id = $1`, [id]
   );
 
-  return NextResponse.json({ ad, match, duplicates, application });
+  // The rows the score was computed from. Keyed to the verdict the UI
+  // is showing (check_cv_key), so an old verdict opens the checklist it
+  // was actually made from rather than a newer one against another CV.
+  const { rows: [check] } = await pool.query(
+    match?.check_cv_key
+      ? `SELECT * FROM ad_checks WHERE ad_id = $1 AND cv_key = $2`
+      : `SELECT * FROM ad_checks WHERE ad_id = $1 ORDER BY checked_at DESC LIMIT 1`,
+    match?.check_cv_key ? [id, match.check_cv_key] : [id]
+  );
+
+  return NextResponse.json({ ad, match, duplicates, application, check });
 }

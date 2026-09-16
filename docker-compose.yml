@@ -42,5 +42,32 @@ services:
       - "host.docker.internal:host-gateway"
     command: sh -c "npm ci --omit=dev --no-audit --no-fund && node worker.js --jobbflo-worker"
 
+  # The janitor keeps the ad pool honest: it pulls the full published
+  # list once a day and marks whatever is missing from it as gone, then
+  # releases what closed ads were holding.
+  #
+  # Its own container because the snapshot is hundreds of megabytes and
+  # minutes of work. Inside the worker that walk would stall the IMAP
+  # connection, the campaign tick and the scoring drain while it ran.
+  #
+  #   docker compose up -d janitor     start it
+  #   docker compose logs -f janitor   watch it
+  janitor:
+    image: node:20-alpine
+    container_name: jobbflo-janitor
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+      - janitor_modules:/app/node_modules
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:6543/jobbjakt
+      TZ: Europe/Stockholm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sh -c "npm ci --omit=dev --no-audit --no-fund && node janitor.js --jobbflo-janitor"
+
 volumes:
   worker_modules:
+  janitor_modules:

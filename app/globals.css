@@ -2091,3 +2091,21 @@
     font-size:10px;color:var(--mute);white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;min-width:0;
   }
+
+  /* ---- the requirement checklist behind a score ---- */
+  .chk{margin-top:8px;border-top:1px solid var(--tag-border);padding-top:7px;
+    display:flex;flex-direction:column;gap:6px;}
+  .chk-wait{margin-top:8px;font-size:10.5px;color:var(--mute);}
+  .chk-row{display:flex;gap:8px;align-items:flex-start;min-width:0;}
+  .chk-status{flex:none;width:62px;font-family:'IBM Plex Mono',monospace;font-size:9px;
+    letter-spacing:.04em;text-transform:uppercase;padding-top:2px;color:var(--mute);}
+  .chk-row.s-uppfyllt .chk-status{color:var(--ok);}
+  .chk-row.s-saknas .chk-status{color:var(--flag);}
+  .chk-mid{min-width:0;}
+  .chk-name{font-size:11.5px;color:var(--ink);line-height:var(--lh-tight);overflow-wrap:anywhere;}
+  .chk-name em{margin-left:6px;font-style:normal;font-family:'IBM Plex Mono',monospace;
+    font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);}
+  .chk-name em.chk-stop{color:var(--flag);}
+  .chk-quote{font-size:10.5px;line-height:var(--lh-body);color:var(--mute);overflow-wrap:anywhere;}
+  .chk-quote.cv{color:var(--ok);}
+  .chk-why{font-size:10.5px;line-height:var(--lh-body);color:var(--mute);}

@@ -4,6 +4,7 @@ import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import Dots from './Dots';
 import ApplyFilterSeg from './ApplyFilterSeg.jsx';
+import Checklist from './Checklist.jsx';
 
 function scoreClass(s) { return s >= 75 ? 'strong' : s < 45 ? 'flagged' : ''; }
 
@@ -477,6 +478,12 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                         <b>Bedömning:</b> {r.summary}
                       </>}
                 </div>
+                {/* The number is a sum of the rows below it, so opening
+                    the card shows them rather than asking the user to
+                    take a 0-100 on trust. */}
+                {open.has(r.ad_id) && r.score != null && !isSent && (
+                  <Checklist adId={r.ad_id} searchId={search?.id} />
+                )}
                 <div className={`cand-facts${open.has(r.ad_id) ? '' : ' clamp'}`}>
                   {/* Distance first: it is the fact most likely to rule an
                       ad out, and it costs nothing to compute. */}
