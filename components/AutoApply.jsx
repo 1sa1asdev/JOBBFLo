@@ -279,6 +279,8 @@ function Varfor({ v, s }) {
   const rader = [
     [v.utanAdress, 'publicerar ingen mejladress', null],
     [v.adressRedanKontaktad, 'går till en adress du redan skrivit till', null],
+    [v.foretagNyligenKontaktat,
+      `är hos företag du skrivit till senaste ${v.foretagspausDagar || 30} dagarna`, null],
     [v.redanAnsokt, 'har du redan sökt', null],
     [v.forLagPoang, `fick under ${s.auto_apply_min_score} poäng`, null],
     [v.obedomda, 'väntar på bedömning', null],

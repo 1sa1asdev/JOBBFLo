@@ -36,6 +36,70 @@ import { sendApplication, attachmentsFor } from './mailer.js';
 // "200 per dygn" on its card would quietly not be true.
 const GLOBAL_DAILY_CAP = 300;
 
+// ------------------------------------------------------------
+// One company, one letter a month.
+//
+// The address guard below stops a second letter to the same ADDRESS.
+// It does nothing about the same COMPANY, because a company with many
+// open roles usually puts a different recruiter on each ad. Measured on
+// the campaign's own history: Hitachi Energy got 12 letters at 12
+// different addresses, Friday 9, Vattenfall 8, Linköpings universitet 7
+// — every one of them allowed, and every one of them the same person
+// writing the same cold pitch to the same organisation. To the people
+// on the receiving end that is a spambot, and it costs the candidate
+// the one of those roles they might actually have got.
+//
+// "Same company" is decided three ways, strongest first:
+//
+//   organisation number   on 99% of ads (43110 of 43539) and exact —
+//                         it is the company's own identifier, however
+//                         the ad spells the name
+//   employer name         for the rest, compared case-insensitively;
+//                         a hand-added lead with no known employer does
+//                         not count, or every such lead would block the
+//                         next
+//   e-mail domain         catches a scraped or hand-added address with
+//                         no organisation number behind it. Free-mail
+//                         domains are excluded: two people on gmail.com
+//                         are not one employer.
+//
+// The window counts letters sent by ANY route, the user's own
+// included. A campaign writing to a company the user wrote to by hand
+// last week looks exactly as spammy as two campaign letters. What it
+// does not do is stop the user — a manual letter is the user's call.
+// ------------------------------------------------------------
+export const FÖRETAGSPAUS_DAGAR = 30;
+
+const FRI_MEJL = `('gmail.com','hotmail.com','hotmail.se','outlook.com','outlook.se',
+  'live.se','live.com','yahoo.com','yahoo.se','icloud.com','me.com','msn.com',
+  'telia.com','protonmail.com','proton.me')`;
+
+// SQL that is true when ad `ny` belongs to the same company as the ad
+// `tidigare` behind the sent application `ap`. Kept as one fragment so
+// the candidate query, the last check before sending and the "why is
+// nothing sending" diagnosis can never drift apart.
+export const sammaFöretag = (ny, tidigare, ap) => `(
+  (${ny}.raw->'employer'->>'organization_number' IS NOT NULL
+    AND ${tidigare}.raw->'employer'->>'organization_number'
+        = ${ny}.raw->'employer'->>'organization_number')
+  OR (lower(trim(${ny}.employer)) = lower(trim(${tidigare}.employer))
+      AND lower(trim(${ny}.employer)) NOT IN ('', 'okänd arbetsgivare'))
+  OR (${ny}.apply_email IS NOT NULL AND ${ap}.sent_to IS NOT NULL
+      AND split_part(lower(${ny}.apply_email), '@', 2)
+          = split_part(lower(${ap}.sent_to), '@', 2)
+      AND split_part(lower(${ny}.apply_email), '@', 2) NOT IN ${FRI_MEJL})
+)`;
+
+// A sent application to the same company inside the window.
+export const nyligenKontaktat = (ny, profil) => `EXISTS (
+  SELECT 1 FROM applications fp
+  JOIN ads fa ON fa.id = fp.ad_id
+  WHERE fp.profile_id = ${profil}
+    AND fp.sent_at IS NOT NULL
+    AND fp.sent_at > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
+    AND ${sammaFöretag(ny, 'fa', 'fp')}
+)`;
+
 // A Postgres advisory lock, so two runs can never overlap: the worker
 // tick, a UI trigger and a second worker process all serialise here.
 // Without it, two runs can both read "not applied yet" for the same ad
@@ -204,6 +268,9 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
          WHERE ap2.profile_id = pr.id AND ap2.sent_to IS NOT NULL
            AND lower(ap2.sent_to) = lower(a.apply_email)
        )
+       -- ...and never a second letter to the same COMPANY within the
+       -- month, whatever address this ad happens to give.
+       AND NOT ${nyligenKontaktat('a', 'pr.id')}
      -- NULLS LAST is load-bearing now that unscored ads can appear here:
      -- a plain score DESC sorts NULLs FIRST in Postgres, which would put
      -- every unjudged ad ahead of every high-scoring one and spend the
@@ -247,7 +314,22 @@ export async function whyNothing(searchId) {
          AND r.score >= s.auto_apply_min_score
          AND EXISTS (SELECT 1 FROM applications ap2
                      WHERE ap2.profile_id = s.profile_id AND ap2.sent_to IS NOT NULL
-                       AND lower(ap2.sent_to) = lower(a.apply_email))) AS adress_redan_kontaktad
+                       AND lower(ap2.sent_to) = lower(a.apply_email))) AS adress_redan_kontaktad,
+       -- Counted apart from the address guard, so the card can say which
+       -- of the two is holding a campaign back. "Nothing sent" with a
+       -- good score and a fresh address reads as broken unless it says
+       -- the company was written to last week.
+       -- Only the ones the address guard did NOT already catch. An ad to
+       -- an address already written to is by definition at a company
+       -- already written to, and counting it on both lines made the card
+       -- say "24 … 24" about the same 24 ads.
+       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+         AND r.application_status IS NULL
+         AND r.score >= s.auto_apply_min_score
+         AND NOT EXISTS (SELECT 1 FROM applications ap3
+                         WHERE ap3.profile_id = s.profile_id AND ap3.sent_to IS NOT NULL
+                           AND lower(ap3.sent_to) = lower(a.apply_email))
+         AND ${nyligenKontaktat('a', 's.profile_id')}) AS foretag_nyligen_kontaktat
      FROM search_results r
      JOIN ads a ON a.id = r.ad_id
      JOIN searches s ON s.id = r.search_id
@@ -263,6 +345,8 @@ export async function whyNothing(searchId) {
     forLagPoang: n(r.for_lag_poang),
     redanAnsokt: n(r.redan_ansokt),
     adressRedanKontaktad: n(r.adress_redan_kontaktad),
+    foretagNyligenKontaktat: n(r.foretag_nyligen_kontaktat),
+    foretagspausDagar: FÖRETAGSPAUS_DAGAR,
     stangda: n(r.stangda),
   };
 }
@@ -554,6 +638,30 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
         await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
                     detail: `${c.apply_email} har redan fått ett automatiskt mejl` });
         results.skipped.push({ title: c.title, detail: 'adressen redan kontaktad' });
+        continue;
+      }
+
+      // The company, checked again at the last moment. The candidate
+      // list was read once, before this run sent anything, so two ads
+      // from one employer in the same batch both passed it — and the
+      // second would go out seconds after the first. This sees the
+      // letter just sent above it.
+      const { rows: [företag] } = await pool.query(
+        `SELECT fa.employer, fp.sent_at FROM ads a
+         JOIN applications fp ON fp.profile_id = $1 AND fp.id <> $3
+           AND fp.sent_at IS NOT NULL
+           AND fp.sent_at > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
+         JOIN ads fa ON fa.id = fp.ad_id
+         WHERE a.id = $2 AND ${sammaFöretag('a', 'fa', 'fp')}
+         ORDER BY fp.sent_at DESC LIMIT 1`,
+        [search.profile_id, c.ad_id, app.id]);
+      if (företag) {
+        await pool.query(`DELETE FROM applications WHERE id = $1 AND status = 'drafted'`, [app.id]);
+        const dagar = Math.floor((Date.now() - new Date(företag.sent_at).getTime()) / 86400000);
+        const detail = `${c.employer} fick ett brev för ${dagar === 0 ? 'mindre än en dag' : `${dagar} dagar`} sedan`
+          + ` — nästa tidigast om ${FÖRETAGSPAUS_DAGAR - dagar} dagar`;
+        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped', detail });
+        results.skipped.push({ title: c.title, detail: 'företaget kontaktat nyligen' });
         continue;
       }
 
