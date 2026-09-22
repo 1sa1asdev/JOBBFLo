@@ -35,8 +35,16 @@ services:
     env_file: .env
     environment:
       # localhost inside a container is the container. The database is
-      # on the host, published on 6543.
-      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:6543/jobbjakt
+      # on the host, published on 5433.
+      #
+      # Not 6543 any more: after a reboot Windows (Hyper-V/WSL) reserved
+      # the whole range 6504-6603 for itself. Docker then could not bind
+      # the port, the database started fine and was unreachable, and
+      # every API route answered 500 with ECONNREFUSED. Those reserved
+      # ranges move between reboots, so the lasting fix is to exclude the
+      # port for this app yourself, as administrator:
+      #   netsh int ipv4 add excludedportrange protocol=tcp startport=5433 numberofports=1
+      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:5433/jobbjakt
       TZ: Europe/Stockholm
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -62,7 +70,7 @@ services:
       - janitor_modules:/app/node_modules
     env_file: .env
     environment:
-      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:6543/jobbjakt
+      DATABASE_URL: postgres://jobbjakt:jobbjakt@host.docker.internal:5433/jobbjakt
       TZ: Europe/Stockholm
     extra_hosts:
       - "host.docker.internal:host-gateway"
