@@ -38,7 +38,7 @@ export async function GET(req) {
        count(*) FILTER (WHERE status = 'interview') AS intervjuer,
        count(*) FILTER (WHERE status = 'rejected') AS avslag,
        count(*) FILTER (WHERE status = 'ghosted') AS ghostade,
-       count(*) FILTER (WHERE status = 'sent') AS vantar,
+       count(*) FILTER (WHERE status IN ('sent','sending')) AS vantar,
        min(sent_at) AS forsta,
        max(sent_at) AS senaste
      FROM applications
@@ -61,7 +61,7 @@ export async function GET(req) {
        count(*) FILTER (WHERE a.status IN ('replied','interview','rejected')) AS svar,
        count(*) FILTER (WHERE a.status = 'interview') AS intervjuer,
        count(*) FILTER (WHERE a.status = 'rejected') AS avslag,
-       count(*) FILTER (WHERE a.status = 'sent') AS vantar,
+       count(*) FILTER (WHERE a.status IN ('sent','sending')) AS vantar,
        min(a.sent_at) AS forsta,
        max(a.sent_at) AS senaste
      FROM applications a
