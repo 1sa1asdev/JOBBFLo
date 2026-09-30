@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { scanForEmails, blockedBy, normaliseUrl } from './leadscan.js';
+import { scanForEmails, blockedBy, normaliseUrl, ärMalladress } from './leadscan.js';
 import { extractFromText } from './textcontacts.js';
 
 // ------------------------------------------------------------
@@ -234,6 +234,11 @@ export async function confirmVerified({ limit = 500 } = {}) {
     // parse artefact reaches Gmail unread — and one that did stopped
     // the campaign rather than the letter.
     if (!/^[^@\s<>\\"',;]+@[^@\s<>\\"',;]+\.[a-z]{2,}$/i.test(v.email)) continue;
+    // Well-formed and still not an address: a page that prints the
+    // SHAPE of its addresses ("fornamn.efternamn@") reads as a contact
+    // to a scraper. Five of the 23 letters Gmail could not deliver went
+    // to one of these.
+    if (ärMalladress(v.email)) continue;
     if (v.grund === 'namngiven kontaktperson' || v.grund === 'domänen tillhör arbetsgivaren') {
       styrkta += 1;
     }

@@ -13,6 +13,9 @@ const STATUS_META = {
   rejected: { cls: 'rejected', label: 'Avslag' },
   ghosted: { cls: 'ghosted', label: 'Troligen ghostad' },
   withdrawn: { cls: 'rejected', label: 'Återkallad' },
+  // A letter that bounced. Kept apart from 'Avslag' because the
+  // employer never saw it — 19 of 124 rejections were this.
+  undeliverable: { cls: 'rejected', label: 'Kom inte fram' },
 };
 
 function daysPastDeadline(deadline) {
@@ -24,6 +27,7 @@ function daysPastDeadline(deadline) {
 // (ads.employer_type is populated on ingest for exactly this)
 function odds(t) {
   if (t.status === 'rejected' || t.status === 'withdrawn') return { pct: 0, label: 'Avslutad', done: true };
+  if (t.status === 'undeliverable') return { pct: 0, label: 'Kom inte fram', done: true };
   if (t.status === 'interview') return { pct: 88, label: 'Hög' };
   if (t.status === 'replied') return { pct: 75, label: 'God' };
   const past = daysPastDeadline(t.deadline);
@@ -38,6 +42,7 @@ function odds(t) {
 function oddsNote(t) {
   const past = daysPastDeadline(t.deadline);
   if (t.status === 'rejected') return { text: 'Ansökan avslutad — arbetsgivaren har svarat.', warn: false };
+  if (t.status === 'undeliverable') return { text: 'Brevet kom aldrig fram — adressen fungerade inte och har tagits bort från annonsen.', warn: true };
   if (t.status === 'interview') return { text: 'Arbetsgivaren har svarat och väntar på dig.', warn: false };
   if (past > 30) return { text: `${past} dagar sedan sista ansökningsdag. Tjänsten är sannolikt tillsatt.`, warn: true };
   if (past > 14) return { text: `${past} dagar sedan sista ansökningsdag. Svarschansen sjunker snabbt efter två veckor.`, warn: true };
@@ -291,7 +296,17 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   // list anyone reads top to bottom. Free text is the one that carries
   // most of the weight — you remember the company, not the position in
   // a list.
-  const owed = (t) => t.last_direction === 'inbound';
+  // "Din tur" is a list of conversations that are still alive and
+  // waiting on YOU. Two conditions, and both are needed.
+  //
+  // They spoke last — otherwise the ball is with them. And the thread
+  // has somewhere left to go: a rejection whose last word is "tyvärr
+  // inte" is not your turn, it is over, and a bounce is not a
+  // conversation at all. Before this, every finished rejection sat in
+  // the list forever and made the count meaningless — 19 of them were
+  // not even rejections but undelivered mail.
+  const LEVANDE = new Set(['replied', 'interview']);
+  const owed = (t) => t.last_direction === 'inbound' && LEVANDE.has(t.status);
   const dagarSedan = (t) => Math.floor(
     (Date.now() - new Date(t.last_msg_at || t.sent_at)) / 86400000);
 

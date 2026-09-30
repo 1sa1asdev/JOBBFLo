@@ -38,6 +38,22 @@ const JUNK = /(sentry|wixpress|example\.|\.png$|\.jpg$|\.jpeg$|\.gif$|\.webp$|@2
 // more use than a suggestion that wastes a letter.
 const NEVER = /^(privacy|dataprotection|data\.protection|gdpr|dpo|legal|abuse|security|webmaster|noreply|no-reply)@/i;
 
+// Addresses that are a template, not an address. Ads and career pages
+// print the SHAPE of a company's addresses — "fornamn.efternamn@" —
+// and a scraper reads that as a contact. Found by their bounces: of 23
+// letters Gmail could not deliver, five went to
+// fornamn.efternamn@lakemedelsverket.se, xx.xx@castra.se,
+// generated-manager@zitac-demo.com and the like. Every one of them was
+// a letter that could never arrive, and a rejection in the statistics.
+const MALL = new RegExp(
+  '^('
+  + ['fornamn', 'förnamn', 'efternamn', 'firstname', 'lastname', 'first\\.last',
+    'namn', 'name', 'xx+', 'yy+', 'nn+', 'abc', 'test', 'exempel', 'example',
+    'dinmail', 'dittnamn', 'generated-[a-z]+', 'sample', 'dummy'].join('|')
+  + ')([._-][a-zåäö]+)?@|@(example|test|demo|localhost|[a-z-]*-demo)\\.', 'i');
+
+export const ärMalladress = (e) => MALL.test(String(e || ''));
+
 // Two kinds of non-person here, and both matter. Shared inboxes are the
 // obvious ones. The second kind cost a real miss: a Teamtailor footer
 // carries a GDPR notice, so dataprotection@ and privacy@ were returned

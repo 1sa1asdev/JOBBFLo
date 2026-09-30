@@ -111,6 +111,59 @@ export async function matchReply({ inReplyTo, references, fromAddr }) {
 // Handle one inbound message. Notify (store) BEFORE classifying —
 // the status badge should never wait on the LLM.
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Bounces.
+//
+// Told apart from a real reply by the sender and the subject, not by
+// reading the text: a bounce quotes the letter it failed to deliver,
+// so a classifier shown the body sees a job application and answers
+// about that.
+//
+// Permanent and temporary are different events. "Failure" means the
+// address is wrong and the ad should lose it; "Delay" means the
+// receiving server is still trying, and acting on it would throw away
+// a working address because someone's mail queue was busy for four
+// hours. Measured on this inbox: 23 notices, of which 4 were delays.
+// ------------------------------------------------------------
+const STUDS_AVSÄNDARE = /(mailer-daemon|postmaster|mail-daemon|no-?reply@.*(mailer|bounce))/i;
+const STUDS_ÄMNE = /delivery status notification|undelivered mail|mail delivery (failed|subsystem)|returned to sender|delivery has failed|kunde inte levereras/i;
+const TILLFÄLLIGT = /\(delay(ed)?\)|delayed|fördröj/i;
+
+export function ärStuds(fromAddr, subject = '', body = '') {
+  const avsändare = STUDS_AVSÄNDARE.test(fromAddr || '');
+  const ämne = STUDS_ÄMNE.test(subject || '');
+  if (!avsändare && !ämne) return null;
+  // A delay is reported the same way and means the opposite: nothing is
+  // wrong yet. It is recorded as a message and changes nothing.
+  if (TILLFÄLLIGT.test(subject || '') || /will retry|försöker igen/i.test(body || '')) {
+    return { permanent: false };
+  }
+  return { permanent: avsändare || ämne };
+}
+
+async function hanteraStuds(applicationId, studs, subject) {
+  if (!studs.permanent) {
+    console.log(`    studs (tillfällig fördröjning) — ingen ändring: ${subject}`);
+    return;
+  }
+  // The status says what happened, and the ad loses the address that
+  // did not work — so the lead scanner can look for a real one and the
+  // ad becomes a candidate again instead of counting as answered.
+  const { rows: [ap] } = await pool.query(
+    `UPDATE applications SET status = 'undeliverable', bounced_at = now(), updated_at = now()
+     WHERE id = $1 AND status IN ${OPEN_STATUSES}
+     RETURNING ad_id, sent_to`, [applicationId]);
+  if (!ap) {
+    console.log('    studs på en ansökan som redan är avslutad — ingen ändring');
+    return;
+  }
+  const { rowCount: rensad } = await pool.query(
+    `UPDATE ads SET apply_email = NULL, apply_email_source = NULL, apply_email_found_at = NULL
+     WHERE id = $1 AND lower(apply_email) = lower($2)`, [ap.ad_id, ap.sent_to]);
+  console.log(`    studs: ${ap.sent_to} kom inte fram`
+    + `${rensad ? ' — adressen borttagen från annonsen' : ''}`);
+}
+
 async function handleMessage(parsed, uid) {
   const fromAddr = parsed.from?.value?.[0]?.address || '';
   const fromName = parsed.from?.value?.[0]?.name || null;
@@ -151,6 +204,15 @@ async function handleMessage(parsed, uid) {
      uid, parsed.date || new Date()]
   );
   console.log(`  ← ${fromAddr} "${parsed.subject}"${inferred ? ' (inferred via domän)' : ''}`);
+
+  // A bounce is not a reply, and the classifier cannot tell: handed a
+  // "Delivery Status Notification (Failure)" it reads the quoted letter
+  // underneath and answers "avslag". 19 of 124 rejections were this.
+  const studs = ärStuds(fromAddr, parsed.subject, body);
+  if (studs) {
+    await hanteraStuds(applicationId, studs, parsed.subject);
+    return;
+  }
 
   // fast classify → status flips within ~1s of storage
   try {
