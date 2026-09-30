@@ -10,7 +10,7 @@ export async function GET() {
     `SELECT s.*,
        (SELECT count(*) FROM match_results m WHERE m.search_id = s.id AND m.score >= 60) AS match_count,
        (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status = 'drafted') AS draft_count,
-       (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status IN ('sent','replied','interview')) AS sent_count
+       (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status IN ('sending','sent','replied','interview')) AS sent_count
      FROM searches s
      WHERE s.deleted_at IS NULL
      ORDER BY s.created_at`

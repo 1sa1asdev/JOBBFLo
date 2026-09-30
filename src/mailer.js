@@ -122,27 +122,72 @@ export async function sendApplication(applicationId, { to } = {}) {
 
   const attachments = await attachmentsFor(applicationId);
 
-  const info = await transport().sendMail({
-    from: `"${profile?.name || ''}" <${from}>`,
-    to: recipient,
-    subject: app.subject,
-    text: app.letter_text,
-    attachments,
-  });
+  // The row claims itself before the letter leaves. Conditional on
+  // still being a draft, so two runs cannot both get past this line —
+  // and after it, a row that never reaches 'sent' is a letter whose
+  // outcome is unknown rather than one that looks unsent and invites a
+  // second copy.
+  //
+  // The recipient is written down as part of the claim, not with the
+  // result. It is the only thing that can find the letter again: the
+  // Sent-folder sync looks a stuck row up by address and date
+  // (repareraSending in src/imap.js), and a row that knows only that
+  // it was sending something, somewhere, is unrepairable.
+  const { rowCount: claimed } = await pool.query(
+    `UPDATE applications SET status = 'sending', sending_since = now(),
+       sent_to = $2, sent_from = $3, updated_at = now()
+     WHERE id = $1 AND status = 'drafted'`, [applicationId, recipient, from]);
+  if (!claimed) throw new Error('already sent');
 
-  await pool.query(
-    `UPDATE applications SET
-       status = 'sent', message_id = $2, sent_to = $3, sent_from = $4,
-       sent_at = now(), updated_at = now()
-     WHERE id = $1`,
-    [applicationId, info.messageId, recipient, from]
-  );
+  let info;
+  try {
+    info = await transport().sendMail({
+      from: `"${profile?.name || ''}" <${from}>`,
+      to: recipient,
+      subject: app.subject,
+      text: app.letter_text,
+      attachments,
+    });
+  } catch (err) {
+    // Nothing left: SMTP refused it, so the draft goes back to being a
+    // draft and the caller decides (the campaign pauses, a person
+    // retries). Only a send that was ACCEPTED must not be reopened.
+    await pool.query(
+      `UPDATE applications SET status = 'drafted', sending_since = NULL,
+         sent_to = NULL, sent_from = NULL, updated_at = now()
+       WHERE id = $1 AND status = 'sending'`, [applicationId]).catch(() => {});
+    throw err;
+  }
 
-  await pool.query(
-    `INSERT INTO email_messages (application_id, direction, message_id, from_addr, to_addr, subject, body_text, sent_at)
-     VALUES ($1, 'outbound', $2, $3, $4, $5, $6, now())`,
-    [applicationId, info.messageId, from, recipient, app.subject, app.letter_text]
-  );
+  // Both writes together. Separately, a failure between them left an
+  // application marked sent with no record of the message — and reply
+  // matching reads that record.
+  const klient = await pool.connect();
+  try {
+    await klient.query('BEGIN');
+    await klient.query(
+      `UPDATE applications SET
+         status = 'sent', message_id = $2, sent_to = $3, sent_from = $4,
+         sent_at = now(), sending_since = NULL, updated_at = now()
+       WHERE id = $1`,
+      [applicationId, info.messageId, recipient, from]
+    );
+    await klient.query(
+      `INSERT INTO email_messages (application_id, direction, message_id, from_addr, to_addr, subject, body_text, sent_at)
+       VALUES ($1, 'outbound', $2, $3, $4, $5, $6, now())`,
+      [applicationId, info.messageId, from, recipient, app.subject, app.letter_text]
+    );
+    await klient.query('COMMIT');
+  } catch (err) {
+    await klient.query('ROLLBACK').catch(() => {});
+    // The letter IS sent. Say so loudly and leave the row in 'sending':
+    // the Sent-folder sync finds it by recipient and repairs it, and a
+    // row in 'sending' is never offered a Skicka button.
+    console.error(`SKICKAT MEN EJ SPARAT: ${recipient} (${applicationId}) — ${err.message}`);
+    throw err;
+  } finally {
+    klient.release();
+  }
 
   return {
     messageId: info.messageId, to: recipient, from,

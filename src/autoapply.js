@@ -91,12 +91,17 @@ export const sammaFöretag = (ny, tidigare, ap) => `(
 )`;
 
 // A sent application to the same company inside the window.
+//
+// sending_since counts as a send date: a letter SMTP accepted but the
+// database never finished recording is in the employer's inbox all the
+// same, and the whole point of the window is that they do not hear from
+// us twice. Waiting for the Sent-folder sync to confirm it would leave
+// a hole exactly as long as the repair takes.
 export const nyligenKontaktat = (ny, profil) => `EXISTS (
   SELECT 1 FROM applications fp
   JOIN ads fa ON fa.id = fp.ad_id
   WHERE fp.profile_id = ${profil}
-    AND fp.sent_at IS NOT NULL
-    AND fp.sent_at > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
+    AND COALESCE(fp.sent_at, fp.sending_since) > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
     AND ${sammaFöretag(ny, 'fa', 'fp')}
 )`;
 
@@ -647,13 +652,12 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
       // second would go out seconds after the first. This sees the
       // letter just sent above it.
       const { rows: [företag] } = await pool.query(
-        `SELECT fa.employer, fp.sent_at FROM ads a
+        `SELECT fa.employer, COALESCE(fp.sent_at, fp.sending_since) AS sent_at FROM ads a
          JOIN applications fp ON fp.profile_id = $1 AND fp.id <> $3
-           AND fp.sent_at IS NOT NULL
-           AND fp.sent_at > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
+           AND COALESCE(fp.sent_at, fp.sending_since) > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
          JOIN ads fa ON fa.id = fp.ad_id
          WHERE a.id = $2 AND ${sammaFöretag('a', 'fa', 'fp')}
-         ORDER BY fp.sent_at DESC LIMIT 1`,
+         ORDER BY COALESCE(fp.sent_at, fp.sending_since) DESC LIMIT 1`,
         [search.profile_id, c.ad_id, app.id]);
       if (företag) {
         await pool.query(`DELETE FROM applications WHERE id = $1 AND status = 'drafted'`, [app.id]);

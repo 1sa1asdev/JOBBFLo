@@ -223,17 +223,25 @@ CREATE TABLE applications (
   -- degrades to "sökning borttagen" instead of breaking.
   origin_search_id uuid REFERENCES searches(id) ON DELETE SET NULL,
 
+  -- 'sending' is the row claiming itself before SMTP is called, so a
+  -- letter Gmail accepted can never read as an unsent draft (see
+  -- sendApplication in src/mailer.js). 'undeliverable' is a letter that
+  -- bounced — kept apart from 'rejected' because the employer never
+  -- saw it.
   status          text NOT NULL DEFAULT 'drafted'
-                  CHECK (status IN ('drafted','sent','replied','interview','rejected','ghosted','withdrawn')),
+                  CHECK (status IN ('drafted','sending','sent','replied','interview',
+                                    'rejected','ghosted','withdrawn','undeliverable')),
 
   subject         text,
   letter_text     text,
   letter_version  int NOT NULL DEFAULT 1,
 
   message_id      text UNIQUE,                -- RFC Message-ID of what we sent
-  sent_to         text,
+  sent_to         text,                       -- written at claim time, not after
   sent_from       text,                       -- the plus-alias used
   sent_at         timestamptz,
+  sending_since   timestamptz,                -- when the claim was taken
+  bounced_at      timestamptz,
 
   followup_enabled boolean NOT NULL DEFAULT false,
   followup_days    int NOT NULL DEFAULT 10,
