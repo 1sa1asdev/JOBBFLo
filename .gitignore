@@ -14,3 +14,10 @@ node_modules/
 # What to redact when publishing the public mirror: real names and
 # addresses. Kept out of git for the obvious reason.
 scripts/publish-redactions.txt
+
+# Your real seed: name, address, CV. The tracked db/seed.sql is a
+# placeholder, and db-init prefers this file when it exists.
+db/seed.local.sql
+
+# Local machine config: paths and per-project permissions.
+.claude/settings.local.json

@@ -69,11 +69,11 @@ file has to exist — it just must not be anyone's."
 # redaction list, looked for in every commit. If anything survived the
 # rewrite, nothing is pushed.
 echo "== kontroll: inga personuppgifter kvar"
-MÖNSTER="$(cut -d'=' -f1 "$LISTA" | grep -v '^$' | paste -sd'|' -)"
-TRÄFFAR="$(git grep -I -l -iE "$MÖNSTER" $(git rev-list --all) 2>/dev/null | head -5 || true)"
-if [ -n "$TRÄFFAR" ]; then
+MONSTER="$(cut -d'=' -f1 "$LISTA" | grep -v '^$' | paste -sd'|' -)"
+TRAFFAR="$(git grep -I -l -iE "$MONSTER" $(git rev-list --all) 2>/dev/null | head -5 || true)"
+if [ -n "$TRAFFAR" ]; then
   echo "AVBRYTER: personuppgifter finns kvar i historiken:" >&2
-  echo "$TRÄFFAR" >&2
+  echo "$TRAFFAR" >&2
   exit 1
 fi
 echo "   rent i alla $(git rev-list --all | wc -l) commits"
