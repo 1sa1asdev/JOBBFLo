@@ -21,6 +21,9 @@ const AXLAR = ['occupation-group', 'occupation-name'];
 export async function buildTaxonomyVectors({ force = false } = {}) {
   const { rows: [finns] } = await pool.query(
     `SELECT count(*)::int AS n FROM taxonomy_vectors`);
+  // The "is the table empty" answer is cached for the process; building
+  // the vectors is exactly the event that makes it wrong.
+  harVektorer = null;
   if (finns.n && !force) return { hoppade: true, antal: finns.n };
 
   const tax = await loadTaxonomy();
@@ -55,7 +58,22 @@ export async function buildTaxonomyVectors({ force = false } = {}) {
 // Nearest occupations to some text, per axis. `avstand` is cosine
 // distance — lower is closer — and is returned so a caller can refuse
 // a weak match instead of suggesting the least-bad group in Sweden.
+// Is there anything to compare against? Checked before the text is
+// embedded, because embedding is a paid network call and an empty
+// table cannot answer whatever it costs. Until buildTaxonomyVectors
+// has run, every filter-suggestion request was paying for a vector it
+// then threw away — about 500ms and a fraction of a cent each.
+let harVektorer = null;
+export async function taxonomyVectorsExist() {
+  if (harVektorer !== null) return harVektorer;
+  const { rows: [r] } = await pool.query(
+    `SELECT EXISTS (SELECT 1 FROM taxonomy_vectors LIMIT 1) AS finns`);
+  harVektorer = r.finns;
+  return harVektorer;
+}
+
 export async function nearestOccupations(text, { k = 3, vektor = null } = {}) {
+  if (!vektor && !(await taxonomyVectorsExist())) return {};
   const v = vektor || (await embedTexts([text]))[0];
   const lit = `[${v.join(',')}]`;
   const ut = {};

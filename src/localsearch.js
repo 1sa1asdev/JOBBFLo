@@ -112,6 +112,27 @@ const ÖPPEN = `a.removed_at IS NULL
   AND (a.deadline IS NULL OR a.deadline >= current_date)
   AND NOT EXISTS (SELECT 1 FROM never_apply na WHERE na.fingerprint = a.fingerprint)`;
 
+// Many counts, one round trip.
+//
+// The filter suggestions ask for a dozen counts at once — what each
+// narrowing would leave — and asking for them one at a time cost
+// 0.9-1.2s on every load of the search view, most of it waiting
+// between queries rather than counting. As scalar subqueries in one
+// statement the same answers come back in one trip.
+export async function countLocalMany(filterSets = []) {
+  if (!filterSets.length) return [];
+  const params = [];
+  const delar = [];
+  for (const f of filterSets) {
+    const { villkor } = filterSql(await resolveFilters(f || {}), params);
+    delar.push(`(SELECT count(*)::int FROM ads a
+       WHERE ${ÖPPEN}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''})`);
+  }
+  const { rows: [r] } = await pool.query(
+    `SELECT ${delar.map((d, i) => `${d} AS c${i}`).join(', ')}`, params);
+  return filterSets.map((_, i) => r[`c${i}`]);
+}
+
 export async function countLocal(filters = {}, { resolved = false } = {}) {
   const f = resolved ? filters : await resolveFilters(filters || {});
   const { villkor, params } = filterSql(f, []);

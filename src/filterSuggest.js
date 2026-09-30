@@ -1,6 +1,6 @@
 import { pool } from './db.js';
 import { loadTaxonomy } from './taxonomy.js';
-import { countLocal } from './localsearch.js';
+import { countLocal, countLocalMany } from './localsearch.js';
 import { nearestOccupations } from './taxonomyVectors.js';
 
 // ------------------------------------------------------------
@@ -158,14 +158,45 @@ const etikett = (key, value) => {
   return { namn, varde };
 };
 
+// ------------------------------------------------------------
+// The answer, kept for a few minutes.
+//
+// Counting what each narrowing would leave costs about 280ms per
+// count over 43k ads, and there are a dozen of them — 700ms every time
+// the search view loads, for numbers that change when the filters
+// change, the criteria change, or the pool drifts by a handful of ads.
+//
+// So the key is everything that can change the answer quickly, and
+// time takes care of the rest: a new ad moves a count by one, which is
+// not worth 700ms on every render to notice.
+// ------------------------------------------------------------
+const CACHE_MS = 5 * 60 * 1000;
+const cache = new Map();
+
 export async function suggestFilters(searchId) {
+  const { rows: [nyckelrad] } = await pool.query(
+    `SELECT criteria_text, api_filters FROM searches WHERE id = $1 AND deleted_at IS NULL`,
+    [searchId]);
+  if (!nyckelrad) throw new Error('sökningen finns inte');
+  const nyckel = `${searchId}|${JSON.stringify(nyckelrad.api_filters)}|${nyckelrad.criteria_text}`;
+  const träff = cache.get(nyckel);
+  if (träff && Date.now() - träff.tid < CACHE_MS) return träff.svar;
+
+  const svar = await beräknaFörslag(searchId);
+  cache.set(nyckel, { tid: Date.now(), svar });
+  // Bounded: one entry per search and filter set, and a user has a
+  // handful of searches. Cleared wholesale rather than tracked.
+  if (cache.size > 40) cache.clear();
+  return svar;
+}
+
+async function beräknaFörslag(searchId) {
   const { rows: [s] } = await pool.query(
     `SELECT id, criteria_text, api_filters, location FROM searches
      WHERE id = $1 AND deleted_at IS NULL`, [searchId]);
   if (!s) throw new Error('sökningen finns inte');
 
   const aktiva = { ...(s.api_filters || {}) };
-  const nu = await hitCount(aktiva);
 
   const på = Object.entries(aktiva)
     .filter(([, v]) => v != null && !(Array.isArray(v) && !v.length))
@@ -211,11 +242,13 @@ export async function suggestFilters(searchId) {
     kandidater.push({ key, value, filter: { ...aktiva, [key]: value }, varför });
   }
 
-  // Counted in parallel: a dozen HTTP requests one after another is the
-  // slow part of this, not the lookup.
-  const räknade = await Promise.all(kandidater.map(async (k) => ({
-    ...k, träffar: await hitCount(k.filter).catch(() => null),
-  })));
+  // One statement for every count, including the current one. A dozen
+  // separate queries cost 0.9-1.2s per load of the search view, nearly
+  // all of it waiting between round trips rather than counting.
+  const antal = await countLocalMany([aktiva, ...kandidater.map((k) => k.filter)])
+    .catch(() => []);
+  const nu = antal[0] ?? null;
+  const räknade = kandidater.map((k, i) => ({ ...k, träffar: antal[i + 1] ?? null }));
 
   const av = räknade
     // Only narrowings that are real and survivable. A suggestion that
