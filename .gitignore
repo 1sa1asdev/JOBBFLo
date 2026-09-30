@@ -10,3 +10,7 @@ node_modules/
 # extension changed, the secrets did not.
 .env.*
 !.env.example
+
+# What to redact when publishing the public mirror: real names and
+# addresses. Kept out of git for the obvious reason.
+scripts/publish-redactions.txt

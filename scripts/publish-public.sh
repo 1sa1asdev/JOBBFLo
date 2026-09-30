@@ -14,8 +14,13 @@
 #
 # The local repo is never touched. Run it again whenever you want the
 # public copy updated; every run rewrites from scratch, so the remote
-# ends up with new commit ids each time. That is the trade for keeping
-# the history readable without keeping the data in it.
+# gets new commit ids each time. That is the trade for keeping the
+# history readable without keeping the data in it.
+#
+# WHAT to replace lives in scripts/publish-redactions.txt, which is NOT
+# committed — an earlier version of this script listed the names inline
+# and then failed its own check, because the script itself had become a
+# file containing them.
 #
 #   scripts/publish-public.sh [remote-url]
 #
@@ -24,31 +29,20 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE="${1:-https://github.com/1sa1asdev/JOBBFLo.git}"
+LISTA="$REPO/scripts/publish-redactions.txt"
 ARBETE="$(mktemp -d)/jobbflo-public"
+
+if [ ! -f "$LISTA" ]; then
+  echo "saknar $LISTA" >&2
+  echo "En rad per ersättning, i formen:  verkligt värde==>platshållare" >&2
+  exit 1
+fi
 
 echo "== klonar till $ARBETE"
 git clone --quiet --no-local "$REPO" "$ARBETE"
 cd "$ARBETE"
 git checkout -q "$(git -C "$REPO" branch --show-current)"
-
-# Personal data, replaced across every commit. The names on the left are
-# what is in the history; the right-hand side is what the world sees.
-cat > ersatt.txt <<'EOF'
-du@example.com==>du@example.com
-Anna Andersson==>Anna Andersson
-Anna Andersson==>Anna Andersson
-cv.pdf==>cv.pdf
-Andersson==>Andersson
-Andersson==>Andersson
-Anna==>Anna
-anna==>anna
-Yrkeshögskolan==>Yrkeshögskolan
-YRKESHÖGSKOLAN==>YRKESHÖGSKOLAN
-skolprojekten==>skolprojekten
-betyg.pdf==>betyg.pdf
-bokningstjänst==>bokningstjänst
-Bokningstjänst==>Bokningstjänst
-EOF
+cp "$LISTA" ersatt.txt
 
 echo "== skriver om historiken"
 # The seed and the local machine config are dropped entirely rather than
@@ -71,9 +65,15 @@ The seed carries a real name, a real address and a real CV, and this
 repo is public. The grading reads that text and quotes it back, so the
 file has to exist — it just must not be anyone's."
 
+# The check is the point of the script: every left-hand side of the
+# redaction list, looked for in every commit. If anything survived the
+# rewrite, nothing is pushed.
 echo "== kontroll: inga personuppgifter kvar"
-if git grep -I -l -iE "anna|andersson|andersson|annaprio|yrkeshögskolan" $(git rev-list --all) >/dev/null 2>&1; then
-  echo "AVBRYTER: personuppgifter finns kvar i historiken" >&2
+MÖNSTER="$(cut -d'=' -f1 "$LISTA" | grep -v '^$' | paste -sd'|' -)"
+TRÄFFAR="$(git grep -I -l -iE "$MÖNSTER" $(git rev-list --all) 2>/dev/null | head -5 || true)"
+if [ -n "$TRÄFFAR" ]; then
+  echo "AVBRYTER: personuppgifter finns kvar i historiken:" >&2
+  echo "$TRÄFFAR" >&2
   exit 1
 fi
 echo "   rent i alla $(git rev-list --all | wc -l) commits"
@@ -82,4 +82,4 @@ echo "== pushar till $REMOTE"
 git branch -M main
 git remote add origin "$REMOTE"
 git push --force --quiet -u origin main
-echo "klart"
+echo "klart — $REMOTE"
