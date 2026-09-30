@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { sparaScroll, läsScroll } from '../lib/useUrlState.js';
 import Dots from './Dots';
 import ApplyFilterSeg from './ApplyFilterSeg.jsx';
 import Checklist from './Checklist.jsx';
@@ -55,7 +56,12 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const load = useCallback(async () => {
     if (!search?.id) { setRows(null); return; }
     try {
-      const d = await api(`/api/searches/${search.id}/results?${qs(0)}`);
+      // Coming back to a list the user had scrolled: ask for as many
+      // rows as they had, in one request, so the scroll position they
+      // left at exists when we restore it.
+      const sparat = läsScroll(search.id);
+      const första = Math.min(Math.max(sparat?.rader || 0, PAGE), 300);
+      const d = await api(`/api/searches/${search.id}/results?${qs(0).replace(`limit=${PAGE}`, `limit=${första}`)}`);
       setRows(d.rows);
       setCounts(d.counts);
       setTotal(d.total);
@@ -65,6 +71,43 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   }, [search?.id, view, search?.apply_filter, maxKm, qs]);
 
   useEffect(() => { setError(null); load(); }, [load]);
+
+  // ------------------------------------------------------------
+  // Scroll position across "open an ad, then come back".
+  //
+  // The browser restores scroll for pages it loaded; this list is
+  // fetched after mount, so at restore time there is nothing to scroll
+  // to and it gives up at the top. Someone forty ads down the list who
+  // opened one and pressed back started over — which is the single
+  // thing that made browsing feel like work.
+  //
+  // Saved on the way out (and while scrolling, since a reload has no
+  // way out), restored once the rows that were showing are back.
+  // ------------------------------------------------------------
+  const återställd = useRef(null);
+  useEffect(() => {
+    const box = scrollBox.current;
+    if (!box || !rows?.length || !search?.id) return;
+    if (återställd.current === search.id) return;
+    const sparat = läsScroll(search.id);
+    if (!sparat?.top) { återställd.current = search.id; return; }
+    if (box.scrollHeight < sparat.top + box.clientHeight) return;  // fler rader på väg
+    box.scrollTop = sparat.top;
+    återställd.current = search.id;
+  }, [rows, search?.id]);
+
+  useEffect(() => {
+    const box = scrollBox.current;
+    if (!box || !search?.id) return undefined;
+    const spara = () => sparaScroll(search.id, box, { rader: rows?.length || 0 });
+    box.addEventListener('scroll', spara, { passive: true });
+    // Nothing is saved on the way out. The list remounts at the top
+    // with no rows, and this effect's cleanup then ran before the rows
+    // came back — writing {top: 0} over the position the user actually
+    // left at, which is why back still landed at the top. The scroll
+    // listener already stores every position the user reaches.
+    return () => box.removeEventListener('scroll', spara);
+  }, [search?.id, rows?.length]);
 
   // Scoring writes rows one ad at a time, so watch the per-search
   // beacon and pull the list only when the count actually moves.
@@ -126,6 +169,12 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   useEffect(() => {
     const box = scrollBox.current;
     if (!box || !hasMore || loadingMore) return;
+    // A box with no height cannot overflow, so "top up until it
+    // overflows" never stops: in a hidden pane the list fetched page
+    // after page until the whole search was in memory — 240 rows of a
+    // list nobody was looking at. Zero height means nothing is being
+    // shown, which is the one case where topping up is pointless.
+    if (box.clientHeight < 40) return;
     if (box.scrollHeight <= box.clientHeight + 40) loadMore();
   }, [rows, hasMore, loadingMore, loadMore]);
 

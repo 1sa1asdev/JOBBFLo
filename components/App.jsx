@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useUrlState } from '../lib/useUrlState.js';
 import Dashboard from './Dashboard';
 import { useRowAlign } from '../lib/useRowAlign.js';
 import Library from './Library.jsx';
@@ -13,11 +14,16 @@ import Inbox from './Inbox.jsx';
 import AutoApply from './AutoApply.jsx';
 
 export default function App() {
-  const [workspace, setWorkspace] = useState('dash'); // dash | search | inbox | auto
-  const [view, setView] = useState('list'); // list | letter | profile
+  // Where you are lives in the address bar (lib/useUrlState.js), so
+  // back, reload and a pasted link all work. Everything below is read
+  // from it rather than kept a second time in React state.
+  const { urlState, navigate } = useUrlState();
+  const workspace = urlState.vy || 'dash';        // dash | search | inbox | auto
+  const view = urlState.annons ? 'letter' : 'list';
+  const setWorkspace = (v) => navigate({ vy: v === 'dash' ? null : v, annons: null });
   const [searches, setSearches] = useState([]);
-  const [activeSearchId, setActiveSearchId] = useState(null);
-  const [activeAdId, setActiveAdId] = useState(null);
+  const activeSearchId = urlState.sok || null;
+  const activeAdId = urlState.annons || null;
   const [letterState, setLetterState] = useState(null); // {application, ad, match}
   const [creatingSearch, setCreatingSearch] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
@@ -25,14 +31,21 @@ export default function App() {
   const [mobilePanel, setMobilePanel] = useState('chat'); // library | chat | stage
   // profile is reachable from EVERY workspace, so it lives outside
   // the search view's `view` state rather than inside it
-  const [showProfile, setShowProfile] = useState(false);
+  const showProfile = urlState.profil === '1';
+  const setShowProfile = (v) => navigate({
+    profil: (typeof v === 'function' ? v(showProfile) : v) ? '1' : null,
+  });
   const [profile, setProfile] = useState(null);
 
   const loadSearches = useCallback(async () => {
     try {
       const rows = await api('/api/searches');
       setSearches(rows);
-      setActiveSearchId((cur) => cur || rows[0]?.id || null);
+      // replace, not push: nobody should have to press back through the
+      // app picking a search for them on first load.
+      if (!urlStateRef.current.sok && rows[0]?.id) {
+        navigateRef.current({ sok: rows[0].id }, { replace: true });
+      }
     } catch (e) {
       console.error(e.message);
     }
@@ -48,7 +61,13 @@ export default function App() {
     // with nothing owed, or at 0 with an employer waiting a week. The
     // trays inside the inbox count the same thing, so the parts add up
     // to the number on the tab.
-    const pending = (rows) => rows.filter((t) => t.last_direction === 'inbound').length;
+    // The same rule the inbox's "Din tur" uses, and it has to stay the
+    // same: a badge saying 171 over a list showing 44 teaches the user
+    // to stop believing the badge. A finished rejection is not owed,
+    // and a bounce is not a conversation.
+    const LEVANDE = new Set(['replied', 'interview']);
+    const pending = (rows) => rows.filter(
+      (t) => t.last_direction === 'inbound' && LEVANDE.has(t.status)).length;
     try {
       const [mine, auto] = await Promise.all([
         api('/api/inbox?source=user'),
@@ -74,27 +93,44 @@ export default function App() {
 
   const activeSearch = searches.find((s) => s.id === activeSearchId) || null;
 
+  // The URL can change under us — back, forward, a pasted link — and a
+  // letter on screen belongs to the ad it was built for. Dropped as
+  // soon as that is no longer the ad in the URL.
+  const letterAdId = useRef(null);
+  useEffect(() => {
+    if (letterAdId.current !== activeAdId) {
+      letterAdId.current = activeAdId;
+      setLetterState(null);
+    }
+  }, [activeAdId]);
+
+  // Read inside loadSearches without making that callback depend on
+  // every navigation.
+  const urlStateRef = useRef(urlState);
+  const navigateRef = useRef(navigate);
+  useEffect(() => { urlStateRef.current = urlState; navigateRef.current = navigate; }, [urlState, navigate]);
+
   // keep the rules continuous across the pane dividers as the view,
   // the selected search or the window size changes
   useRowAlign([workspace, view, activeSearchId, searches.length]);
 
   function openAd(adId) {
-    setActiveAdId(adId);
     setLetterState(null);
-    setView('letter');
+    navigate({ vy: 'search', annons: adId });
     setMobilePanel('stage');
   }
 
+  // The same step the browser's own back button now takes, so the two
+  // agree instead of competing.
   function backToList() {
-    setView('list');
-    setActiveAdId(null);
     setLetterState(null);
+    navigate({ annons: null });
   }
 
   function pickSearch(id) {
-    setActiveSearchId(id);
     setCreatingSearch(false);
-    backToList();
+    setLetterState(null);
+    navigate({ vy: 'search', sok: id, annons: null });
     setMobilePanel('chat');
   }
 
