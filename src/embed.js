@@ -231,9 +231,12 @@ export async function embedPendingProfiles({ limit = 96 } = {}) {
 // The query side. Embeds the CV profile rather than the raw CV: it is
 // the cleaner signal and it already exists.
 // ------------------------------------------------------------
-export async function embedCv() {
+export async function embedCv(profileId) {
+  // Whose CV, always: the store below updates one profile, and it used
+  // to update every profile with whichever CV came first.
+  if (!profileId) throw new Error('embedCv: profileId krävs');
   const { rows: [p] } = await pool.query(
-    `SELECT cv_text, cv_profile FROM profile LIMIT 1`);
+    `SELECT cv_text, cv_profile FROM profile WHERE id = $1`, [profileId]);
   if (!p?.cv_text?.trim()) return null;
 
   const { renderCvProfile } = await import('./cvprofile.js');
@@ -242,8 +245,9 @@ export async function embedCv() {
   const [v] = await embedTexts([text]);
 
   await pool.query(
-    `UPDATE profile SET cv_embedding = $1::vector, cv_embedding_model = $2, cv_embedded_at = now()`,
-    [toVector(v), `${cfg.provider}:${cfg.model}`]
+    `UPDATE profile SET cv_embedding = $1::vector, cv_embedding_model = $2, cv_embedded_at = now()
+     WHERE id = $3`,
+    [toVector(v), `${cfg.provider}:${cfg.model}`, profileId]
   );
   return v.length;
 }

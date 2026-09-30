@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { embeddingCoverage } from '../../../../src/refresh.js';
 
@@ -28,7 +29,7 @@ function state(row, cov) {
 
 export async function GET() {
   const { rows: [row] } = await pool.query(
-    `SELECT embeddings_enabled FROM profile LIMIT 1`);
+    `SELECT embeddings_enabled FROM profile WHERE id = $1`, [await aktivProfilId()]);
   if (!row) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
   return NextResponse.json(state(row, await embeddingCoverage()));
 }
@@ -36,8 +37,8 @@ export async function GET() {
 export async function PATCH(req) {
   const { enabled } = await req.json();
   const { rows: [row] } = await pool.query(
-    `UPDATE profile SET embeddings_enabled = $1 RETURNING embeddings_enabled`,
-    [Boolean(enabled)]
+    `UPDATE profile SET embeddings_enabled = $1 WHERE id = $2 RETURNING embeddings_enabled`,
+    [Boolean(enabled), await aktivProfilId()]
   );
   if (!row) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
   return NextResponse.json(state(row, await embeddingCoverage()));

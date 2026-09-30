@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { PROVIDERS, providerList } from '../../../../src/providers.js';
 import { encryptSecret, decryptSecret, maskSecret } from '../../../../src/secrets.js';
@@ -10,7 +11,8 @@ export async function GET() {
   const { rows: [p] } = await pool.query(
     `SELECT id, llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
             llm_model_bulk, llm_model_write, llm_base_url
-     FROM profile LIMIT 1`
+     FROM profile WHERE id = $1`,
+    [await aktivProfilId()]
   );
   const active = await llmConfig({ fresh: true });
 
@@ -42,7 +44,8 @@ export async function PUT(req) {
     return NextResponse.json({ error: 'okänd leverantör' }, { status: 400 });
   }
 
-  const { rows: [p] } = await pool.query(`SELECT id, llm_api_key_enc FROM profile LIMIT 1`);
+  const { rows: [p] } = await pool.query(
+    `SELECT id, llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
   if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 404 });
 
   // empty api_key means "keep the stored one"
@@ -87,7 +90,8 @@ export async function DELETE() {
   await pool.query(
     `UPDATE profile SET llm_provider = NULL, llm_api_key_enc = NULL,
        llm_model_smart = NULL, llm_model_fast = NULL, llm_base_url = NULL,
-       llm_model_bulk = NULL, llm_model_write = NULL`
+       llm_model_bulk = NULL, llm_model_write = NULL
+     WHERE id = $1`, [await aktivProfilId()]
   );
   invalidateLlmConfig();
   return NextResponse.json({ ok: true });

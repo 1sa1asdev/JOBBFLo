@@ -202,7 +202,7 @@ Now port the mockup.
 
 ## The proofs
 
-Four scripts, each one a rule that protects money, reputation or the
+Five scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -212,7 +212,14 @@ node scripts/prove-checklist.js          # the grade is arithmetic over readable
 node scripts/prove-company-cooldown.js   # one letter per company per 30 days
 node scripts/prove-send-transaction.js   # a letter can never be sent twice
 node scripts/prove-injection.js          # ad text cannot give the models orders
+node scripts/prove-profile-scope.js      # no code picks a profile by guessing
 ```
+
+Never write `FROM profile LIMIT 1`. Worker code takes the owner from the
+row it is acting on (`applications.profile_id`, `searches.profile_id`);
+a route asks `aktivProfilId()` in `src/auth.js`; code with neither asks
+`endaProfilId()` in `src/owner.js`, which refuses when there is more
+than one. `prove-profile-scope.js` catches either pattern coming back.
 
 `prove-injection.js` is the one worth reading if you change a prompt.
 Ad text is the only input a stranger writes, and it reaches three

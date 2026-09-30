@@ -118,7 +118,9 @@ export async function sendApplication(applicationId, { to } = {}) {
   // where nobody is, and lives in candidatesFor and the auto-only
   // unique index instead.
   const from = aliasFrom(app.email_alias);
-  const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
+  // The sender's name is the application's owner, not the first profile.
+  const { rows: [profile] } = await pool.query(
+    `SELECT name FROM profile WHERE id = $1`, [app.profile_id]);
 
   const attachments = await attachmentsFor(applicationId);
 
@@ -219,7 +221,8 @@ export async function sendReply(applicationId, body, { suggestedReplyId = null }
     ...(lastIn?.references_ids || []),
     ...(lastIn?.message_id ? [lastIn.message_id] : []),
   ];
-  const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
+  const { rows: [profile] } = await pool.query(
+    `SELECT name FROM profile WHERE id = $1`, [app.profile_id]);
 
   const info = await transport().sendMail({
     from: `"${profile?.name || ''}" <${from}>`,

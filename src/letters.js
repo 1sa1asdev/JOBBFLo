@@ -166,12 +166,17 @@ export function ensureLetterShape(body, who) {
   return text;
 }
 
-async function loadContext(adId, { searchId = null } = {}) {
+async function loadContext(adId, { searchId = null, profileId } = {}) {
+  // Required, not defaulted. An ad is global — it belongs to nobody —
+  // so the letter's author has to come from the caller: the request's
+  // user, or the application being revised. Defaulting to a profile is
+  // how a letter gets written from someone else's CV.
+  if (!profileId) throw new Error('loadContext: profileId krävs');
   // named columns: SELECT * drags the CV bytea (68 kB) through every
   // letter generation for no reason
   const { rows: [profile] } = await pool.query(
     `SELECT id, name, email, phone, city, cv_text, about_text, tone_text
-     FROM profile LIMIT 1`);
+     FROM profile WHERE id = $1`, [profileId]);
   if (!profile) throw new Error('no profile — run db:seed');
 
   // An application's own CV wins: if the user swapped the document for
@@ -220,8 +225,8 @@ async function loadContext(adId, { searchId = null } = {}) {
 // draftLetter: create (or return existing) application + v1.
 // UNIQUE(ad_id) guarantees one application per ad, ever.
 // ------------------------------------------------------------
-export async function draftLetter(adId, { originSearchId = null } = {}) {
-  const ctx = await loadContext(adId, { searchId: originSearchId });
+export async function draftLetter(adId, { originSearchId = null, profileId } = {}) {
+  const ctx = await loadContext(adId, { searchId: originSearchId, profileId });
 
   const existing = await pool.query(
     `SELECT * FROM applications WHERE ad_id = $1 AND profile_id = $2`,
@@ -274,7 +279,8 @@ export async function reviseLetter(applicationId, instruction) {
   if (!app) throw new Error(`no application ${applicationId}`);
   if (app.status !== 'drafted') throw new Error('letter is locked — already sent');
 
-  const ctx = await loadContext(app.ad_id, { searchId: app.origin_search_id });
+  const ctx = await loadContext(app.ad_id,
+    { searchId: app.origin_search_id, profileId: app.profile_id });
 
   const draft = await llmJson({
     tier: 'write',

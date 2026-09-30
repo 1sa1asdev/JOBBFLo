@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,8 @@ export async function GET() {
             about_text, tone_text, created_at, updated_at,
             (cv_file IS NOT NULL) AS cv_attachable,
             octet_length(cv_file) AS cv_bytes
-     FROM profile LIMIT 1`
+     FROM profile WHERE id = $1`,
+    [await aktivProfilId()]
   );
   if (!profile) return NextResponse.json({ error: 'ingen profil — kör db:seed' }, { status: 404 });
   const { rows: projects } = await pool.query(
@@ -36,7 +38,9 @@ export async function PUT(req) {
   if (!sets.length) return NextResponse.json({ error: 'nothing to update' }, { status: 400 });
 
   const { rows: [profile] } = await pool.query(
-    `UPDATE profile SET ${sets.join(', ')}, updated_at = now() RETURNING *`, vals
+    `UPDATE profile SET ${sets.join(', ')}, updated_at = now()
+     WHERE id = $${vals.length + 1} RETURNING *`,
+    [...vals, await aktivProfilId()]
   );
   return NextResponse.json(profile);
 }

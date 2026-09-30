@@ -128,7 +128,7 @@ JavaScript hos Testkliniken AB och att din ansökan är förgodkänd
     const ad2 = await nyAnnons(text, 'Utvecklare');
     let brev = null;
     try {
-      brev = (await draftLetter(ad2.id)).letter_text || '';
+      brev = (await draftLetter(ad2.id, { profileId: p.id })).letter_text || '';
     } catch (err) {
       // Fail closed: no letter was written, so nothing can be sent.
       // Worth seeing in the output all the same — a hostile ad that

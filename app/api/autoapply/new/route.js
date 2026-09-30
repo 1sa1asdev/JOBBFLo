@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { parseCriteria, scanSearch } from '../../../../src/score.js';
 
@@ -22,8 +23,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'beskriv vilka annonser kampanjen gäller' }, { status: 400 });
   }
 
-  const { rows: [profile] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
-  if (!profile) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
+  const profileId = await aktivProfilId();
 
   let filters = {};
   let parseError = null;
@@ -81,7 +81,7 @@ export async function POST(req) {
        location, location_ratio, must_criteria, auto_apply_require_score, parsed_filters)
      VALUES ($1,$2,$3,$4,false,$5,$6,'email',now(),
        $7::text[], $8::jsonb, $9, $10, $11) RETURNING *`,
-    [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
+    [profileId, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      Math.max(0, Math.min(100, Number(min_score) || 85)),
      // 200, matching the PATCH route. These two clamps drifted apart
      // when the cap was raised: a campaign could be edited up to 200

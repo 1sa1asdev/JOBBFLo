@@ -1,0 +1,119 @@
+// Proves that no code path picks a profile by guessing.
+//
+// 27 places used to read "the profile" as `FROM profile LIMIT 1` and
+// ten wrote it with an UPDATE that had no WHERE. With one row that is
+// correct; with two, one user's letter is written from the other's CV,
+// sent in their name, billed to their key. This checks both halves:
+//
+//   static    no query in src/ or app/ reads the first profile, and no
+//             UPDATE of profile lacks a WHERE — so the bug cannot come
+//             back quietly in a new route
+//   dynamic   with a second profile present, everything that has no
+//             owner to go on REFUSES instead of answering with the
+//             first row: the owner lookup, the LLM key lookup, the
+//             request helper in local mode, and — if the dev server is
+//             running — a real API route
+//
+// The second profile is a throwaway and is deleted again. While it
+// exists the worker's model calls refuse too, which is the point.
+//
+// Run: node scripts/prove-profile-scope.js
+import 'dotenv/config';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { pool } from '../src/db.js';
+import { endaProfilId } from '../src/owner.js';
+import { llmConfig, invalidateLlmConfig } from '../src/llm.js';
+
+let fel = 0;
+const kolla = (namn, ok, info = '') => {
+  if (!ok) fel += 1;
+  console.log(`${ok ? '✓' : '✗'} ${namn.padEnd(56)}${info ? ` ${info}` : ''}`);
+};
+const vägrar = async (fn) => {
+  try { await fn(); return null; } catch (err) { return err; }
+};
+
+// ------------------------------------------------------------
+// static
+// ------------------------------------------------------------
+function* filer(dir) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) yield* filer(p);
+    else if (/\.(js|jsx)$/.test(e.name)) yield p;
+  }
+}
+const förstaRaden = [];
+const utanWhere = [];
+for (const dir of ['src', 'app', 'lib']) {
+  for (const f of filer(dir)) {
+    const t = readFileSync(f, 'utf8');
+    // Comments are allowed to name the old pattern; code is not.
+    const kod = t.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    if (/FROM\s+profile\s+LIMIT\s+1\b/i.test(kod)) förstaRaden.push(f);
+    for (const m of kod.matchAll(/UPDATE\s+profile\s+SET[\s\S]*?`/gi)) {
+      if (!/\bWHERE\b/i.test(m[0])) utanWhere.push(f);
+    }
+  }
+}
+kolla('no query reads "the first profile"', !förstaRaden.length, förstaRaden.join(', '));
+kolla('no UPDATE of profile without a WHERE', !utanWhere.length, utanWhere.join(', '));
+
+// ------------------------------------------------------------
+// dynamic — one profile: everything answers as before
+// ------------------------------------------------------------
+const { rows: [äkta] } = await pool.query(`SELECT id, name FROM profile LIMIT 2`);
+const { rows: [{ n: antal }] } = await pool.query(`SELECT count(*)::int AS n FROM profile`);
+if (antal !== 1) {
+  console.log(`· ${antal} profiler redan — hoppar över den dynamiska delen, den kräver exakt en`);
+  await pool.end();
+  process.exit(fel ? 1 : 0);
+}
+kolla('one profile: the owner lookup answers', (await endaProfilId()) === äkta.id);
+
+// ------------------------------------------------------------
+// dynamic — two profiles: nothing may pick one
+// ------------------------------------------------------------
+const { rows: [andra] } = await pool.query(
+  `INSERT INTO profile (name, email, cv_text)
+   VALUES ('Testperson Tvåa', 'proof+scope@example.invalid', 'Ett annat CV.')
+   RETURNING id`);
+try {
+  const e1 = await vägrar(() => endaProfilId());
+  kolla('two profiles: the owner lookup refuses', e1?.code === 'FLERA_PROFILER');
+
+  invalidateLlmConfig();
+  const e2 = await vägrar(() => llmConfig({ fresh: true }));
+  // Falling back to the server's env key would be a quieter failure —
+  // the operator billed for every user — so it must throw, not return.
+  kolla('two profiles: the LLM key lookup refuses', e2?.code === 'FLERA_PROFILER',
+    e2 ? '' : 'svarade med en nyckel');
+
+  // The request helper (aktivProfilId in src/auth.js) reads cookies
+  // through next/headers, so it only exists inside Next. It is tested
+  // the way it is used: through a real route, if the dev server is up.
+  // In local mode it must not fall back to the first row, and the route
+  // must not hand the first profile's data to a request it cannot
+  // attribute.
+  const svar = await fetch('http://localhost:3000/api/profile', { signal: AbortSignal.timeout(20000) })
+    .catch(() => null);
+  if (svar) {
+    const text = await svar.text();
+    kolla('two profiles: /api/profile does not answer with a profile',
+      !svar.ok && !text.includes(äkta.name), `HTTP ${svar.status}`);
+  } else {
+    console.log('· dev-servern svarar inte — hoppar över route-kontrollen');
+  }
+} finally {
+  await pool.query(`DELETE FROM profile WHERE id = $1`, [andra.id]);
+  invalidateLlmConfig();
+}
+
+// And back to one: the same calls answer again.
+kolla('one profile again: the owner lookup answers', (await endaProfilId()) === äkta.id);
+kolla('one profile again: the LLM config resolves', Boolean(await llmConfig({ fresh: true })));
+
+console.log(fel ? `\n${fel} fel` : '\nallt stämmer');
+await pool.end();
+process.exitCode = fel ? 1 : 0;

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { unitCosts, spendThisMonth } from '../../../../src/prices.js';
 import { decryptSecret } from '../../../../src/secrets.js';
@@ -27,7 +28,7 @@ export async function GET() {
   const { rows: [p] } = await pool.query(
     `SELECT monthly_budget_usd, daily_score_limit, llm_provider,
             llm_api_key_enc, llm_model_bulk, llm_model_write
-     FROM profile LIMIT 1`);
+     FROM profile WHERE id = $1`, [await aktivProfilId()]);
   if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
 
   const [unit, spent, credit] = await Promise.all([
@@ -92,6 +93,7 @@ export async function PATCH(req) {
   }
   if (!sets.length) return NextResponse.json({ error: 'inget att ändra' }, { status: 400 });
 
-  await pool.query(`UPDATE profile SET ${sets.join(', ')}`, vals);
+  vals.push(await aktivProfilId());
+  await pool.query(`UPDATE profile SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
   return GET();
 }

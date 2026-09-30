@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -21,10 +22,10 @@ export async function GET(req) {
   const { rows: extra } = await pool.query(
     `SELECT id, filename, mime, size_bytes, search_id, include_by_default
      FROM attachments
-     WHERE profile_id = (SELECT id FROM profile LIMIT 1)
+     WHERE profile_id = $2
        AND (search_id IS NULL OR search_id = $1)
      ORDER BY created_at`,
-    [searchId]
+    [searchId, await aktivProfilId()]
   );
 
   return NextResponse.json({
@@ -54,11 +55,11 @@ export async function POST(req) {
       return NextResponse.json({ error: 'filen är större än 10 MB' }, { status: 400 });
     }
 
-    const { rows: [p] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
+    const profileId = await aktivProfilId();
     const { rows: [row] } = await pool.query(
       `INSERT INTO attachments (profile_id, search_id, filename, mime, bytes, size_bytes)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, filename, size_bytes, search_id`,
-      [p.id, global ? null : searchId, filename, file.type || null, bytes, bytes.length]
+      [profileId, global ? null : searchId, filename, file.type || null, bytes, bytes.length]
     );
     return NextResponse.json({ ...row, size_bytes: Number(row.size_bytes), global: !row.search_id });
   } catch (err) {

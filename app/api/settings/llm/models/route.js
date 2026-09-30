@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { PROVIDERS } from '../../../../../src/providers.js';
 import { decryptSecret } from '../../../../../src/secrets.js';
@@ -52,7 +53,8 @@ export async function GET(req) {
   // same as /settings/llm/test); otherwise reuse the saved key or server env
   let key = keyParam?.trim() || null;
   if (!key) {
-    const { rows: [p] } = await pool.query(`SELECT llm_api_key_enc FROM profile LIMIT 1`);
+    const { rows: [p] } = await pool.query(
+      `SELECT llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
     key = decryptSecret(p?.llm_api_key_enc);
   }
   if (!key) {

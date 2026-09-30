@@ -22,9 +22,13 @@ export async function checkFollowups() {
   // due = followup enabled, still unanswered, past (deadline|sent_at) + N days,
   // not already nudged, and no pending followup draft
   const { rows: due } = await pool.query(
-    `SELECT a.id, a.sent_at, a.followup_days, ads.title, ads.employer, ads.deadline
+    `SELECT a.id, a.sent_at, a.followup_days, ads.title, ads.employer, ads.deadline,
+            p.name AS kandidat
      FROM applications a
      JOIN ads ON ads.id = a.ad_id
+     -- each nudge in its own sender's name: this runs over every
+     -- profile's applications at once
+     JOIN profile p ON p.id = a.profile_id
      WHERE a.status = 'sent'
        AND a.followup_enabled
        AND a.followup_sent_at IS NULL
@@ -35,8 +39,6 @@ export async function checkFollowups() {
        )`
   );
 
-  const { rows: [profile] } = await pool.query(`SELECT name FROM profile LIMIT 1`);
-
   for (const app of due) {
     try {
       const body = await llmText({
@@ -45,7 +47,7 @@ export async function checkFollowups() {
         system: FOLLOWUP_SYSTEM,
         messages: [{
           role: 'user',
-          content: `Kandidat: ${profile?.name}\nTjänst: ${app.title} hos ${app.employer}\nAnsökan skickad: ${new Date(app.sent_at).toLocaleDateString('sv-SE')}\nSista ansökningsdag var: ${app.deadline || 'okänd'}`,
+          content: `Kandidat: ${app.kandidat}\nTjänst: ${app.title} hos ${app.employer}\nAnsökan skickad: ${new Date(app.sent_at).toLocaleDateString('sv-SE')}\nSista ansökningsdag var: ${app.deadline || 'okänd'}`,
         }],
       });
       await pool.query(

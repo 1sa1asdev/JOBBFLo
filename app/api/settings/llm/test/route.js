@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../../src/auth.js';
 import { PROVIDERS } from '../../../../../src/providers.js';
 import { decryptSecret } from '../../../../../src/secrets.js';
 import { pool } from '../../../../../src/db.js';
@@ -16,7 +17,8 @@ export async function POST(req) {
   let key = api_key?.trim();
   if (!key) {
     // testing an unchanged, already-saved key
-    const { rows: [p] } = await pool.query(`SELECT llm_api_key_enc FROM profile LIMIT 1`);
+    const { rows: [p] } = await pool.query(
+      `SELECT llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
     key = decryptSecret(p?.llm_api_key_enc);
   }
   if (!key) {
