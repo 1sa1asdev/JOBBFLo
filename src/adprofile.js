@@ -103,7 +103,8 @@ Svara ENDAST med JSON, inga kodstaket:
 // the app silently trusting it.
 const CITERADE = ['requires', 'tasks', 'domains', 'languages'];
 
-export async function buildAdProfile(ad) {
+// profileId: whose key pays for the read — the user grading the ad.
+export async function buildAdProfile(ad, { profileId } = {}) {
   const text = [
     ad.title,
     ad.raw?.occupation?.label,
@@ -163,6 +164,7 @@ export async function buildAdProfile(ad) {
   };
 
   const läs = async (tier) => kontrollera(await llmJson({
+    profileId,
     onModel: (m) => { usedModel = m; },
     tier,
     // Long ads truncated the JSON at 2500 and the whole read was lost.

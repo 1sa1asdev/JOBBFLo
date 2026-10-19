@@ -1,11 +1,17 @@
-import 'dotenv/config';
+import { createHash } from 'node:crypto';
 import { PROVIDERS } from './providers.js';
 import { decryptSecret } from './secrets.js';
 
 // ------------------------------------------------------------
-// LLM layer. The provider is the USER's choice, stored per
-// profile (bring your own key); server env vars are the
-// fallback when nothing is configured in the UI.
+// LLM layer. The provider, the key and the models are the USER's
+// choice, stored on their profile — and every call says whose it is
+// (profileId), so it runs on that user's key and is billed to them.
+//
+// There is no fallback to the server's environment. It used to be one,
+// and with more than one user it means the operator silently pays for
+// everyone who has not entered a key. The only platform-paid AI work is
+// embedding the shared ad pool, which lives in src/embed.js with its
+// own key.
 //
 // Every provider except Anthropic speaks OpenAI chat-completions,
 // so there are only two transports here.
@@ -26,135 +32,85 @@ import { decryptSecret } from './secrets.js';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- config resolution ----------
-// Cached briefly so a 20-ad scan doesn't re-query per ad.
-let cached = null;
-let cachedAt = 0;
+// Per profile, cached briefly so a 20-ad scan doesn't re-query per ad.
 const CONFIG_TTL = 30_000;
+const configCache = new Map();     // profileId -> { cfg, at }
+const keyMapCache = new Map();     // profileId -> { map, at }
 
-export function invalidateLlmConfig() {
-  cached = null;
+export function invalidateLlmConfig(profileId) {
+  if (profileId) { configCache.delete(profileId); keyMapCache.delete(profileId); return; }
+  configCache.clear();
+  keyMapCache.clear();
 }
 
-// Any provider can be configured from the environment:
-//   GROQ_API_KEY / GROQ_KEY, MISTRAL_API_KEY, DEEPSEEK_API_KEY, …
-// LLM_PROVIDER picks which one wins when several keys are present;
-// otherwise the first provider in registry order that has a key.
-// Model overrides: LLM_MODEL_SMART / LLM_MODEL_FAST (or the
-// provider-specific OPENROUTER_MODEL_SMART style).
-function envKeyFor(id) {
-  const upper = id.toUpperCase();
-  const v = process.env[`${upper}_API_KEY`] || process.env[`${upper}_KEY`];
-  return v?.trim() || null;
+// Quotas and rate limits belong to a KEY, not to a model: one user
+// spending their free tier must not block the same model for everyone
+// else, whose keys have quotas of their own. The key itself never
+// leaves this module — only a short hash of it is used as a namespace.
+const nyckelId = (apiKey) => createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 12);
+
+// Calls that do not say whose they are fall back to the only profile —
+// which keeps one-off scripts working locally and refuses (owner.js)
+// as soon as there is more than one. Application code always passes
+// profileId; scripts/prove-profile-scope.js checks that it does.
+async function ägare(profileId) {
+  if (profileId) return profileId;
+  const { endaProfilId } = await import('./owner.js');
+  return endaProfilId();
 }
 
-function envConfigFor(id) {
-  const preset = PROVIDERS[id];
-  if (!preset) return null;
-  const apiKey = envKeyFor(id);
-  if (!apiKey && !['ollama','lmstudio'].includes(id)) return null;
-  const upper = id.toUpperCase();
-  return {
-    provider: id,
-    apiKey: apiKey || 'local',
-    smart: process.env[`${upper}_MODEL_SMART`] || process.env.LLM_MODEL_SMART || preset.smart,
-    fast: process.env[`${upper}_MODEL_FAST`] || process.env.LLM_MODEL_FAST || preset.fast,
-    // bulk (scoring) and write (prose) can point at different models —
-    // both fall back to `smart`, so existing setups behave unchanged
-    bulk: process.env[`${upper}_MODEL_BULK`] || process.env.LLM_MODEL_BULK || preset.bulk || null,
-    write: process.env[`${upper}_MODEL_WRITE`] || process.env.LLM_MODEL_WRITE || preset.write || null,
-    baseUrl: process.env[`${upper}_BASE_URL`] || preset.baseUrl,
-    source: 'env',
-  };
-}
+export async function llmConfig({ profileId, fresh = false } = {}) {
+  const id = await ägare(profileId);
+  const hit = configCache.get(id);
+  if (!fresh && hit && Date.now() - hit.at < CONFIG_TTL) return hit.cfg;
 
-function envConfig() {
-  const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
-  if (explicit) {
-    const cfg = envConfigFor(explicit);
-    if (cfg) return cfg;
-  }
-  for (const id of Object.keys(PROVIDERS)) {
-    const cfg = envConfigFor(id);
-    if (cfg) return cfg;
-  }
-  return null;
-}
-
-export async function llmConfig({ fresh = false } = {}) {
-  if (!fresh && cached && Date.now() - cachedAt < CONFIG_TTL) return cached;
-
-  let config = null;
-  try {
-    const { pool } = await import('./db.js');
-    // Whose key. Nothing hands this function a user yet — it is called
-    // from every model call in the app, worker included — so it asks for
-    // the only profile and refuses when there are several. The old
-    // "first profile that has a provider" billed one user's calls to
-    // another's key. Per-user keys are the next step (the seam is here).
-    const { endaProfilId } = await import('./owner.js');
-    const profileId = await endaProfilId();
-    const { rows: [p] } = await pool.query(
-      `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
-              llm_model_bulk, llm_model_write, llm_base_url
-       FROM profile WHERE id = $1 AND llm_provider IS NOT NULL`, [profileId]
-    );
-    if (p?.llm_provider) {
-      const preset = PROVIDERS[p.llm_provider] || {};
-      const apiKey = decryptSecret(p.llm_api_key_enc);
-      if (apiKey || ['ollama','lmstudio'].includes(p.llm_provider)) {
-        config = {
-          provider: p.llm_provider,
-          apiKey: apiKey || 'local',
-          smart: p.llm_model_smart || preset.smart,
-          fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
-          bulk: p.llm_model_bulk || preset.bulk || null,
-          write: p.llm_model_write || preset.write || null,
-          baseUrl: p.llm_base_url || preset.baseUrl,
-          source: 'user',
-        };
-      }
+  const { pool } = await import('./db.js');
+  const { rows: [p] } = await pool.query(
+    `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
+            llm_model_bulk, llm_model_write, llm_base_url
+     FROM profile WHERE id = $1 AND llm_provider IS NOT NULL`, [id]
+  );
+  let cfg = null;
+  if (p?.llm_provider) {
+    const preset = PROVIDERS[p.llm_provider] || {};
+    const apiKey = decryptSecret(p.llm_api_key_enc);
+    if (apiKey || ['ollama', 'lmstudio'].includes(p.llm_provider)) {
+      cfg = {
+        provider: p.llm_provider,
+        apiKey: apiKey || 'local',
+        smart: p.llm_model_smart || preset.smart,
+        fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
+        bulk: p.llm_model_bulk || preset.bulk || null,
+        write: p.llm_model_write || preset.write || null,
+        baseUrl: p.llm_base_url || preset.baseUrl,
+        source: 'user',
+        profileId: id,
+      };
     }
-  } catch (err) {
-    // Several profiles is not "no config": falling through to the
-    // server's env key would silently bill the operator for every user.
-    if (err.code === 'FLERA_PROFILER') throw err;
-    // DB unavailable (e.g. build time) — fall through to env
   }
-
-  cached = config || envConfig();
-  cachedAt = Date.now();
-  return cached;
+  configCache.set(id, { cfg, at: Date.now() });
+  return cfg;
 }
 
-export async function llmAvailable() {
-  return Boolean(await llmConfig());
+export async function llmAvailable({ profileId } = {}) {
+  return Boolean(await llmConfig({ profileId }));
 }
 
-// Config for ONE provider inside a cross-provider chain. Keys come
-// from the per-provider map, then the primary key when it's the same
-// provider, then the server env. Local servers need none.
-let keyMapCache = null;
-let keyMapAt = 0;
-
-async function providerKeys() {
-  if (keyMapCache && Date.now() - keyMapAt < CONFIG_TTL) return keyMapCache;
-  let map = {};
-  try {
-    const { pool } = await import('./db.js');
-    const { endaProfilId } = await import('./owner.js');
-    const profileId = await endaProfilId();
-    const { rows: [p] } = await pool.query(
-      `SELECT llm_keys_enc FROM profile WHERE id = $1`, [profileId]);
-    for (const [prov, enc] of Object.entries(p?.llm_keys_enc || {})) {
-      const k = decryptSecret(enc);
-      if (k) map[prov] = k;
-    }
-  } catch (err) {
-    if (err.code === 'FLERA_PROFILER') throw err;
-    map = {};
+// Extra keys for OTHER providers in a cross-provider chain
+// ("groq:llama-3.3-70b, openrouter:…") — the user's own, from their
+// per-provider map. Never the server's.
+async function providerKeys(profileId) {
+  const hit = keyMapCache.get(profileId);
+  if (hit && Date.now() - hit.at < CONFIG_TTL) return hit.map;
+  const map = {};
+  const { pool } = await import('./db.js');
+  const { rows: [p] } = await pool.query(
+    `SELECT llm_keys_enc FROM profile WHERE id = $1`, [profileId]);
+  for (const [prov, enc] of Object.entries(p?.llm_keys_enc || {})) {
+    const k = decryptSecret(enc);
+    if (k) map[prov] = k;
   }
-  keyMapCache = map;
-  keyMapAt = Date.now();
+  keyMapCache.set(profileId, { map, at: Date.now() });
   return map;
 }
 
@@ -164,19 +120,21 @@ export async function configFor(provider, primary) {
   if (provider === primary?.provider) return primary;
 
   const isLocal = ['ollama', 'lmstudio'].includes(provider);
-  const key = (await providerKeys())[provider] || envKeyFor(provider);
+  // A config handed in directly (the "test connection" button) has no
+  // profile behind it, and so no other keys to borrow.
+  const key = primary?.profileId ? (await providerKeys(primary.profileId))[provider] : null;
   if (!key && !isLocal) return null;
 
   return {
     provider,
     apiKey: key || 'local',
-    baseUrl: process.env[`${provider.toUpperCase()}_BASE_URL`] || preset.baseUrl,
+    baseUrl: preset.baseUrl,
   };
 }
 
 // ---------- transports ----------
 async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens,
-                                     provider, tier }) {
+                                     provider, tier, hink, profileId }) {
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -193,7 +151,7 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
 
   // learn the real per-minute budget instead of guessing at it
   const limHeader = Number(res.headers.get('x-ratelimit-limit-tokens'));
-  if (limHeader > 0) tpmLimit.set(model, limHeader);
+  if (limHeader > 0) tpmLimit.set(hink, limHeader);
 
   if (!res.ok) {
     const body = (await res.text()).slice(0, 200);
@@ -237,7 +195,7 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
   // `content` is usable output
   // charge the bucket with what was actually used, when reported
   const used = data.usage?.total_tokens;
-  if (used) recordSpend(model, used);
+  if (used) recordSpend(hink, used);
 
   // Metered as well as rate-limited. recordSpend keeps a 60-second
   // window in memory for the breaker; this writes the call down so the
@@ -246,7 +204,7 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
   // its own errors for the same reason.
   import('./prices.js')
     .then(({ recordUsage }) => recordUsage({
-      provider, model, tier,
+      provider, model, tier, profileId,
       promptTokens: data.usage?.prompt_tokens,
       completionTokens: data.usage?.completion_tokens,
       totalTokens: used,
@@ -270,10 +228,6 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
 }
 
 // ---------- free-tier daily quota breaker ----------
-// A per-day account quota is account-wide, so rotating models
-// can't help — fail fast instead of hammering the API.
-let quotaBlockedUntil = 0;
-
 // An ACCOUNT-wide daily cap (OpenRouter) means no model will work,
 // so fail fast. A PER-MODEL daily cap (Groq gives each model its own
 // tokens-per-day budget) means the others are still fine — skip just
@@ -283,22 +237,28 @@ let quotaBlockedUntil = 0;
 const isAccountQuota = (msg) => /free-models-per-day|quota exceeded/i.test(msg);
 const isModelDayQuota = (msg) => /per day|TPD|RPD|daily limit/i.test(msg);
 
-const modelBlocked = new Map();          // "provider:model" -> timestamp
-const providerBlocked = new Map();       // provider -> timestamp (account-wide)
+// Keyed "<key hash>|provider:model" and "<key hash>|provider": a quota is
+// spent on one key, and every other key's quota is untouched.
+const modelBlocked = new Map();
+const providerBlocked = new Map();
 const modelIsBlocked = (k) => (modelBlocked.get(k) || 0) > Date.now();
 const providerIsBlocked = (p) => (providerBlocked.get(p) || 0) > Date.now();
 
-// so the settings UI can show what's spent and when it comes back
-export function blockedModels() {
+// So the settings UI can show what is spent and when it comes back —
+// for this user's keys only.
+export async function blockedModels(profileId) {
+  const cfg = await llmConfig({ profileId });
+  if (!cfg) return {};
+  const id = await ägare(profileId);
+  const nycklar = new Set([nyckelId(cfg.apiKey), ...Object.values(await providerKeys(id)).map(nyckelId)]);
   const now = Date.now();
   const mins = (until) => Math.ceil((until - now) / 60000);
+  const egna = (map) => [...map.entries()]
+    .filter(([k, u]) => u > now && nycklar.has(k.split('|')[0]))
+    .map(([k, u]) => [k.split('|')[1], mins(u)]);
   return {
-    ...Object.fromEntries(
-      [...modelBlocked.entries()].filter(([, u]) => u > now).map(([k, u]) => [k, mins(u)])
-    ),
-    ...Object.fromEntries(
-      [...providerBlocked.entries()].filter(([, u]) => u > now).map(([p, u]) => [`${p}:*`, mins(u)])
-    ),
+    ...Object.fromEntries(egna(modelBlocked)),
+    ...Object.fromEntries(egna(providerBlocked).map(([p, m]) => [`${p}:*`, m])),
   };
 }
 
@@ -313,15 +273,15 @@ function resetFromError(err) {
   return Date.now() + 60 * 60 * 1000;
 }
 
-function blockModel(provider, model, err) {
+function blockModel(nyckel, provider, model, err) {
   const until = Math.min(resetFromError(err), Date.now() + 24 * 60 * 60 * 1000);
-  modelBlocked.set(`${provider}:${model}`, until);
+  modelBlocked.set(`${nyckel}|${provider}:${model}`, until);
   return Math.max(1, Math.round((until - Date.now()) / 60000));
 }
 
-function blockProvider(provider, err) {
+function blockProvider(nyckel, provider, err) {
   const until = Math.min(resetFromError(err), Date.now() + 24 * 60 * 60 * 1000);
-  providerBlocked.set(provider, until);
+  providerBlocked.set(`${nyckel}|${provider}`, until);
   return Math.max(1, Math.round((until - Date.now()) / 60000));
 }
 
@@ -333,8 +293,8 @@ function blockProvider(provider, err) {
 const isPerMinute = (msg) =>
   /per minute|TPM|RPM|tokens per min|requests per min|rate limit reached/i.test(msg);
 
-// Token bucket over a sliding 60s window, per model.
-const spent = new Map();            // model -> [{t, tokens}]
+// Token bucket over a sliding 60s window, per key and model.
+const spent = new Map();            // "<key hash>|provider:model" -> [{t, tokens}]
 const TPM_DEFAULT = 10_000;         // conservative; corrected from response headers
 const tpmLimit = new Map();
 
@@ -368,16 +328,12 @@ const estimateTokens = (system, messages, maxTokens) =>
 // chain actually answered. Callers that persist a result need it: a CV
 // profile built by a weak fallback should be rebuilt, not trusted, and
 // without this the chain silently hides which model produced what.
-export async function llmText({ tier = 'smart', system, messages, maxTokens = 2000, validate, config, onModel }) {
-  const cfg = config || await llmConfig();
+export async function llmText({ profileId, tier = 'smart', system, messages, maxTokens = 2000, validate, config, onModel }) {
+  const cfg = config || await llmConfig({ profileId });
   if (!cfg) {
     throw new Error('Ingen AI-leverantör vald — gå till Profil → AI-leverantör och lägg in en nyckel.');
   }
-
-  if (quotaBlockedUntil > Date.now()) {
-    const mins = Math.ceil((quotaBlockedUntil - Date.now()) / 60000);
-    throw new Error(`Dagskvoten hos ${cfg.provider} är slut (ny chans om ~${mins} min) — byt leverantör eller lägg till credits.`);
-  }
+  const ägarId = cfg.profileId || null;
 
   // model chain: comma-separated values allow "paid first, free fallback"
   const forTier = tier === 'fast' ? (cfg.fast || cfg.bulk || cfg.smart)
@@ -402,21 +358,24 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
   for (let round = 0; round < 3; round++) {
     if (round > 0) await sleep(2000);
     for (const { provider, model } of entries) {
-      if (providerIsBlocked(provider)) continue;          // account cap hit
-      if (modelIsBlocked(`${provider}:${model}`)) continue; // model's daily budget spent
       const pcfg = await configFor(provider, cfg);
       if (!pcfg) { problems.push(`${provider}: ingen nyckel`); continue; }
+      const nyckel = nyckelId(pcfg.apiKey);
+      const hink = `${nyckel}|${provider}:${model}`;
+      if (providerIsBlocked(`${nyckel}|${provider}`)) continue;  // this key's account cap
+      if (modelIsBlocked(hink)) continue;                         // this key's daily budget for the model
+      const anrop = { ...pcfg, model, system, messages, maxTokens, provider, tier, hink, profileId: ägarId };
       try {
         // pace BEFORE spending, so a burst scan doesn't trip the
         // per-minute ceiling and look like an exhausted account.
         // Local servers have no per-minute quota — pacing just sleeps
         // between ads, so skip it there entirely.
         if (!['ollama', 'lmstudio'].includes(provider)) {
-          await waitForBudget(`${provider}:${model}`, need);
+          await waitForBudget(hink, need);
         }
         const text = provider === 'anthropic'
-          ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
-          : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens, provider, tier });
+          ? await callAnthropic(anrop)
+          : await callOpenAICompatible(anrop);
         onModel?.(`${provider}:${model}`);
         return validate ? validate(text) : text;
       } catch (err) {
@@ -429,29 +388,29 @@ export async function llmText({ tier = 'smart', system, messages, maxTokens = 20
         // account-wide cap: this PROVIDER is done, but the next
         // entry may live on a different one, so keep going
         if (isAccountQuota(err.message)) {
-          const mins = blockProvider(provider, err);
+          const mins = blockProvider(nyckel, provider, err);
           problems.push(`${provider}: dagskvot slut (~${mins} min)`);
           continue;
         }
         // this model is done for the day; the next one in the chain
         // has its own budget
         if (isModelDayQuota(err.message)) {
-          const mins = blockModel(provider, model, err);
+          const mins = blockModel(nyckel, provider, model, err);
           problems.push(`${provider}:${model}: dagskvot slut (~${mins} min kvar)`);
           continue;
         }
         // per-minute limit: waiting fixes it, so wait rather than
         // burning through the rest of the chain
         if (isPerMinute(err.message) || err.status === 429) {
-          recordSpend(`${provider}:${model}`, need);   // assume it counted
+          recordSpend(hink, need);   // assume it counted
           await sleep(Math.min(err.retryAfterMs || 5000, 60_000));
           // a per-minute limit is not the model's fault — retry it
           // rather than falling through to a weaker one
           try {
-            await waitForBudget(`${provider}:${model}`, need);
+            await waitForBudget(hink, need);
             const text = provider === 'anthropic'
-              ? await callAnthropic({ ...pcfg, model, system, messages, maxTokens })
-              : await callOpenAICompatible({ ...pcfg, model, system, messages, maxTokens, provider, tier });
+              ? await callAnthropic(anrop)
+              : await callOpenAICompatible(anrop);
             onModel?.(`${provider}:${model}`);
             return validate ? validate(text) : text;
           } catch (retryErr) {

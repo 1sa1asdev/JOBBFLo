@@ -185,9 +185,8 @@ export default function LlmSettings() {
 
       <div className="llm-active">
         {data.active
-          ? <>Använder nu: <b>{data.active.provider}</b> · {data.active.smart}
-              {data.active.source === 'env' && <span className="llm-src"> (från serverns .env)</span>}</>
-          : <>Ingen leverantör konfigurerad — poängsättning och brev är avstängda.</>}
+          ? <>Använder nu: <b>{data.active.provider}</b> · {data.active.smart} — din egen nyckel, din egen kostnad</>
+          : <>Ingen leverantör konfigurerad — bedömning och brev är avstängda tills du lägger in en egen nyckel.</>}
       </div>
 
       <div className="llm-grid">

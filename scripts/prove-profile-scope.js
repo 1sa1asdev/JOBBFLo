@@ -51,6 +51,34 @@ const utanWhere = [];
 // Reading them from the environment is how one user's mail goes out
 // through another's account.
 const gmailUrMiljön = [];
+// Same for AI: a user's key, provider and models live on their profile.
+// The one exception is the platform's own key for embedding the shared
+// ad pool, read in src/embed.js and nowhere else.
+const aiUrMiljön = [];
+// Built from the providers the app knows, so a new provider is covered
+// without anyone remembering to add it here. Platform settings that
+// happen to end in _KEY (JOBSTREAM_API_KEY, ENCRYPTION_KEY) are not AI
+// keys and stay allowed.
+const { PROVIDERS } = await import('../src/providers.js');
+const leverantörer = Object.keys(PROVIDERS).map((p) => p.toUpperCase()).join('|');
+const AI_ENV = new RegExp(
+  `process\\.env\\.(${leverantörer})_(API_KEY|KEY|MODEL_[A-Z]+|BASE_URL)\\b`
+  + '|process\\.env\\[`\\$\\{[^}]+\\}_(API_KEY|KEY|MODEL_[A-Z]+)`\\]'
+  + '|process\\.env\\.LLM_(PROVIDER|MODEL_[A-Z]+)\\b');
+// And every model call says whose it is — profileId, or an explicit
+// config for the "test this key" button. A call without one would fall
+// back to "the only profile", which refuses the day there are two.
+const anropUtanÄgare = [];
+function anropsArgument(kod, start) {
+  const i = kod.indexOf('{', start);
+  if (i < 0) return '';
+  let djup = 0;
+  for (let j = i; j < kod.length && j < i + 6000; j++) {
+    if (kod[j] === '{') djup += 1;
+    else if (kod[j] === '}' && --djup === 0) return kod.slice(i, j + 1);
+  }
+  return kod.slice(i, i + 6000);
+}
 for (const dir of ['src', 'app', 'lib']) {
   for (const f of filer(dir)) {
     const t = readFileSync(f, 'utf8');
@@ -61,11 +89,23 @@ for (const dir of ['src', 'app', 'lib']) {
       if (!/\bWHERE\b/i.test(m[0])) utanWhere.push(f);
     }
     if (/process\.env\.GMAIL_(USER|APP_PASSWORD)\b/.test(kod)) gmailUrMiljön.push(f);
+    if (!/[\\/]embed\.js$/.test(f) && AI_ENV.test(kod)) aiUrMiljön.push(f);
+    if (!/[\\/]llm\.js$/.test(f)) {
+      for (const m of kod.matchAll(/\b(llmJson|llmText|fråga)\(\s*\{/g)) {
+        const arg = anropsArgument(kod, m.index);
+        if (!/\bprofileId\b|\bconfig\b/.test(arg)) {
+          const rad = kod.slice(0, m.index).split('\n').length;
+          anropUtanÄgare.push(`${f}:${rad}`);
+        }
+      }
+    }
   }
 }
 kolla('no query reads "the first profile"', !förstaRaden.length, förstaRaden.join(', '));
 kolla('no UPDATE of profile without a WHERE', !utanWhere.length, utanWhere.join(', '));
 kolla('no Gmail credentials read from the environment', !gmailUrMiljön.length, gmailUrMiljön.join(', '));
+kolla('no user AI keys or models read from the environment', !aiUrMiljön.length, aiUrMiljön.join(', '));
+kolla('every model call says whose it is', !anropUtanÄgare.length, anropUtanÄgare.join(', '));
 
 // ------------------------------------------------------------
 // dynamic — one profile: everything answers as before

@@ -42,7 +42,7 @@ export async function GET(req) {
     return NextResponse.json({
       models: ANTHROPIC_MODELS.map((id) => ({ id, free: false })),
       pricing_reported: true,
-      blocked: blockedModels(),
+      blocked: await blockedModels(await aktivProfilId()),
     });
   }
 
@@ -50,16 +50,13 @@ export async function GET(req) {
   if (!baseUrl) return NextResponse.json({ error: 'bas-URL saknas' }, { status: 400 });
 
   // a key typed in the form but not yet saved wins (test-before-save flow,
-  // same as /settings/llm/test); otherwise reuse the saved key or server env
+  // same as /settings/llm/test); otherwise the user's saved key — never
+  // the server's
   let key = keyParam?.trim() || null;
   if (!key) {
     const { rows: [p] } = await pool.query(
       `SELECT llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
     key = decryptSecret(p?.llm_api_key_enc);
-  }
-  if (!key) {
-    key = process.env[`${provider.toUpperCase()}_API_KEY`]
-      || process.env[`${provider.toUpperCase()}_KEY`] || null;
   }
 
   try {
@@ -87,7 +84,7 @@ export async function GET(req) {
       // does THIS provider report prices at all? if not, "free" is
       // unknowable and the UI should say so rather than filter to nothing
       pricing_reported: list.some((m) => m.free !== undefined),
-      blocked: blockedModels(),
+      blocked: await blockedModels(await aktivProfilId()),
     });
   } catch (err) {
     return NextResponse.json(

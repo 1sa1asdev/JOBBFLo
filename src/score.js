@@ -78,8 +78,9 @@ VIKTIGT — filter som oftast ger noll träffar, använd dem nästan aldrig:
   etiketterna ovan ordagrant.
 Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedöma än 0.`;
 
-export async function parseCriteria(criteriaText) {
+export async function parseCriteria(criteriaText, { profileId } = {}) {
   return llmJson({
+    profileId,
     tier: 'bulk',
     maxTokens: 1000,
     system: FILTER_SYSTEM,
@@ -379,6 +380,8 @@ async function drainQueue(searchId, { limit }) {
         cvText: search.cv_text,
         cvProfile: search.cv_profile,
         mustCriteria: search.must_criteria,
+        // the search's owner pays for reading and grading
+        profileId: search.profile_id,
       });
       const r = tillMatchResult(rad);
 

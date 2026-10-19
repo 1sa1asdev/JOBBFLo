@@ -79,10 +79,11 @@ quote MÅSTE vara kopierad ordagrant ur brevet, max 20 ord. Ta bara med
 påståenden som är ostyrkta eller motsagda — styrkta behöver inte
 redovisas. Hittar du inga, svara {"claims":[]}.`;
 
-export async function checkClaims({ letter, cvText, cvProfile = null }) {
+export async function checkClaims({ letter, cvText, cvProfile = null, profileId }) {
   if (!letter?.trim() || !cvText?.trim()) return { claims: [], checked: false };
 
   const r = await llmJson({
+    profileId,
     // Measured, not assumed. On 'fast' this flagged "substitut-
     // vårdbiträde i Åtvidabergs kommun" as unsupported against a CV
     // that names Åtvidaberg — six letters produced 21 flags, most of
@@ -139,7 +140,7 @@ export async function checkClaims({ letter, cvText, cvProfile = null }) {
 // so the UI does not pay for the same check every time it renders.
 export async function checkApplicationClaims(applicationId) {
   const { rows: [app] } = await pool.query(
-    `SELECT a.id, a.letter_text, a.letter_version,
+    `SELECT a.id, a.letter_text, a.letter_version, a.profile_id,
             COALESCE(s.cv_text, p.cv_text)       AS cv_text,
             COALESCE(s.cv_profile, p.cv_profile) AS cv_profile
      FROM applications a
@@ -151,6 +152,7 @@ export async function checkApplicationClaims(applicationId) {
 
   const r = await checkClaims({
     letter: app.letter_text, cvText: app.cv_text, cvProfile: app.cv_profile,
+    profileId: app.profile_id,
   });
 
   await pool.query(

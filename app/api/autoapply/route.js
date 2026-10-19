@@ -215,7 +215,7 @@ export async function PATCH(req) {
 
     try {
       const { parseCriteria } = await import('../../../src/score.js');
-      const { filters: parsed } = await parseCriteria(text);
+      const { filters: parsed } = await parseCriteria(text, { profileId: await aktivProfilId() });
       const { mergeReparsed, orterIFilter } = await import('../../../src/filterMerge.js');
       const { rows: [nu] } = await pool.query(
         `SELECT api_filters, parsed_filters, location FROM searches WHERE id = $1`, [searchId]);

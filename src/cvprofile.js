@@ -77,11 +77,12 @@ Svara ENDAST med JSON, inga kodstaket:
   "gaps": ["vad en arbetsgivare troligen saknar, kort"]
 }`;
 
-export async function buildCvProfile(cvText) {
+export async function buildCvProfile(cvText, { profileId } = {}) {
   if (!cvText?.trim()) throw new Error('inget CV att läsa');
 
   let usedModel = null;
   const profile = await llmJson({
+    profileId,
     onModel: (m) => { usedModel = m; },
     // 'smart' is the best tier configured. This runs once per upload,
     // so the most capable model available is affordable here even when
@@ -192,12 +193,12 @@ export async function refreshCvProfile({ searchId = null, profileId = null } = {
   if (!searchId && !profileId) throw new Error('refreshCvProfile: searchId eller profileId krävs');
   const table = searchId ? 'searches' : 'profile';
   const { rows: [row] } = searchId
-    ? await pool.query(`SELECT cv_text FROM searches WHERE id = $1`, [searchId])
-    : await pool.query(`SELECT cv_text FROM profile WHERE id = $1`, [profileId]);
+    ? await pool.query(`SELECT cv_text, profile_id FROM searches WHERE id = $1`, [searchId])
+    : await pool.query(`SELECT cv_text, id AS profile_id FROM profile WHERE id = $1`, [profileId]);
 
   if (!row?.cv_text?.trim()) return null;
 
-  const profile = await buildCvProfile(row.cv_text);
+  const profile = await buildCvProfile(row.cv_text, { profileId: row.profile_id });
   const model = profile.__model || null;
   delete profile.__model;
 

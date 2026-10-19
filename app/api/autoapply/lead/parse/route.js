@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { llmJson } from '../../../../../src/llm.js';
+import { aktivProfilId } from '../../../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -70,6 +71,7 @@ export async function POST(req) {
   let r;
   try {
     r = await llmJson({
+      profileId: await aktivProfilId(),
       tier: 'fast',
       maxTokens: 3000,
       system: SYSTEM,

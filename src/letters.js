@@ -235,6 +235,7 @@ export async function draftLetter(adId, { originSearchId = null, profileId } = {
   if (existing.rows[0]?.letter_text) return existing.rows[0];
 
   const draft = await llmJson({
+    profileId: ctx.profile.id,
     tier: 'write',
     // The evidence array is part of the response now, and on a letter
     // with several claims it pushed past 2000 — the model stopped
@@ -283,6 +284,7 @@ export async function reviseLetter(applicationId, instruction) {
     { searchId: app.origin_search_id, profileId: app.profile_id });
 
   const draft = await llmJson({
+    profileId: ctx.profile.id,
     tier: 'write',
     maxTokens: 2000,
     system: LETTER_SYSTEM,

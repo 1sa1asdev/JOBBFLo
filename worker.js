@@ -17,7 +17,6 @@ import { scanSearch, scorePending, queueSearch, MAX_SCORE_ATTEMPTS } from './src
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
-import { buildPendingAdProfiles, antalUtanProfil } from './src/adprofile.js';
 import { runImapLoop } from './src/imap.js';
 import { embedPendingAds, embedPendingProfiles, embedSearchQuery } from './src/embed.js';
 import {
@@ -53,13 +52,6 @@ const LEADSCAN_EVERY = 4 * 60 * 1000;
 // purpose — see requestVerdicts() for why a campaign that may not send
 // right now must still keep judging.
 const JUDGE_EVERY = 2 * 60 * 1000;
-// Reading ads into the CV's shape. One model call per ad on the bulk
-// tier — measured at 3.4s each, so about a thousand an hour — against
-// 37,000 ads that have none yet. Days, not minutes, which is why the
-// embedder falls back to raw text meanwhile and re-embeds as profiles
-// land. Candidates in a search are profiled first; nothing else reads
-// the rest yet.
-const ADPROFILE_EVERY = 90 * 1000;
 const VECTORS_EVERY = 24 * 60 * 60 * 1000;  // release expired vectors, rebuild query vectors
 
 // ------------------------------------------------------------
@@ -310,18 +302,6 @@ async function judgeTick() {
   }
 }
 
-async function adProfileTick() {
-  try {
-    const r = await buildPendingAdProfiles({ limit: 15 });
-    if (r.done || r.thin) {
-      console.log(`annonsprofiler: ${r.done} lästa`
-        + `${r.thin ? `, ${r.thin} utan text` : ''} — ${r.kvar?.toLocaleString('sv-SE')} kvar`);
-    }
-  } catch (err) {
-    console.error('adProfileTick:', err.message);
-  }
-}
-
 async function followupTick() {
   try {
     await checkFollowups();
@@ -371,19 +351,13 @@ setInterval(vectorsTick, VECTORS_EVERY);
 setInterval(autoApplyTick, AUTOAPPLY_EVERY);
 setInterval(leadScanTick, LEADSCAN_EVERY);
 setInterval(judgeTick, JUDGE_EVERY);
-// Off again, and this is the second time the same mistake has been
-// made here: a producer left running after its consumer went away.
-//
-// It was turned on so ranking could use the profile's vector. That
-// blend then measured worse than the criteria vector alone and was
-// reverted — and this kept building profiles for ads nothing reads.
-// 1575 built, 23 actually used by a checklist, about $2.17.
-//
-// The checklist builds the profile it needs, for the ad it is about to
-// judge (kravFörAnnons in checklist.js). That is the same money at the
-// moment it buys something. Turn this on only when something reads a
-// profile BEFORE the ad is judged.
-if (process.env.AD_PROFILES === '1') setInterval(adProfileTick, ADPROFILE_EVERY);
+// No background ad reading. It used to run here behind AD_PROFILES=1,
+// reading ads before anyone judged them — twice switched on, twice a
+// producer left running after its consumer went away (1575 profiles
+// built, 23 used, $2.17). Now there is also a rule against it: reading
+// an ad is the user's cost, on their key, at the moment they grade it
+// (checkAd → kravFörAnnons). A background reader has no user to bill,
+// so it would land on the operator, who pays only for embeddings.
 
 runImapLoop({ signal: abort.signal }).then(() => {
   console.log('worker stopped');

@@ -217,9 +217,9 @@ export const cvKey = (cvText, mustCriteria = null) => crypto.createHash('sha256'
 
 // The ad's requirements, read once and kept on the ad. Every search
 // that finds this ad reuses them, and so does every future CV.
-async function kravFörAnnons(ad) {
+async function kravFörAnnons(ad, profileId) {
   if (ad.ad_profile) return ad.ad_profile;
-  const profil = await buildAdProfile(ad);
+  const profil = await buildAdProfile(ad, { profileId });
   await pool.query(
     `UPDATE ads SET ad_profile = $2::jsonb, ad_profile_at = now(), ad_profile_model = $3
      WHERE id = $1`, [ad.id, JSON.stringify(profil), profil.__model || null]);
@@ -231,7 +231,7 @@ async function kravFörAnnons(ad) {
 // depends on the ad and the CV, and on nothing else.
 // ------------------------------------------------------------
 export async function checkAd(ad, {
-  cvText, cvProfile, mustCriteria = null, force = false, fråga = llmJson,
+  cvText, cvProfile, mustCriteria = null, force = false, fråga = llmJson, profileId,
 } = {}) {
   const nyckel = cvKey(cvText, mustCriteria);
   if (!force) {
@@ -240,7 +240,7 @@ export async function checkAd(ad, {
     if (fanns) return { ...fanns, återanvänd: true };
   }
 
-  const profil = await kravFörAnnons(ad);
+  const profil = await kravFörAnnons(ad, profileId);
   const cvRenderad = renderCvProfile(cvProfile) || cvText || '';
   if (!cvRenderad.trim()) throw new Error('Inget CV inlagt — ladda upp ett CV innan annonser kan bedömas.');
 
@@ -322,6 +322,7 @@ export async function checkAd(ad, {
   // quote checking are the parts most worth testing, and they must not
   // need a working key to run.
   const svar = await fråga({
+    profileId,
     onModel: (m) => { usedModel = m; },
     tier: 'bulk',
     // Sixteen requirements, each with a quote and a sentence, does not

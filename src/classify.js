@@ -16,8 +16,9 @@ Svara ENDAST med JSON, inga kodstaket:
 - "rejected": tack-men-nej, gått vidare med andra kandidater.
 - "replied": allt annat (bekräftelse, följdfråga, begäran om komplettering).`;
 
-export async function classifyReply(emailBody, { subject = '' } = {}) {
+export async function classifyReply(emailBody, { subject = '', profileId } = {}) {
   return llmJson({
+    profileId,
     tier: 'fast',
     maxTokens: 300,
     system: CLASSIFY_SYSTEM,
@@ -50,6 +51,7 @@ export async function draftReply(applicationId, inboundEmailId) {
     `SELECT name, about_text, tone_text FROM profile WHERE id = $1`, [app.profile_id]);
 
   const raw = await llmText({
+    profileId: app.profile_id,
     tier: 'write',
     maxTokens: 1000,
     system: REPLY_SYSTEM,
@@ -104,6 +106,7 @@ export async function generateInterviewPrep(applicationId) {
     `SELECT cv_text FROM profile WHERE id = $1`, [app.profile_id]);
 
   const prep = await llmJson({
+    profileId: app.profile_id,
     tier: 'write',
     maxTokens: 1500,
     system: PREP_SYSTEM,

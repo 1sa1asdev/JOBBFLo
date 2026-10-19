@@ -8,19 +8,20 @@ import { invalidateLlmConfig, llmConfig, blockedModels } from '../../../../src/l
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const profileId = await aktivProfilId();
   const { rows: [p] } = await pool.query(
     `SELECT id, llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
             llm_model_bulk, llm_model_write, llm_base_url
      FROM profile WHERE id = $1`,
-    [await aktivProfilId()]
+    [profileId]
   );
-  const active = await llmConfig({ fresh: true });
+  const active = await llmConfig({ profileId, fresh: true });
 
   return NextResponse.json({
     providers: providerList(),
     // which models are spent for today (model -> minutes left). The client
     // polls this so the dropdown can mark models that ran out of tokens.
-    blocked: blockedModels(),
+    blocked: await blockedModels(profileId),
     current: {
       provider: p?.llm_provider || null,
       model_smart: p?.llm_model_smart || null,
@@ -76,8 +77,8 @@ export async function PUT(req) {
   );
   if (unparked) console.log(`modellbyte: ${unparked} parkerade annonser får ett nytt försök`);
 
-  invalidateLlmConfig();
-  const active = await llmConfig({ fresh: true });
+  invalidateLlmConfig(p.id);
+  const active = await llmConfig({ profileId: p.id, fresh: true });
   return NextResponse.json({
     ok: true,
     active: active ? { provider: active.provider, smart: active.smart, fast: active.fast,
@@ -85,14 +86,16 @@ export async function PUT(req) {
   });
 }
 
-// clear configuration (fall back to server env)
+// clear configuration — the user then has no AI until they enter a
+// key again; there is no server key to fall back to
 export async function DELETE() {
+  const profileId = await aktivProfilId();
   await pool.query(
     `UPDATE profile SET llm_provider = NULL, llm_api_key_enc = NULL,
        llm_model_smart = NULL, llm_model_fast = NULL, llm_base_url = NULL,
        llm_model_bulk = NULL, llm_model_write = NULL
-     WHERE id = $1`, [await aktivProfilId()]
+     WHERE id = $1`, [profileId]
   );
-  invalidateLlmConfig();
+  invalidateLlmConfig(profileId);
   return NextResponse.json({ ok: true });
 }

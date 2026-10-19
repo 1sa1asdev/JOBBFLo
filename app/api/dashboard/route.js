@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
+import { aktivProfilId } from '../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,10 +108,13 @@ export async function GET(req) {
 
   // What it cost. Present only if anything has been recorded — an empty
   // spend table means the switch is off, not that the work was free.
+  // This queried cost_usd and created_at, which llm_usage never had —
+  // the error was swallowed by the catch below, so the cost line never
+  // appeared at all. Now the real columns, and only this user's calls.
   const { rows: [cost] } = await pool.query(
-    `SELECT round(sum(cost_usd)::numeric, 2) AS usd, count(*) AS anrop
+    `SELECT round(sum(usd)::numeric, 2) AS usd, count(*) AS anrop
      FROM llm_usage
-     WHERE created_at > date_trunc('month', now())`
+     WHERE at > date_trunc('month', now()) AND profile_id = $1`, [await aktivProfilId()]
   ).catch(() => ({ rows: [null] }));
 
   const rate = (del, av) => (Number(av) >= MIN_FOR_RATE
