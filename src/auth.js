@@ -2,7 +2,8 @@ import 'dotenv/config';
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { pool } from './db.js';
-import { endaProfilId } from './owner.js';
+import { NextResponse } from 'next/server';
+import { endaProfilId, ägerSökning, ägerAnsökan, ägerFörslag, ägerBilaga } from './owner.js';
 
 // ------------------------------------------------------------
 // Accounts. Zero external deps:
@@ -128,3 +129,20 @@ export async function aktivProfilId() {
   }
   return p.id;
 }
+
+// ------------------------------------------------------------
+// The row in the URL, if it is the caller's. Each returns the caller's
+// profileId when they own the row and null when they do not — which a
+// route answers with inteHittad(), the same 404 a row that does not
+// exist gets, so nobody learns that someone else's search is there.
+// ------------------------------------------------------------
+const ägareAv = (kontroll) => async (id) => {
+  const profileId = await aktivProfilId();
+  return (await kontroll(id, profileId)) ? profileId : null;
+};
+export const ägareAvSökning = ägareAv(ägerSökning);
+export const ägareAvAnsökan = ägareAv(ägerAnsökan);
+export const ägareAvFörslag = ägareAv(ägerFörslag);
+export const ägareAvBilaga = ägareAv(ägerBilaga);
+
+export const inteHittad = (vad = 'finns inte') => NextResponse.json({ error: vad }, { status: 404 });

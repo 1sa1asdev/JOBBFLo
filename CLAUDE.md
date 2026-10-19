@@ -206,7 +206,7 @@ Now port the mockup.
 
 ## The proofs
 
-Five scripts, each one a rule that protects money, reputation or the
+Six scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -217,7 +217,15 @@ node scripts/prove-company-cooldown.js   # one letter per company per 30 days
 node scripts/prove-send-transaction.js   # a letter can never be sent twice
 node scripts/prove-injection.js          # ad text cannot give the models orders
 node scripts/prove-profile-scope.js      # no code picks a profile by guessing
+node scripts/prove-owner-checks.js       # one user cannot reach another's rows
 ```
+
+`prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
+against the same database, at `PROVE_BASE_URL` (default
+`http://localhost:3100`). CI builds the app and starts exactly that. Every
+route that is handed someone's id asks `ägareAv*()` in `src/auth.js`
+first and answers 404 when the caller is not the owner;
+`prove-profile-scope.js` fails any route that forgets.
 
 Never write `FROM profile LIMIT 1`. Worker code takes the owner from the
 row it is acting on (`applications.profile_id`, `searches.profile_id`);

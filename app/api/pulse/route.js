@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
+import { aktivProfilId, ägareAvSökning } from '../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,18 +12,26 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
+  const profileId = await aktivProfilId();
 
   const { rows: [v] } = await pool.query(
     `SELECT
-       (SELECT count(*) FROM email_messages)     AS msgs,
-       (SELECT max(extract(epoch from created_at)) FROM email_messages) AS last_msg,
-       (SELECT count(*) FROM suggested_replies WHERE NOT dismissed) AS suggestions,
-       (SELECT max(extract(epoch from updated_at)) FROM applications) AS last_app,
-       (SELECT count(*) FROM applications WHERE status <> 'drafted') AS sent_apps`
+       (SELECT count(*) FROM email_messages em
+          JOIN applications a ON a.id = em.application_id AND a.profile_id = $1) AS msgs,
+       (SELECT max(extract(epoch from em.created_at)) FROM email_messages em
+          JOIN applications a ON a.id = em.application_id AND a.profile_id = $1) AS last_msg,
+       (SELECT count(*) FROM suggested_replies sr
+          JOIN applications a ON a.id = sr.application_id AND a.profile_id = $1
+        WHERE NOT sr.dismissed) AS suggestions,
+       (SELECT max(extract(epoch from updated_at)) FROM applications WHERE profile_id = $1) AS last_app,
+       (SELECT count(*) FROM applications WHERE status <> 'drafted' AND profile_id = $1) AS sent_apps`,
+    [profileId]
   );
 
+  // A search that is not the caller's gets no beacon at all, the same as
+  // one that does not exist — not even its row counts.
   let search = null;
-  if (searchId) {
+  if (searchId && await ägareAvSökning(searchId)) {
     // Four counters, because four things move independently:
     //   total      layer 1 found more ads
     //   scored     a requested verdict landed
@@ -65,7 +74,7 @@ export async function GET(req) {
            || coalesce(sr.must_criteria, '')
            || coalesce(sr.location::text, '')
            || coalesce(sr.auto_apply_min_score::text, '')) AS rules
-       FROM searches sr WHERE sr.id = $1`, [searchId]
+       FROM searches sr WHERE sr.id = $1 AND sr.profile_id = $2`, [searchId, profileId]
     );
     search = s ? [
       s.total, s.scored, s.requested,

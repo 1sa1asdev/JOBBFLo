@@ -30,6 +30,9 @@ export async function GET(req) {
   // Not named `window` — it shadows a global that exists in the
   // client bundle even though this file only runs on the server.
   const period = dagar ? `${dagar} days` : null;
+  // Every figure on the dashboard is the caller's own. The cost line
+  // further down already was; these four counted everyone's letters.
+  const profileId = await aktivProfilId();
 
   const { rows: [total] } = await pool.query(
     `SELECT
@@ -43,8 +46,8 @@ export async function GET(req) {
        min(sent_at) AS forsta,
        max(sent_at) AS senaste
      FROM applications
-     WHERE ($1::interval IS NULL OR sent_at > now() - $1::interval)`,
-    [period]
+     WHERE profile_id = $2 AND ($1::interval IS NULL OR sent_at > now() - $1::interval)`,
+    [period, profileId]
   );
 
   // Per source. origin_search_id survives a deleted search as NULL
@@ -67,11 +70,11 @@ export async function GET(req) {
        max(a.sent_at) AS senaste
      FROM applications a
      LEFT JOIN searches s ON s.id = a.origin_search_id
-     WHERE a.status <> 'drafted'
+     WHERE a.status <> 'drafted' AND a.profile_id = $2
        AND ($1::interval IS NULL OR a.sent_at > now() - $1::interval)
      GROUP BY 1, 2, 3, 4
      ORDER BY count(*) DESC`,
-    [period]
+    [period, profileId]
   );
 
   // Letters per day, for the shape of the effort over time. Generated
@@ -82,11 +85,12 @@ export async function GET(req) {
        count(a.id) AS skickade,
        count(a.id) FILTER (WHERE a.status IN ('replied','interview','rejected')) AS svar
      FROM generate_series(
-            COALESCE((SELECT min(sent_at)::date FROM applications), current_date),
+            COALESCE((SELECT min(sent_at)::date FROM applications WHERE profile_id = $1), current_date),
             current_date, '1 day') d
      LEFT JOIN applications a
-       ON a.sent_at::date = d::date AND a.status <> 'drafted'
-     GROUP BY 1 ORDER BY 1`
+       ON a.sent_at::date = d::date AND a.status <> 'drafted' AND a.profile_id = $1
+     GROUP BY 1 ORDER BY 1`,
+    [profileId]
   );
 
   // The funnel, per campaign: why a campaign that found 1200 ads sent
@@ -101,9 +105,10 @@ export async function GET(req) {
      FROM searches s
      JOIN match_results m ON m.search_id = s.id
      JOIN ads ON ads.id = m.ad_id
-     LEFT JOIN applications app ON app.ad_id = ads.id
-     WHERE s.deleted_at IS NULL AND s.campaign_created_at IS NOT NULL
-     GROUP BY s.name ORDER BY count(*) DESC`
+     LEFT JOIN applications app ON app.ad_id = ads.id AND app.profile_id = s.profile_id
+     WHERE s.deleted_at IS NULL AND s.campaign_created_at IS NOT NULL AND s.profile_id = $1
+     GROUP BY s.name ORDER BY count(*) DESC`,
+    [profileId]
   );
 
   // What it cost. Present only if anything has been recorded — an empty
@@ -114,7 +119,7 @@ export async function GET(req) {
   const { rows: [cost] } = await pool.query(
     `SELECT round(sum(usd)::numeric, 2) AS usd, count(*) AS anrop
      FROM llm_usage
-     WHERE at > date_trunc('month', now()) AND profile_id = $1`, [await aktivProfilId()]
+     WHERE at > date_trunc('month', now()) AND profile_id = $1`, [profileId]
   ).catch(() => ({ rows: [null] }));
 
   const rate = (del, av) => (Number(av) >= MIN_FOR_RATE

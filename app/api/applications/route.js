@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../src/auth.js';
+import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { draftLetter } from '../../../src/letters.js';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +9,10 @@ export const dynamic = 'force-dynamic';
 export async function POST(req) {
   const { adId, searchId } = await req.json();
   if (!adId) return NextResponse.json({ error: 'adId krävs' }, { status: 400 });
+  // The search decides which CV the letter is written from (its tailored
+  // one, if it has one). Someone else's search would mean a letter built
+  // on someone else's CV.
+  if (searchId && !(await ägareAvSökning(searchId))) return inteHittad('sökningen finns inte');
   try {
     const app = await draftLetter(adId,
       { originSearchId: searchId || null, profileId: await aktivProfilId() });

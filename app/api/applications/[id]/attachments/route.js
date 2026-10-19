@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvAnsökan, inteHittad } from '../../../../../src/auth.js';
 import { attachmentsFor } from '../../../../../src/mailer.js';
 import { pool } from '../../../../../src/db.js';
 import { extractCvText } from '../../../../../src/cv.js';
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic';
 // afterwards that only a letter went.
 export async function GET(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   try {
     const files = await attachmentsFor(id);
     return NextResponse.json({
@@ -37,6 +40,8 @@ const MAX_BYTES = 10 * 1024 * 1024;
 // ------------------------------------------------------------
 export async function POST(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   try {
     const form = await req.formData();
     const file = form.get('file');
@@ -76,6 +81,8 @@ export async function POST(req, { params }) {
 // Back to the search's or the profile's CV.
 export async function DELETE(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   const { rows: [app] } = await pool.query(
     `UPDATE applications
        SET cv_file = NULL, cv_filename = NULL, cv_mime = NULL, cv_text = NULL,
