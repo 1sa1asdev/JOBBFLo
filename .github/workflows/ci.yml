@@ -1,15 +1,21 @@
 # ------------------------------------------------------------
 # What every pull request has to get past before it can merge.
 #
-# Each step guards something that has gone wrong in this repo for real:
+# Each check guards something that has gone wrong in this repo for real:
 # a schema file that drifted 130 columns from the database, a seed that
 # wrote to a column dropped long ago, a letter that could be sent twice,
-# a query that read "the first profile". None of those were visible in
-# the UI. All of them are visible here.
+# a query that read "the first profile", and routes that let one user
+# read, change and send another user's rows. None of those were visible
+# in the UI. All of them are visible here.
 #
-# It runs against an empty Postgres with pgvector, built from scratch on
-# every run — the same path a new install and production take — so a
-# migration that only works on the developer's database fails here.
+# Three jobs that run AT THE SAME TIME, each with its own empty Postgres
+# with pgvector — so the wall-clock time is the slowest job, not the sum.
+# They share nothing but the checkout:
+#
+#   schema     the migrations build what db/schema.sql says, from empty
+#   proofs     the rules that protect money and reputation, against a DB
+#   build-e2e  the app compiles; then two real users against a real
+#              server with login on cannot reach each other's rows
 #
 # No secrets, no model calls: the proofs that need a model (the
 # injection test) cost money per run and are started by hand.
@@ -25,66 +31,94 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+env:
+  DATABASE_URL: postgres://jobbflo:jobbflo@localhost:5432/jobbflo
 
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
-        # Same image the local database runs: Postgres 16 with pgvector.
         image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: jobbflo
-          POSTGRES_PASSWORD: jobbflo
-          POSTGRES_DB: jobbflo
+        env: { POSTGRES_USER: jobbflo, POSTGRES_PASSWORD: jobbflo, POSTGRES_DB: jobbflo }
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U jobbflo"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    env:
-      DATABASE_URL: postgres://jobbflo:jobbflo@localhost:5432/jobbflo
-
+          --health-cmd "pg_isready -U jobbflo" --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          # stream-chain (the snapshot import) requires Node 22.
-          node-version: 22
-          cache: npm
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
 
-      - run: npm ci
-
-      # The schema file must be what the migrations build. A migration
-      # merged without `npm run db:schema` fails here, not months later.
+      # A migration merged without `npm run db:schema` fails here.
       - name: Schema snapshot matches the migrations
-        run: npm run db:check
+        run: time npm run db:check
 
       # A fresh install, the way a new user or a new environment gets one.
       - name: Install from empty
-        run: |
-          npm run db:init
-          npm run db:seed
+        run: time (npm run db:init && npm run db:seed)
 
-      # Migrating an up-to-date database must change nothing.
       - name: Migrations are idempotent
-        run: npm run db:migrate
+        run: time npm run db:migrate
+
+  proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: jobbflo, POSTGRES_PASSWORD: jobbflo, POSTGRES_DB: jobbflo }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U jobbflo" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run db:init && npm run db:seed
 
       - name: Proof — the grade is arithmetic over readable rows
-        run: node scripts/prove-checklist.js
+        run: time node scripts/prove-checklist.js
 
       - name: Proof — a letter can never be sent twice
-        run: node scripts/prove-send-transaction.js
+        run: time node scripts/prove-send-transaction.js
 
       - name: Proof — no code picks a profile by guessing
-        run: node scripts/prove-profile-scope.js
+        run: time node scripts/prove-profile-scope.js
+
+  build-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: jobbflo, POSTGRES_PASSWORD: jobbflo, POSTGRES_DB: jobbflo }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U jobbflo" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+
+      # Next keeps its compile cache in .next/cache; reusing it between
+      # runs turns a full build into an incremental one.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('app/**', 'components/**', 'lib/**', 'src/**') }}
+          restore-keys: next-${{ hashFiles('package-lock.json') }}-
 
       - name: Production build
-        run: npm run build
+        run: time npm run build
+
+      - run: npm run db:init && npm run db:seed
 
       # Two real users, a real server with login on: every route that is
       # handed the other user's id must answer 404 and change nothing,
@@ -99,4 +133,5 @@ jobs:
             curl -s -o /dev/null http://localhost:3100/api/profile && break
             sleep 1
           done
-          PROVE_BASE_URL=http://localhost:3100 node scripts/prove-owner-checks.js || { cat next.log; exit 1; }
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-owner-checks.js \
+            || { cat next.log; exit 1; }
