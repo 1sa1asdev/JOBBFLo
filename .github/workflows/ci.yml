@@ -1,0 +1,87 @@
+# ------------------------------------------------------------
+# What every pull request has to get past before it can merge.
+#
+# Each step guards something that has gone wrong in this repo for real:
+# a schema file that drifted 130 columns from the database, a seed that
+# wrote to a column dropped long ago, a letter that could be sent twice,
+# a query that read "the first profile". None of those were visible in
+# the UI. All of them are visible here.
+#
+# It runs against an empty Postgres with pgvector, built from scratch on
+# every run — the same path a new install and production take — so a
+# migration that only works on the developer's database fails here.
+#
+# No secrets, no model calls: the proofs that need a model (the
+# injection test) cost money per run and are started by hand.
+# ------------------------------------------------------------
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        # Same image the local database runs: Postgres 16 with pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: jobbflo
+          POSTGRES_PASSWORD: jobbflo
+          POSTGRES_DB: jobbflo
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U jobbflo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://jobbflo:jobbflo@localhost:5432/jobbflo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # stream-chain (the snapshot import) requires Node 22.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The schema file must be what the migrations build. A migration
+      # merged without `npm run db:schema` fails here, not months later.
+      - name: Schema snapshot matches the migrations
+        run: npm run db:check
+
+      # A fresh install, the way a new user or a new environment gets one.
+      - name: Install from empty
+        run: |
+          npm run db:init
+          npm run db:seed
+
+      # Migrating an up-to-date database must change nothing.
+      - name: Migrations are idempotent
+        run: npm run db:migrate
+
+      - name: Proof — the grade is arithmetic over readable rows
+        run: node scripts/prove-checklist.js
+
+      - name: Proof — a letter can never be sent twice
+        run: node scripts/prove-send-transaction.js
+
+      - name: Proof — no code picks a profile by guessing
+        run: node scripts/prove-profile-scope.js
+
+      - name: Production build
+        run: npm run build
