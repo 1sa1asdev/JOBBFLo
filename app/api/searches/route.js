@@ -34,7 +34,7 @@ export async function POST(req) {
   let filters = {};
   let parseError = null;
   try {
-    ({ filters } = await parseCriteria(criteria));
+    ({ filters } = await parseCriteria(criteria, { profileId }));
   } catch (err) {
     // no API key / model error — fall back to plain free-text search so
     // the real JobSearch API still gets queried; layer 2 waits for a key

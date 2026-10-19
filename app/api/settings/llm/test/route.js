@@ -21,12 +21,6 @@ export async function POST(req) {
       `SELECT llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
     key = decryptSecret(p?.llm_api_key_enc);
   }
-  if (!key) {
-    // ...or the server env key, so the pre-configured provider is testable
-    key = provider === 'openrouter' ? process.env.OPENROUTER_API_KEY
-        : provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY
-        : null;
-  }
   if (!key && provider !== 'ollama') {
     return NextResponse.json({ error: 'ingen nyckel angiven' }, { status: 400 });
   }

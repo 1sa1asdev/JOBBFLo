@@ -24,17 +24,45 @@ const LOCAL_URL = process.env.LMSTUDIO_BASE_URL || 'http://127.0.0.1:1234/v1';
 // vector(768) column: text-embedding-3 is Matryoshka-trained, so a
 // truncated vector is still a usable vector rather than a broken one.
 // Keeping 768 halves the index and matches the column already in place.
+// ------------------------------------------------------------
+// Embedding is the platform's cost, not a user's — the only AI work
+// the operator pays for. Every ad in the shared pool is embedded once
+// and serves everyone, and query vectors (a CV, a search) must come
+// from the same model to be comparable, so they run here too.
+//
+// It therefore has its own key, PLATFORM_OPENROUTER_API_KEY: the
+// operator's, ideally with a credit limit set on it at OpenRouter so
+// the pool can never drain the account. This is the ONLY place in the
+// app that reads an AI key from the environment; users' keys live on
+// their profiles (src/llm.js).
+//
+// OPENROUTER_API_KEY is still accepted while an install moves over —
+// locally the operator and the user are the same person — and the
+// worker says so once.
+// ------------------------------------------------------------
+let sagtOmReserv = false;
+function plattformsnyckel(egen, reserv) {
+  const k = process.env[egen]?.trim();
+  if (k) return k;
+  const r = process.env[reserv]?.trim() || null;
+  if (r && !sagtOmReserv) {
+    sagtOmReserv = true;
+    console.log(`embed: ${egen} saknas — använder ${reserv} tills plattformen har en egen nyckel`);
+  }
+  return r;
+}
+
 const PROVIDERS = {
   openrouter: {
     url: 'https://openrouter.ai/api/v1/embeddings',
     model: process.env.EMBED_MODEL || 'openai/text-embedding-3-small',
-    key: () => process.env.OPENROUTER_API_KEY,
+    key: () => plattformsnyckel('PLATFORM_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'),
     dimensions: EMBED_DIMS,
   },
   openai: {
     url: 'https://api.openai.com/v1/embeddings',
     model: process.env.EMBED_MODEL || 'text-embedding-3-small',
-    key: () => process.env.OPENAI_API_KEY,
+    key: () => plattformsnyckel('PLATFORM_OPENAI_API_KEY', 'OPENAI_API_KEY'),
     dimensions: EMBED_DIMS,
   },
   lmstudio: {

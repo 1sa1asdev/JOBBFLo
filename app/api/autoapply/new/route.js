@@ -28,7 +28,7 @@ export async function POST(req) {
   let filters = {};
   let parseError = null;
   try {
-    ({ filters } = await parseCriteria(criteria));
+    ({ filters } = await parseCriteria(criteria, { profileId }));
   } catch (err) {
     parseError = err.message;
     filters = { q: criteria.slice(0, 200) };   // still search, just less precisely

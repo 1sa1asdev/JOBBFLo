@@ -51,6 +51,34 @@ const utanWhere = [];
 // Reading them from the environment is how one user's mail goes out
 // through another's account.
 const gmailUrMiljön = [];
+// Same for AI: a user's key, provider and models live on their profile.
+// The one exception is the platform's own key for embedding the shared
+// ad pool, read in src/embed.js and nowhere else.
+const aiUrMiljön = [];
+// Built from the providers the app knows, so a new provider is covered
+// without anyone remembering to add it here. Platform settings that
+// happen to end in _KEY (JOBSTREAM_API_KEY, ENCRYPTION_KEY) are not AI
+// keys and stay allowed.
+const { PROVIDERS } = await import('../src/providers.js');
+const leverantörer = Object.keys(PROVIDERS).map((p) => p.toUpperCase()).join('|');
+const AI_ENV = new RegExp(
+  `process\\.env\\.(${leverantörer})_(API_KEY|KEY|MODEL_[A-Z]+|BASE_URL)\\b`
+  + '|process\\.env\\[`\\$\\{[^}]+\\}_(API_KEY|KEY|MODEL_[A-Z]+)`\\]'
+  + '|process\\.env\\.LLM_(PROVIDER|MODEL_[A-Z]+)\\b');
+// And every model call says whose it is — profileId, or an explicit
+// config for the "test this key" button. A call without one would fall
+// back to "the only profile", which refuses the day there are two.
+const anropUtanÄgare = [];
+function anropsArgument(kod, start) {
+  const i = kod.indexOf('{', start);
+  if (i < 0) return '';
+  let djup = 0;
+  for (let j = i; j < kod.length && j < i + 6000; j++) {
+    if (kod[j] === '{') djup += 1;
+    else if (kod[j] === '}' && --djup === 0) return kod.slice(i, j + 1);
+  }
+  return kod.slice(i, i + 6000);
+}
 for (const dir of ['src', 'app', 'lib']) {
   for (const f of filer(dir)) {
     const t = readFileSync(f, 'utf8');
@@ -61,11 +89,23 @@ for (const dir of ['src', 'app', 'lib']) {
       if (!/\bWHERE\b/i.test(m[0])) utanWhere.push(f);
     }
     if (/process\.env\.GMAIL_(USER|APP_PASSWORD)\b/.test(kod)) gmailUrMiljön.push(f);
+    if (!/[\\/]embed\.js$/.test(f) && AI_ENV.test(kod)) aiUrMiljön.push(f);
+    if (!/[\\/]llm\.js$/.test(f)) {
+      for (const m of kod.matchAll(/\b(llmJson|llmText|fråga)\(\s*\{/g)) {
+        const arg = anropsArgument(kod, m.index);
+        if (!/\bprofileId\b|\bconfig\b/.test(arg)) {
+          const rad = kod.slice(0, m.index).split('\n').length;
+          anropUtanÄgare.push(`${f}:${rad}`);
+        }
+      }
+    }
   }
 }
 kolla('no query reads "the first profile"', !förstaRaden.length, förstaRaden.join(', '));
 kolla('no UPDATE of profile without a WHERE', !utanWhere.length, utanWhere.join(', '));
 kolla('no Gmail credentials read from the environment', !gmailUrMiljön.length, gmailUrMiljön.join(', '));
+kolla('no user AI keys or models read from the environment', !aiUrMiljön.length, aiUrMiljön.join(', '));
+kolla('every model call says whose it is', !anropUtanÄgare.length, anropUtanÄgare.join(', '));
 
 // ------------------------------------------------------------
 // dynamic — one profile: everything answers as before
@@ -114,8 +154,16 @@ try {
   // attribute.
   const svar = await fetch('http://localhost:3000/api/profile', { signal: AbortSignal.timeout(20000) })
     .catch(() => null);
-  if (svar) {
-    const text = await svar.text();
+  // The server must be looking at THIS database for its answer to mean
+  // anything. Run against a scratch database while the dev server sits
+  // on the real one, it answers with the real profile — a profile this
+  // database has never seen — and that is a test setup, not a leak.
+  const text = svar ? await svar.text() : '';
+  let svarsId = null;
+  try { svarsId = JSON.parse(text)?.id || null; } catch { /* not JSON — an error page */ }
+  if (svar && svar.ok && svarsId && svarsId !== äkta.id && svarsId !== andra.id) {
+    console.log('· dev-servern använder en annan databas — hoppar över route-kontrollen');
+  } else if (svar) {
     kolla('two profiles: /api/profile does not answer with a profile',
       !svar.ok && !text.includes(äkta.name), `HTTP ${svar.status}`);
   } else {
@@ -128,7 +176,12 @@ try {
 
 // And back to one: the same calls answer again.
 kolla('one profile again: the owner lookup answers', (await endaProfilId()) === äkta.id);
-kolla('one profile again: the LLM config resolves', Boolean(await llmConfig({ fresh: true })));
+// "Answers again", not "has a key": a profile with no AI settings
+// correctly gets no config. This used to read Boolean(config), which
+// passed in CI only because the old environment fallback invented a
+// local LM Studio config for a profile that had none.
+const e4 = await vägrar(() => llmConfig({ fresh: true }));
+kolla('one profile again: the LLM lookup answers instead of refusing', !e4, e4?.message?.slice(0, 50));
 
 console.log(fel ? `\n${fel} fel` : '\nallt stämmer');
 await pool.end();

@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 045.
+-- Baseline covers migrations up to 043; latest migration 046.
 -- ============================================================
 
 --
@@ -435,7 +435,8 @@ CREATE TABLE public.llm_usage (
     prompt_tokens integer,
     completion_tokens integer,
     total_tokens integer,
-    usd numeric(12,8) DEFAULT 0 NOT NULL
+    usd numeric(12,8) DEFAULT 0 NOT NULL,
+    profile_id uuid
 );
 
 --
@@ -443,6 +444,12 @@ CREATE TABLE public.llm_usage (
 --
 
 COMMENT ON TABLE public.llm_usage IS 'One row per LLM call, with the cost computed from the price in force at the time. The basis for the monthly budget; free tiers record 0 and still count towards volume.';
+
+--
+-- Name: COLUMN llm_usage.profile_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.llm_usage.profile_id IS 'The user whose key paid for this call. NULL for calls recorded before per-user keys, and for users since deleted.';
 
 --
 -- Name: match_results; Type: TABLE; Schema: public; Owner: -
@@ -1385,6 +1392,12 @@ CREATE INDEX lead_scans_ok ON public.lead_scans USING btree (ok, scanned_at DESC
 CREATE INDEX llm_usage_at ON public.llm_usage USING btree (at DESC);
 
 --
+-- Name: llm_usage_profile_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX llm_usage_profile_at ON public.llm_usage USING btree (profile_id, at DESC);
+
+--
 -- Name: match_results_candidates; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1517,6 +1530,13 @@ ALTER TABLE ONLY public.lead_scans
 
 ALTER TABLE ONLY public.letter_versions
     ADD CONSTRAINT letter_versions_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
+
+--
+-- Name: llm_usage llm_usage_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_usage
+    ADD CONSTRAINT llm_usage_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE SET NULL;
 
 --
 -- Name: match_results match_results_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

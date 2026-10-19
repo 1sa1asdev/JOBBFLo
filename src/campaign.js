@@ -124,7 +124,9 @@ export async function writeCampaignLetter(searchId, instruction = null) {
     );
   }
 
-  const draft = await llmJson({ tier: 'write', maxTokens: 2000, system: CAMPAIGN_SYSTEM, messages });
+  const draft = await llmJson({
+    profileId: ctx.s.profile_id, tier: 'write', maxTokens: 2000, system: CAMPAIGN_SYSTEM, messages,
+  });
   // ctx.s carries the profile's name/email/phone: the SELECT lists them
   // after s.*, so they win over the search's own `name` column. Passing
   // the whole row is what gets the contact line onto a cold email, where

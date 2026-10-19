@@ -53,11 +53,11 @@ export async function recordUsage(entry) {
   const usd = await costOf(entry);
   await pool.query(
     `INSERT INTO llm_usage
-       (provider, model, tier, prompt_tokens, completion_tokens, total_tokens, usd)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+       (provider, model, tier, prompt_tokens, completion_tokens, total_tokens, usd, profile_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [entry.provider, entry.model, entry.tier || null,
      entry.promptTokens ?? null, entry.completionTokens ?? null,
-     entry.totalTokens ?? null, usd]
+     entry.totalTokens ?? null, usd, entry.profileId || null]
   ).catch(() => { /* metering must never break the call it measures */ });
   return usd;
 }
@@ -88,10 +88,13 @@ export async function unitCosts() {
   };
 }
 
-export async function spendThisMonth() {
+// One user's spend: the budget they set is measured against their own
+// calls, not against everyone's.
+export async function spendThisMonth(profileId) {
+  if (!profileId) throw new Error('spendThisMonth: profileId krävs');
   const { rows: [r] } = await pool.query(
     `SELECT coalesce(sum(usd), 0)::numeric(12,6) AS usd, count(*)::int AS calls
-     FROM llm_usage WHERE at >= date_trunc('month', now())`
+     FROM llm_usage WHERE at >= date_trunc('month', now()) AND profile_id = $1`, [profileId]
   );
   return { usd: Number(r.usd), calls: r.calls };
 }

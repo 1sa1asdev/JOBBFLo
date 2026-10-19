@@ -25,17 +25,20 @@ async function providerCredit(provider, key) {
 }
 
 export async function GET() {
+  const profileId = await aktivProfilId();
   const { rows: [p] } = await pool.query(
     `SELECT monthly_budget_usd, daily_score_limit, llm_provider,
             llm_api_key_enc, llm_model_bulk, llm_model_write
-     FROM profile WHERE id = $1`, [await aktivProfilId()]);
+     FROM profile WHERE id = $1`, [profileId]);
   if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
 
+  // The user's own spend and the credit left on THEIR key. Asking
+  // OpenRouter with the server's key would show the operator's balance
+  // as if it were the user's.
   const [unit, spent, credit] = await Promise.all([
     unitCosts(),
-    spendThisMonth(),
-    providerCredit(p.llm_provider, decryptSecret(p.llm_api_key_enc)
-      || process.env.OPENROUTER_API_KEY),
+    spendThisMonth(profileId),
+    providerCredit(p.llm_provider, decryptSecret(p.llm_api_key_enc)),
   ]);
 
   const budget = p.monthly_budget_usd == null ? null : Number(p.monthly_budget_usd);

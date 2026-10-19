@@ -30,6 +30,7 @@ export async function chatTurn(searchId, userMessage) {
   );
 
   const { criteria, reply } = await llmJson({
+    profileId: search.profile_id,
     tier: 'write',
     maxTokens: 1000,
     system: MERGE_SYSTEM,
@@ -41,7 +42,7 @@ export async function chatTurn(searchId, userMessage) {
 
   // re-parse layer-1 filters from the merged criteria, keeping what
   // the user switched by hand unless this message spoke to it
-  const { filters: parsed } = await parseCriteria(criteria);
+  const { filters: parsed } = await parseCriteria(criteria, { profileId: search.profile_id });
   const { filters, behållna } = mergeReparsed({
     current: search.api_filters, prevParsed: search.parsed_filters, newParsed: parsed,
   });
