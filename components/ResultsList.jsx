@@ -15,6 +15,9 @@ function statusChip(r) {
   switch (r.application_status) {
     case 'drafted': return { cls: 'drafted', label: 'Utkast' };
     case 'sent': return { cls: 'sent', label: r.sent_by === 'external' ? 'Ansökt via länk' : 'Skickad' };
+    // Handed to Gmail, not yet confirmed back. Reads as sent, because
+    // that is the safe reading: the employer may well have it.
+    case 'sending': return { cls: 'sent', label: 'Skickas…' };
     case 'replied': return { cls: 'fresh', label: 'Svar inne' };
     case 'interview': return { cls: 'fresh', label: 'Intervju' };
     case 'rejected': return { cls: 'sent', label: 'Avslag' };
@@ -443,7 +446,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
           // sent, and once it is sent the card must say so rather than
           // keep offering to write the letter that is already in the
           // employer's inbox.
-          const isSent = ['sent', 'replied', 'interview', 'rejected']
+          const isSent = ['sending', 'sent', 'replied', 'interview', 'rejected']
             .includes(r.application_status);
           const isDraft = r.application_status === 'drafted';
           return (

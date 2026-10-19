@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -27,8 +28,7 @@ export async function POST(req, { params }) {
     `SELECT id, apply_url, apply_email FROM ads WHERE id = $1`, [id]);
   if (!ad) return NextResponse.json({ error: 'annonsen finns inte' }, { status: 404 });
 
-  const { rows: [profile] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
-  if (!profile) return NextResponse.json({ error: 'ingen profil' }, { status: 400 });
+  const profileId = await aktivProfilId();
 
   // One application per ad, forever (CLAUDE.md #1) — enforced by
   // UNIQUE(profile_id, ad_id), the multi-user-ready form of it, which
@@ -45,7 +45,7 @@ export async function POST(req, { params }) {
        applied_via_url = EXCLUDED.applied_via_url, updated_at = now()
      WHERE applications.status = 'drafted'
      RETURNING id, ad_id, status, sent_by, sent_at, applied_via_url`,
-    [id, profile.id, searchId, ad.apply_url || null]
+    [id, profileId, searchId, ad.apply_url || null]
   );
 
   if (!app) {
@@ -65,20 +65,23 @@ export async function POST(req, { params }) {
 // ------------------------------------------------------------
 export async function DELETE(req, { params }) {
   const { id } = await params;
+  // The ad is global; the mark is someone's. Without the owner this
+  // undid whichever user's application sat on the ad.
+  const profileId = await aktivProfilId();
   const { rowCount } = await pool.query(
     `DELETE FROM applications a
-     WHERE a.ad_id = $1
+     WHERE a.ad_id = $1 AND a.profile_id = $2
        AND a.sent_by = 'external'
        AND a.letter_text IS NULL
        AND NOT EXISTS (SELECT 1 FROM email_messages m WHERE m.application_id = a.id)`,
-    [id]
+    [id, profileId]
   );
   if (!rowCount) {
     // "Nothing to undo" and "refusing to undo" are different answers,
     // and reporting the second for the first sent me hunting a bug that
     // was not there.
     const { rows: [still] } = await pool.query(
-      `SELECT 1 FROM applications WHERE ad_id = $1`, [id]);
+      `SELECT 1 FROM applications WHERE ad_id = $1 AND profile_id = $2`, [id, profileId]);
     return still
       ? NextResponse.json(
           { error: 'går inte att ångra — ansökan har ett brev eller en mejltråd' },

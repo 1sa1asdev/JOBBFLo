@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { extractCvText, looksLikeCv } from '../../../src/cv.js';
 import { refreshCvProfile } from '../../../src/cvprofile.js';
@@ -13,6 +14,7 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function POST(req) {
   try {
+    const profileId = await aktivProfilId();
     const form = await req.formData();
     const file = form.get('file');
     const searchId = form.get('searchId') || null;
@@ -60,15 +62,15 @@ export async function POST(req) {
     const { rows: [p] } = await pool.query(
       `UPDATE profile SET cv_text = $1, cv_filename = $2, cv_file = $3, cv_mime = $4,
          cv_uploaded_at = now(), updated_at = now()
-       WHERE id = (SELECT id FROM profile LIMIT 1)
+       WHERE id = $5
        RETURNING id, cv_filename`,
-      [text, filename, bytes, mime]
+      [text, filename, bytes, mime, profileId]
     );
     if (!p) return NextResponse.json({ error: 'ingen profil' }, { status: 404 });
 
     // Understand the CV once, now, rather than re-deriving it inside
     // every future scoring and letter call.
-    refreshCvProfile().catch((e) => console.error('cv-profil:', e.message));
+    refreshCvProfile({ profileId }).catch((e) => console.error('cv-profil:', e.message));
 
     return NextResponse.json({
       scope: 'profile', filename, chars: text.length,
@@ -104,7 +106,8 @@ export async function DELETE(req) {
   await pool.query(
     `UPDATE profile SET cv_text = NULL, cv_filename = NULL,
        cv_file = NULL, cv_mime = NULL,
-       cv_profile = NULL, cv_profile_at = NULL, cv_profile_model = NULL`
+       cv_profile = NULL, cv_profile_at = NULL, cv_profile_model = NULL
+     WHERE id = $1`, [await aktivProfilId()]
   );
   return NextResponse.json({ ok: true, scope: 'profile' });
 }
@@ -114,7 +117,8 @@ export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   const { rows: [p] } = await pool.query(
     `SELECT cv_filename, cv_uploaded_at, length(cv_text) AS chars,
-            octet_length(cv_file) AS file_bytes FROM profile LIMIT 1`
+            octet_length(cv_file) AS file_bytes FROM profile WHERE id = $1`,
+    [await aktivProfilId()]
   );
   let search = null;
   if (searchId) {

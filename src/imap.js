@@ -256,6 +256,9 @@ async function handleSent(parsed, uid) {
     ? parsed.references
     : parsed.references ? [parsed.references] : [];
 
+  // Our own letter, recovered — not a reply the user wrote.
+  if (await repareraSending(parsed, toAddr, uid)) return;
+
   // Only mail that belongs to a thread this app knows about. Everything
   // else in Sent is the user's own life and none of the app's business.
   const { applicationId } = await matchReply({
@@ -299,6 +302,65 @@ async function handleSent(parsed, uid) {
 // Skickat, Gesendet — so it is found by its special-use flag rather
 // than by name. Returns null on a server that publishes none, and the
 // loop then simply carries on with INBOX.
+// ------------------------------------------------------------
+// A row in 'sending' is a letter SMTP accepted and the database never
+// finished recording: the employer has it, the app does not know its
+// message id, and nothing threads to it. The copy Gmail keeps in Sent
+// is that missing record — same recipient, written after the claim was
+// taken — so finding it here repairs the row instead of leaving a live
+// application looking like it never happened.
+//
+// Note it cannot be matched the normal way: a stuck row has no
+// message_id to thread on and no sent_at, so both the id paths and the
+// 90-day domain path in matchReply skip it. Hence the explicit lookup,
+// and hence it runs before them.
+// ------------------------------------------------------------
+export async function repareraSending(parsed, toAddr, uid) {
+  if (!toAddr) return null;
+  const när = parsed.date || new Date();
+  const { rows: [ap] } = await pool.query(
+    // Written after the claim (a minute of clock skew allowed) and
+    // within the week — older than that is a row for the reconciler,
+    // not a guess made from any message to the same address.
+    `SELECT id, subject, letter_text, sent_from FROM applications
+     WHERE status = 'sending'
+       AND lower(sent_to) = lower($1)
+       AND sending_since > now() - interval '7 days'
+       AND sending_since < $2::timestamptz + interval '1 minute'
+     ORDER BY sending_since DESC LIMIT 1`,
+    [toAddr, när]
+  );
+  if (!ap) return null;
+
+  const klient = await pool.connect();
+  try {
+    await klient.query('BEGIN');
+    // Still conditional: two passes over Sent must not both repair it.
+    const { rowCount } = await klient.query(
+      `UPDATE applications SET status = 'sent', message_id = $2, sent_at = $3,
+         sending_since = NULL, updated_at = now()
+       WHERE id = $1 AND status = 'sending'`,
+      [ap.id, parsed.messageId || null, när]
+    );
+    if (!rowCount) { await klient.query('ROLLBACK'); return null; }
+    await klient.query(
+      `INSERT INTO email_messages (application_id, direction, message_id, from_addr,
+         to_addr, subject, body_text, imap_uid, sent_at)
+       VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8)`,
+      [ap.id, parsed.messageId || null, ap.sent_from, toAddr,
+       parsed.subject || ap.subject, (parsed.text || '').trim() || ap.letter_text, uid, när]
+    );
+    await klient.query('COMMIT');
+  } catch (err) {
+    await klient.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    klient.release();
+  }
+  console.log(`  ✓ lagade utskick som fastnat: ${toAddr} (${ap.id})`);
+  return ap.id;
+}
+
 async function findSentMailbox(imap) {
   const boxes = await imap.list();
   const hit = boxes.find((b) => b.specialUse === '\\Sent')
@@ -348,7 +410,19 @@ export async function catchUpSent(imap) {
      ORDER BY a.sent_at DESC
      LIMIT 50`
   );
-  if (!trådar.length) return;
+  // Plus the letters this app handed to Gmail and never finished
+  // recording. They have a recipient and a claim time and nothing else,
+  // so they are looked for the same way — by address, from the claim
+  // onwards — and repaired in handleSent.
+  const { rows: fastnade } = await pool.query(
+    `SELECT id, sent_to, sending_since AS sent_at
+     FROM applications
+     WHERE status = 'sending' AND sent_to IS NOT NULL
+       AND sending_since > now() - interval '7 days'
+     ORDER BY sending_since DESC
+     LIMIT 20`
+  );
+  if (!trådar.length && !fastnade.length) return;
 
   // One pass over Sent, not one search per thread.
   //
@@ -365,9 +439,11 @@ export async function catchUpSent(imap) {
   const tillAdress = new Map();
   const våraId = new Set();
   let äldst = Date.now();
-  for (const t of trådar) {
+  for (const t of [...trådar, ...fastnade]) {
     tillAdress.set(String(t.sent_to).toLowerCase(), t);
-    våraId.add(t.message_id);
+    // A stuck row has no id to exclude by — its letter is precisely
+    // what we are looking for here.
+    if (t.message_id) våraId.add(t.message_id);
     äldst = Math.min(äldst, new Date(t.sent_at).getTime());
   }
 

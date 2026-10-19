@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { fingerprint } from '../../../../../src/fetchJobs.js';
 
@@ -60,8 +61,7 @@ export async function PUT(req) {
   if (!Array.isArray(contacts)) {
     return NextResponse.json({ error: 'contacts krävs' }, { status: 400 });
   }
-  const { rows: [p] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
-  return NextResponse.json({ contacts: await granska(p.id, contacts) });
+  return NextResponse.json({ contacts: await granska(await aktivProfilId(), contacts) });
 }
 
 export async function POST(req) {

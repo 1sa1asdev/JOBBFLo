@@ -31,13 +31,17 @@ problem and is really a port-range collision. 6543 sits outside the
 ranges Windows hands out. `pgvector` rather than plain `postgres`
 because ads carry an embedding column.
 
-**Edit `db/seed.sql` with your real CV first** — scoring quality depends
-entirely on it. Then:
+**Put your real CV in `db/seed.local.sql` first** — a copy of
+`db/seed.sql`, which git ignores and `db:seed` prefers. Scoring quality
+depends entirely on it. Then:
 
 ```bash
-npm run db:init    # schema (db/schema.sql — read it first)
+npm run db:init    # schema: db/baseline.sql + db/migrations/, recorded
 npm run db:seed    # profile + projects
 ```
+
+To understand the data model, read `db/schema.sql` — it is generated
+from the migrations, so it is always current.
 
 ## Build order (each step verifiable before the next)
 

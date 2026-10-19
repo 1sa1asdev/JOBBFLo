@@ -10,7 +10,17 @@ import { checkAd, tillMatchResult } from '../src/checklist.js';
 import { renderCvProfile } from '../src/cvprofile.js';
 
 const { rows: [p] } = await pool.query(`SELECT id, cv_text, cv_profile FROM profile LIMIT 1`);
-if (!p?.cv_text) { console.log('inget CV i profilen'); process.exit(0); }
+// No CV means nothing was tested, and a proof that tested nothing must
+// not report success — in CI that would read as a green check.
+if (!p?.cv_text) { console.error('✗ inget CV i profilen — kör npm run db:seed'); process.exit(1); }
+
+// Every claim is printed AND counted: a proof that only prints true or
+// false exits 0 either way, and CI reads exit codes, not output.
+let fel = 0;
+const påstå = (text, ok, info = '') => {
+  if (!ok) fel += 1;
+  console.log(`${ok ? '✓' : '✗'} ${text}${info ? ` (${info})` : ''}`);
+};
 
 const profil = {
   headline: 'Frontendutvecklare till provbolaget',
@@ -68,24 +78,31 @@ try {
     console.log(`  ${i.status.padEnd(9)} ${i.name.padEnd(18)} belägg: ${i.cv_belagg ? 'ja' : '—'}`);
   }
   const hittepå = rad.items[1];
-  console.log(`påhittat belägg avvisat: ${hittepå.cv_belagg === null && hittepå.status !== 'uppfyllt'}`);
-  console.log(`dealbreaker sänker taket: ${rad.score <= 35} (must_missing ${JSON.stringify(rad.must_missing)})`);
+  påstå('påhittat belägg avvisat', hittepå.cv_belagg === null && hittepå.status !== 'uppfyllt');
+  påstå('dealbreaker sänker taket', rad.score <= 35, `must_missing ${JSON.stringify(rad.must_missing)}`);
 
   const igen = await checkAd(ad, { cvText: p.cv_text, cvProfile: p.cv_profile, fråga });
-  console.log(`återanvänd utan modellanrop: ${Boolean(igen.återanvänd)} (anrop totalt ${anrop})`);
+  påstå('återanvänd utan modellanrop', Boolean(igen.återanvänd) && anrop === 1, `anrop totalt ${anrop}`);
 
   const medKampanjkrav = await checkAd(ad, {
     cvText: p.cv_text, cvProfile: p.cv_profile, mustCriteria: 'bara juniora roller',
     fråga: async () => ({ items: [...svar.items, { id: 4, status: 'uppfyllt', cv_belagg: äkta, varfor: 'junior' }] }),
   });
-  console.log(`kampanjkrav egen rad: ${medKampanjkrav.cv_key !== rad.cv_key}`
-    + ` (${medKampanjkrav.items.length} krav mot ${rad.items.length})`);
+  påstå('kampanjkrav egen rad', medKampanjkrav.cv_key !== rad.cv_key
+    && medKampanjkrav.items.length === rad.items.length + 1,
+    `${medKampanjkrav.items.length} krav mot ${rad.items.length}`);
 
   const ut = tillMatchResult(rad);
-  console.log(`till match_results: ${ut.matched.length} matchade, ${ut.flags.length} flaggor,`
-    + ` alla citat ur annonsen: ${[...ut.matched, ...ut.flags].every((x) => !x.quote || ad.description.includes(x.quote))}`);
+  påstå('alla citat i match_results står i annonsen',
+    [...ut.matched, ...ut.flags].every((x) => !x.quote || ad.description.includes(x.quote)),
+    `${ut.matched.length} matchade, ${ut.flags.length} flaggor`);
+} catch (err) {
+  fel += 1;
+  console.error(`✗ beviset avbröts: ${err.message}`);
 } finally {
   await pool.query(`DELETE FROM ads WHERE id = $1`, [ad.id]);
   console.log('städat: provannonsen borttagen');
   await pool.end();
+  console.log(fel ? `\n${fel} fel` : '\nallt stämmer');
+  process.exitCode = fel ? 1 : 0;
 }

@@ -8,6 +8,10 @@ import Dots from './Dots';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
+  // The letter left, the confirmation did not land. Visible on purpose:
+  // a live application that looks like nothing happened is the one
+  // thing worse than a duplicate. The Sent-folder sync clears it.
+  sending: { cls: 'awaiting', label: 'Skickas…' },
   replied: { cls: 'replied', label: 'Svar inne' },
   interview: { cls: 'interview', label: 'Intervju' },
   rejected: { cls: 'rejected', label: 'Avslag' },
@@ -17,6 +21,11 @@ const STATUS_META = {
   // employer never saw it — 19 of 124 rejections were this.
   undeliverable: { cls: 'rejected', label: 'Kom inte fram' },
 };
+
+// Sent, nothing back yet. Everything outside this set has an outcome of
+// some kind, which is what the per-campaign "svar" count means — and a
+// letter still being confirmed is not an answer.
+const OSVARAT = new Set(['sent', 'sending']);
 
 function daysPastDeadline(deadline) {
   if (!deadline) return 0;
@@ -193,7 +202,7 @@ function groupByCampaign(threads) {
     }
     const g = map.get(key);
     g.threads.push(t);
-    if (t.status !== 'sent') g.replies += 1;
+    if (!OSVARAT.has(t.status)) g.replies += 1;
     if (Number(t.pending_suggestions) > 0) g.todo += 1;
   }
   return [...map.values()];
@@ -351,7 +360,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     if (filter === 'interview') return t.status === 'interview';
     if (filter === 'replied') return t.status === 'replied' || t.status === 'interview';
     if (filter === 'rejected') return t.status === 'rejected';
-    if (filter === 'awaiting') return t.status === 'sent';
+    if (filter === 'awaiting') return OSVARAT.has(t.status);
     if (filter === 'ghosted') return t.status === 'ghosted';
     return true;
   }).sort((a, b) => {
@@ -368,7 +377,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     interview: threads.filter((t) => t.status === 'interview').length,
     replied: threads.filter((t) => t.status === 'replied' || t.status === 'interview').length,
     rejected: threads.filter((t) => t.status === 'rejected').length,
-    awaiting: threads.filter((t) => t.status === 'sent').length,
+    awaiting: threads.filter((t) => OSVARAT.has(t.status)).length,
     ghosted: threads.filter((t) => t.status === 'ghosted').length,
   };
 

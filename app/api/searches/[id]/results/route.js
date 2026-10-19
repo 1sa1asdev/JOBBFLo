@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export async function GET(req, { params }) {
   // Where the user travels from. With no home set there are simply no
   // distances — the field is null rather than guessed at.
   const { rows: [me] } = await pool.query(
-    `SELECT home_lat, home_lon, home_label FROM profile LIMIT 1`);
+    `SELECT home_lat, home_lon, home_label FROM profile WHERE id = $1`, [await aktivProfilId()]);
   const hasHome = me?.home_lat != null && me?.home_lon != null;
 
   const viewSql = view === 'favoriter' ? 'r.shortlisted'

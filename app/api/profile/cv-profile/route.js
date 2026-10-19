@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { refreshCvProfile } from '../../../../src/cvprofile.js';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req) {
   try {
     const { searchId = null } = await req.json().catch(() => ({}));
-    const profile = await refreshCvProfile({ searchId });
+    const profile = await refreshCvProfile({ searchId, profileId: await aktivProfilId() });
     if (!profile) {
       return NextResponse.json({ error: 'inget CV att läsa' }, { status: 400 });
     }

@@ -86,10 +86,17 @@ export async function llmConfig({ fresh = false } = {}) {
   let config = null;
   try {
     const { pool } = await import('./db.js');
+    // Whose key. Nothing hands this function a user yet — it is called
+    // from every model call in the app, worker included — so it asks for
+    // the only profile and refuses when there are several. The old
+    // "first profile that has a provider" billed one user's calls to
+    // another's key. Per-user keys are the next step (the seam is here).
+    const { endaProfilId } = await import('./owner.js');
+    const profileId = await endaProfilId();
     const { rows: [p] } = await pool.query(
       `SELECT llm_provider, llm_api_key_enc, llm_model_smart, llm_model_fast,
               llm_model_bulk, llm_model_write, llm_base_url
-       FROM profile WHERE llm_provider IS NOT NULL LIMIT 1`
+       FROM profile WHERE id = $1 AND llm_provider IS NOT NULL`, [profileId]
     );
     if (p?.llm_provider) {
       const preset = PROVIDERS[p.llm_provider] || {};
@@ -107,7 +114,10 @@ export async function llmConfig({ fresh = false } = {}) {
         };
       }
     }
-  } catch {
+  } catch (err) {
+    // Several profiles is not "no config": falling through to the
+    // server's env key would silently bill the operator for every user.
+    if (err.code === 'FLERA_PROFILER') throw err;
     // DB unavailable (e.g. build time) — fall through to env
   }
 
@@ -131,12 +141,18 @@ async function providerKeys() {
   let map = {};
   try {
     const { pool } = await import('./db.js');
-    const { rows: [p] } = await pool.query(`SELECT llm_keys_enc FROM profile LIMIT 1`);
+    const { endaProfilId } = await import('./owner.js');
+    const profileId = await endaProfilId();
+    const { rows: [p] } = await pool.query(
+      `SELECT llm_keys_enc FROM profile WHERE id = $1`, [profileId]);
     for (const [prov, enc] of Object.entries(p?.llm_keys_enc || {})) {
       const k = decryptSecret(enc);
       if (k) map[prov] = k;
     }
-  } catch { map = {}; }
+  } catch (err) {
+    if (err.code === 'FLERA_PROFILER') throw err;
+    map = {};
+  }
   keyMapCache = map;
   keyMapAt = Date.now();
   return map;

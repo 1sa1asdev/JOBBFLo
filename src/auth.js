@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { pool } from './db.js';
+import { endaProfilId } from './owner.js';
 
 // ------------------------------------------------------------
 // Accounts. Zero external deps:
@@ -99,4 +100,31 @@ export async function currentProfile() {
     throw err;
   }
   return profile;
+}
+
+// The profile a request acts for — what every route asks instead of
+// reading the first row (see src/owner.js for why that was wrong).
+//
+// Follows the same switch as middleware.js: without AUTH_SECRET there
+// are no accounts, the gate is off, and the answer is the one profile
+// there is. More than one with the gate off is refused rather than
+// guessed. With AUTH_SECRET it is the logged-in user's, and the
+// middleware has already turned away requests with no valid session —
+// so the 401 here is only a cookie whose account has lost its profile.
+export async function aktivProfilId() {
+  if (!process.env.AUTH_SECRET) return endaProfilId();
+  const userId = await currentUserId();
+  if (!userId) {
+    const err = new Error('inte inloggad');
+    err.status = 401;
+    throw err;
+  }
+  const { rows: [p] } = await pool.query(
+    `SELECT id FROM profile WHERE user_id = $1`, [userId]);
+  if (!p) {
+    const err = new Error('profil saknas för kontot');
+    err.status = 401;
+    throw err;
+  }
+  return p.id;
 }

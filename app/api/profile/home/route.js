@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,8 @@ export async function POST(req) {
 
   if (!raw) {
     await pool.query(
-      `UPDATE profile SET home_lat = NULL, home_lon = NULL, home_label = NULL`);
+      `UPDATE profile SET home_lat = NULL, home_lon = NULL, home_label = NULL
+       WHERE id = $1`, [await aktivProfilId()]);
     return NextResponse.json({ cleared: true });
   }
 
@@ -59,8 +61,8 @@ export async function POST(req) {
   }
 
   await pool.query(
-    `UPDATE profile SET home_lat = $1, home_lon = $2, home_label = $3`,
-    [found.lat, found.lon, raw]
+    `UPDATE profile SET home_lat = $1, home_lon = $2, home_label = $3 WHERE id = $4`,
+    [found.lat, found.lon, raw, await aktivProfilId()]
   );
   return NextResponse.json({
     home: raw, lat: found.lat, lon: found.lon,

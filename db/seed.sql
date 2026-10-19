@@ -11,7 +11,7 @@
 -- public.
 -- ============================================================
 
-INSERT INTO profile (name, email, phone, city, cv_filename, cv_text, cv_parsed, about_text, tone_text)
+INSERT INTO profile (name, email, phone, city, cv_filename, cv_text, about_text, tone_text)
 VALUES (
   'Anna Andersson',
   'du@example.com',
@@ -38,7 +38,6 @@ Svenska (modersmål), engelska (flytande).
 TEKNIK
 JavaScript, TypeScript, React, Node.js, C#, .NET, SQL, HTML/CSS, Git.
 $cv$,
-  '{"tech":["JavaScript","TypeScript","React","Node.js","C#",".NET","SQL","Git"],"experience":["Vård & omsorg","Café / service","Yrkeshögskolan"],"languages":["Svenska","Engelska"]}'::jsonb,
   'Fullstack-student med bakgrund i .NET-systemutveckling. Söker främst frontend- eller fullstackroller, gärna React. Tidigare erfarenhet från vård och café — van vid högt tempo och kundkontakt.',
   'Rakt på sak, inga floskler. Nämn konkreta projekt istället för adjektiv. Undvik "passionerad" och "driven".'
 );

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { parseCriteria, scanSearch } from '../../../src/score.js';
 import { orterIFilter } from '../../../src/filterMerge.js';
@@ -10,7 +11,7 @@ export async function GET() {
     `SELECT s.*,
        (SELECT count(*) FROM match_results m WHERE m.search_id = s.id AND m.score >= 60) AS match_count,
        (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status = 'drafted') AS draft_count,
-       (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status IN ('sent','replied','interview')) AS sent_count
+       (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status IN ('sending','sent','replied','interview')) AS sent_count
      FROM searches s
      WHERE s.deleted_at IS NULL
      ORDER BY s.created_at`
@@ -28,8 +29,7 @@ export async function POST(req) {
     return NextResponse.json({ error: `okänt ansökningssätt: ${apply_filter}` }, { status: 400 });
   }
 
-  const { rows: [profile] } = await pool.query(`SELECT id FROM profile LIMIT 1`);
-  if (!profile) return NextResponse.json({ error: 'ingen profil — kör db:seed' }, { status: 400 });
+  const profileId = await aktivProfilId();
 
   let filters = {};
   let parseError = null;
@@ -51,7 +51,7 @@ export async function POST(req) {
     `INSERT INTO searches (profile_id, name, criteria_text, api_filters, apply_filter,
        parsed_filters, location)
      VALUES ($1, $2, $3, $4, $5, $4, $6::text[]) RETURNING *`,
-    [profile.id, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
+    [profileId, name?.trim() || criteria.slice(0, 60), criteria, JSON.stringify(filters),
      apply_filter || null, orterIFilter(filters)]
   );
 

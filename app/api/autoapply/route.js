@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aktivProfilId } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { candidatesFor, runAutoApply, whyNothing } from '../../../src/autoapply.js';
 import { leadProgress } from '../../../src/leadqueue.js';
@@ -102,7 +103,8 @@ export async function GET() {
   );
 
   const { rows: [cv] } = await pool.query(
-    `SELECT octet_length(cv_file) AS bytes, cv_filename FROM profile LIMIT 1`
+    `SELECT octet_length(cv_file) AS bytes, cv_filename FROM profile WHERE id = $1`,
+    [await aktivProfilId()]
   );
 
   return NextResponse.json({

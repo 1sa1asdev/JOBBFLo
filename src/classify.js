@@ -44,8 +44,10 @@ export async function draftReply(applicationId, inboundEmailId) {
     `SELECT a.*, ads.title, ads.employer FROM applications a
      JOIN ads ON ads.id = a.ad_id WHERE a.id = $1`, [applicationId]
   );
-  const { rows: [profile] } = await pool.query(`SELECT name, about_text, tone_text FROM profile LIMIT 1`);
   if (!email || !app) return null;
+  // Written in the voice of whoever owns the thread.
+  const { rows: [profile] } = await pool.query(
+    `SELECT name, about_text, tone_text FROM profile WHERE id = $1`, [app.profile_id]);
 
   const raw = await llmText({
     tier: 'write',
@@ -97,8 +99,9 @@ export async function generateInterviewPrep(applicationId) {
     `SELECT a.*, ads.title, ads.employer, ads.description FROM applications a
      JOIN ads ON ads.id = a.ad_id WHERE a.id = $1`, [applicationId]
   );
-  const { rows: [profile] } = await pool.query(`SELECT cv_text FROM profile LIMIT 1`);
   if (!app) return null;
+  const { rows: [profile] } = await pool.query(
+    `SELECT cv_text FROM profile WHERE id = $1`, [app.profile_id]);
 
   const prep = await llmJson({
     tier: 'write',

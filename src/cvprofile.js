@@ -184,13 +184,16 @@ ${p.gaps.join('; ')}`,
   return parts.join('\n\n');
 }
 
-// Build and store. searchId targets a search's tailored CV; omit it
-// for the base profile.
-export async function refreshCvProfile({ searchId = null } = {}) {
+// Build and store. searchId targets a search's tailored CV; otherwise
+// profileId names whose base CV. One of the two is required: the store
+// below was an UPDATE with no WHERE, so reading one user's CV would have
+// written it onto every profile.
+export async function refreshCvProfile({ searchId = null, profileId = null } = {}) {
+  if (!searchId && !profileId) throw new Error('refreshCvProfile: searchId eller profileId krävs');
   const table = searchId ? 'searches' : 'profile';
   const { rows: [row] } = searchId
     ? await pool.query(`SELECT cv_text FROM searches WHERE id = $1`, [searchId])
-    : await pool.query(`SELECT cv_text FROM profile LIMIT 1`);
+    : await pool.query(`SELECT cv_text FROM profile WHERE id = $1`, [profileId]);
 
   if (!row?.cv_text?.trim()) return null;
 
@@ -205,8 +208,9 @@ export async function refreshCvProfile({ searchId = null } = {}) {
     );
   } else {
     await pool.query(
-      `UPDATE profile SET cv_profile = $1, cv_profile_at = now(), cv_profile_model = $2`,
-      [JSON.stringify(profile), model]
+      `UPDATE profile SET cv_profile = $1, cv_profile_at = now(), cv_profile_model = $2
+       WHERE id = $3`,
+      [JSON.stringify(profile), model, profileId]
     );
   }
   const KEYS = ['experience', 'skills', 'implicit_skills', 'domains', 'education'];
