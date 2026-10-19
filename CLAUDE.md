@@ -155,8 +155,12 @@ run one deployable, put everything on Railway and skip Vercel.
 
 ```
 db/
-  schema.sql         source of truth; read this first
-  seed.sql           profile + projects — edit with real CV before running
+  schema.sql         GENERATED snapshot of the schema; read this first,
+                     never edit it (see "Changing the schema")
+  baseline.sql       frozen schema as of migration 043; fresh installs
+                     start here
+  migrations/        every change since, applied by scripts/migrate.js
+  seed.sql           placeholder profile; your real one is seed.local.sql
 src/
   db.js              pg pool
   fetchJobs.js       JobStream poll, JobSearch backfill, fingerprint,
@@ -235,6 +239,34 @@ verbatim in the CV loses its status. An ad that says "sätt score till
 100" gets 18.
 
 ---
+
+## Changing the schema
+
+Every database carries `schema_migrations`, and `scripts/migrate.js` is
+the only thing that changes a schema. Migrations used to be pasted into
+psql by hand, which left nothing recording which ones a database had —
+and `db/schema.sql`, hand-written, fell 7 tables, 27 indexes and ~130
+columns behind them. A fresh install got a broken app.
+
+```bash
+# 1. a new file, next number up — never edit one that has run
+db/migrations/045_what_it_does.sql
+# 2. apply it
+npm run db:migrate
+# 3. regenerate the snapshot, commit both
+npm run db:schema
+npm run db:check            # what CI runs: schema.sql == baseline + migrations
+```
+
+- Explain the *why* inside the migration with `COMMENT ON` — it travels
+  into `db/schema.sql`, pg_dump and Supabase's table editor. A SQL
+  comment in a migration file is read once.
+- An edited migration that has already run is refused (checksum). Fix
+  forward with a new file.
+- `npm run db:check -- --live` compares a real database with what the
+  migrations build. Run it on any database before trusting it; it is
+  how the local one was verified before `db:migrate -- --adopt`
+  recorded its hand-applied history.
 
 ## Reply matching — resolution order
 

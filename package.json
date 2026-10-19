@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "db:init": "node scripts/db-init.js",
-    "db:seed": "node scripts/db-init.js --seed",
+    "db:init": "node scripts/migrate.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:seed": "node scripts/db-init.js",
+    "db:schema": "node scripts/schema.js snapshot",
+    "db:check": "node scripts/schema.js check",
     "db:demo": "node scripts/dev-seed.js",
     "try": "node scripts/tryit.js",
     "worker": "node worker.js",
