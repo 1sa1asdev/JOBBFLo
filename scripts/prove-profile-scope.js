@@ -154,8 +154,16 @@ try {
   // attribute.
   const svar = await fetch('http://localhost:3000/api/profile', { signal: AbortSignal.timeout(20000) })
     .catch(() => null);
-  if (svar) {
-    const text = await svar.text();
+  // The server must be looking at THIS database for its answer to mean
+  // anything. Run against a scratch database while the dev server sits
+  // on the real one, it answers with the real profile — a profile this
+  // database has never seen — and that is a test setup, not a leak.
+  const text = svar ? await svar.text() : '';
+  let svarsId = null;
+  try { svarsId = JSON.parse(text)?.id || null; } catch { /* not JSON — an error page */ }
+  if (svar && svar.ok && svarsId && svarsId !== äkta.id && svarsId !== andra.id) {
+    console.log('· dev-servern använder en annan databas — hoppar över route-kontrollen');
+  } else if (svar) {
     kolla('two profiles: /api/profile does not answer with a profile',
       !svar.ok && !text.includes(äkta.name), `HTTP ${svar.status}`);
   } else {
@@ -168,7 +176,12 @@ try {
 
 // And back to one: the same calls answer again.
 kolla('one profile again: the owner lookup answers', (await endaProfilId()) === äkta.id);
-kolla('one profile again: the LLM config resolves', Boolean(await llmConfig({ fresh: true })));
+// "Answers again", not "has a key": a profile with no AI settings
+// correctly gets no config. This used to read Boolean(config), which
+// passed in CI only because the old environment fallback invented a
+// local LM Studio config for a profile that had none.
+const e4 = await vägrar(() => llmConfig({ fresh: true }));
+kolla('one profile again: the LLM lookup answers instead of refusing', !e4, e4?.message?.slice(0, 50));
 
 console.log(fel ? `\n${fel} fel` : '\nallt stämmer');
 await pool.end();
