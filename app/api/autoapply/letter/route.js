@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import {
   writeCampaignLetter, previewCampaign, approveCampaignLetter, campaignMessages,
@@ -10,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   if (!searchId) return NextResponse.json({ error: 'search krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
   try {
     const [preview, messages] = await Promise.all([
       previewCampaign(searchId),
@@ -25,6 +27,7 @@ export async function GET(req) {
 export async function POST(req) {
   const { searchId, instruction } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
   try {
     const letter = await writeCampaignLetter(searchId, instruction?.trim() || null);
     return NextResponse.json(letter);
@@ -37,6 +40,7 @@ export async function POST(req) {
 export async function PATCH(req) {
   const { searchId, approved, letter, subject } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
 
   // Editing the letter by hand. The chat can only ask a model to try
   // again; sometimes the fix is one word, and describing that word

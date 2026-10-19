@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../../../src/auth.js';
+import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { fingerprint } from '../../../../../src/fetchJobs.js';
 
@@ -67,6 +67,7 @@ export async function PUT(req) {
 export async function POST(req) {
   const { searchId, contacts } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
   if (!Array.isArray(contacts) || !contacts.length) {
     return NextResponse.json({ error: 'inga kontakter' }, { status: 400 });
   }

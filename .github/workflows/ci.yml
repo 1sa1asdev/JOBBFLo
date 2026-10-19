@@ -85,3 +85,18 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+      # Two real users, a real server with login on: every route that is
+      # handed the other user's id must answer 404 and change nothing,
+      # and no list may show the other user's rows. Run against the code
+      # before these checks existed, 28 of 32 calls got through.
+      - name: Proof — one user cannot reach another's rows
+        env:
+          AUTH_SECRET: ci-only-not-a-real-secret
+        run: |
+          npx next start -p 3100 > next.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:3100/api/profile && break
+            sleep 1
+          done
+          PROVE_BASE_URL=http://localhost:3100 node scripts/prove-owner-checks.js || { cat next.log; exit 1; }

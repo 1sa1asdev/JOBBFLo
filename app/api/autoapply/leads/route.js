@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad, aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { scanForEmails, blockedBy } from '../../../../src/leadscan.js';
 
@@ -20,6 +21,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   if (!searchId) return NextResponse.json({ error: 'search krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
 
   // Campaigns only, enforced rather than merely arranged. Reading other
   // people's servers is a cost this app pays on the user's behalf, and
@@ -151,7 +153,8 @@ export async function PATCH(req) {
   // skipped later for a reason only the log explains.
   const { rows: [clash] } = await pool.query(
     `SELECT ads.employer FROM applications a JOIN ads ON ads.id = a.ad_id
-     WHERE a.sent_to IS NOT NULL AND lower(a.sent_to) = $1`, [addr]);
+     WHERE a.profile_id = $2 AND a.sent_to IS NOT NULL AND lower(a.sent_to) = $1`,
+    [addr, await aktivProfilId()]);
   if (clash) {
     return NextResponse.json(
       { error: `${addr} har redan fått en ansökan (${clash.employer}).` }, { status: 409 });

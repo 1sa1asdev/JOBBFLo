@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../src/auth.js';
+import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { candidatesFor, runAutoApply, whyNothing } from '../../../src/autoapply.js';
 import { leadProgress } from '../../../src/leadqueue.js';
@@ -8,6 +8,9 @@ export const dynamic = 'force-dynamic';
 
 // campaign overview: every search, its rule, and what would go out next
 export async function GET() {
+  // The caller's campaigns and the caller's log — the log used to list
+  // every user's sends, employer and address included.
+  const profileId = await aktivProfilId();
   const { rows: searches } = await pool.query(
     `SELECT s.id, s.name, s.auto_apply_enabled, s.auto_apply_min_score,
             s.auto_apply_daily_limit, s.auto_apply_paused_reason,
@@ -29,7 +32,9 @@ export async function GET() {
        -- made the ✕ look broken: it cleared campaign fields that were
        -- already empty, and the card never went anywhere.
        AND s.campaign_created_at IS NOT NULL
-     ORDER BY s.campaign_created_at`
+       AND s.profile_id = $1
+     ORDER BY s.campaign_created_at`,
+    [profileId]
   );
 
   // what each campaign would send right now — the user should be able
@@ -98,13 +103,14 @@ export async function GET() {
     `SELECT l.*, ads.title, ads.employer, s.name AS search_name
      FROM auto_apply_log l
      LEFT JOIN ads ON ads.id = l.ad_id
-     LEFT JOIN searches s ON s.id = l.search_id
-     ORDER BY l.created_at DESC LIMIT 40`
+     JOIN searches s ON s.id = l.search_id AND s.profile_id = $1
+     ORDER BY l.created_at DESC LIMIT 40`,
+    [profileId]
   );
 
   const { rows: [cv] } = await pool.query(
     `SELECT octet_length(cv_file) AS bytes, cv_filename FROM profile WHERE id = $1`,
-    [await aktivProfilId()]
+    [profileId]
   );
 
   return NextResponse.json({
@@ -120,6 +126,7 @@ export async function PATCH(req) {
           require_score, must_criteria, location_ratio,
           send_days, send_from, send_to, send_batch_size, send_batch_minutes } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
 
   const sets = [];
   const vals = [searchId];
@@ -354,6 +361,7 @@ export async function PATCH(req) {
 export async function POST(req) {
   const { searchId, dryRun = true } = await req.json();
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
   try {
     const result = await runAutoApply(searchId, { dryRun: Boolean(dryRun), manual: true });
     return NextResponse.json(result);

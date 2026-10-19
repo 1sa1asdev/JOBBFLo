@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function PATCH(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   const { ad_id, ad_ids, shortlisted } = await req.json();
 
   const ids = ad_ids || (ad_id ? [ad_id] : []);

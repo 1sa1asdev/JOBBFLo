@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
+import { aktivProfilId } from '../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ export async function GET(req) {
        ORDER BY em.sent_at DESC LIMIT 1
      ) last_msg ON true
      WHERE a.status <> 'drafted'
+       AND a.profile_id = $2
        -- Applications the user made through the ad's link sit with the
        -- ones sent by hand: both are "you applied to this", and keeping
        -- them out of the inbox was the whole problem. Only campaign
@@ -41,7 +43,7 @@ export async function GET(req) {
             ($1 = 'auto' AND a.sent_by = 'auto') OR
             ($1 = 'user' AND a.sent_by IN ('user', 'external')))
      ORDER BY COALESCE(last_msg.sent_at, a.sent_at) DESC NULLS LAST`,
-    [source === 'auto' || source === 'user' ? source : null]
+    [source === 'auto' || source === 'user' ? source : null, await aktivProfilId()]
   );
   return NextResponse.json(rows);
 }

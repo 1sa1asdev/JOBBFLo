@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../src/auth.js';
+import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { extractCvText, looksLikeCv } from '../../../src/cv.js';
 import { refreshCvProfile } from '../../../src/cvprofile.js';
@@ -18,6 +18,7 @@ export async function POST(req) {
     const form = await req.formData();
     const file = form.get('file');
     const searchId = form.get('searchId') || null;
+    if (searchId && !(await ägareAvSökning(searchId))) return inteHittad('sökningen finns inte');
     const pastedText = form.get('text');
 
     let text;
@@ -85,6 +86,7 @@ export async function POST(req) {
 // remove a search-specific CV (fall back to the profile one)
 export async function DELETE(req) {
   const searchId = new URL(req.url).searchParams.get('search');
+  if (searchId && !(await ägareAvSökning(searchId))) return inteHittad('sökningen finns inte');
 
   if (searchId) {
     // cv_file and cv_mime were left behind here, so "removing" a
@@ -115,6 +117,7 @@ export async function DELETE(req) {
 // what CV is in play right now, and can it actually be attached?
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
+  if (searchId && !(await ägareAvSökning(searchId))) return inteHittad('sökningen finns inte');
   const { rows: [p] } = await pool.query(
     `SELECT cv_filename, cv_uploaded_at, length(cv_text) AS chars,
             octet_length(cv_file) AS file_bytes FROM profile WHERE id = $1`,

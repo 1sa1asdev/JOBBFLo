@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { ägareAvAnsökan, inteHittad } from '../../../../../src/auth.js';
 import { reviseLetter } from '../../../../../src/letters.js';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   const { instruction } = await req.json();
   if (!instruction?.trim()) return NextResponse.json({ error: 'instruction krävs' }, { status: 400 });
   try {

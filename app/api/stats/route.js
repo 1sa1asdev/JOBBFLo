@@ -14,7 +14,9 @@ export async function GET() {
     calibration(profileId),
     skillsGap(profileId),
   ]);
-  const { rows: [{ count: adCount }] } = await pool.query(`SELECT count(*) FROM match_results`);
+  const { rows: [{ count: adCount }] } = await pool.query(
+    `SELECT count(*) FROM match_results m JOIN searches s ON s.id = m.search_id
+     WHERE s.profile_id = $1`, [profileId]);
 
   return NextResponse.json({
     calibration: calib,

@@ -72,8 +72,11 @@ export async function PUT(req) {
   // Only the parked rows reset. `attempts` still protects against a
   // genuinely unreadable ad within one model's lifetime.
   const { rowCount: unparked } = await pool.query(
-    `UPDATE match_results SET attempts = 0, last_error = NULL
-     WHERE score IS NULL AND score_requested_at IS NOT NULL AND attempts >= 3`
+    `UPDATE match_results m SET attempts = 0, last_error = NULL
+     FROM searches s
+     WHERE s.id = m.search_id AND s.profile_id = $1
+       AND m.score IS NULL AND m.score_requested_at IS NOT NULL AND m.attempts >= 3`,
+    [p.id]
   );
   if (unparked) console.log(`modellbyte: ${unparked} parkerade annonser får ett nytt försök`);
 

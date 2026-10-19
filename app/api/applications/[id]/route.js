@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvAnsökan, inteHittad } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { restoreVersion, reuseWarnings } from '../../../../src/letters.js';
 
@@ -6,6 +7,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   const { rows: [app] } = await pool.query(
     `SELECT a.*, ads.title, ads.employer, ads.municipality, ads.deadline, ads.description,
        ads.apply_email, ads.apply_url, ads.ats_vendor
@@ -24,6 +27,8 @@ export async function GET(_req, { params }) {
 
 export async function PATCH(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   const body = await req.json();
 
   if ('restore_version' in body) {

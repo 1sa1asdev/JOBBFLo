@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { suggestFilters } from '../../../../../src/filterSuggest.js';
 import { scanSearch } from '../../../../../src/score.js';
@@ -9,6 +10,8 @@ export const maxDuration = 60;
 // The two states of a search's filters: what is on, and what could be.
 export async function GET(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   try {
     return NextResponse.json(await suggestFilters(id));
   } catch (err) {
@@ -39,6 +42,8 @@ const TILLÅTNA = new Set(['occupation-field', 'occupation-group', 'occupation-n
 
 export async function PATCH(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   const { add, remove } = await req.json();
 
   const { rows: [s] } = await pool.query(

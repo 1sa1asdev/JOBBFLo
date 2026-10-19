@@ -45,3 +45,39 @@ export async function endaProfilId() {
   }
   return rows[0].id;
 }
+
+// ------------------------------------------------------------
+// Does this row belong to this user? One question per kind of row, so a
+// route asks before it does anything else — before filters, model calls
+// or a send.
+//
+// A route answers a "no" with 404, not 403: someone who does not own a
+// search should not learn that it exists.
+// ------------------------------------------------------------
+// An id that is not even a uuid is a row that does not exist — a 404,
+// not the 500 Postgres would turn it into.
+const finns = async (sql, params) => {
+  try {
+    return (await pool.query(sql, params)).rowCount > 0;
+  } catch (err) {
+    if (err.code === '22P02') return false;   // invalid input syntax for type uuid
+    throw err;
+  }
+};
+
+export const ägerSökning = (searchId, profileId) => finns(
+  `SELECT 1 FROM searches WHERE id = $1 AND profile_id = $2 AND deleted_at IS NULL`,
+  [searchId, profileId]);
+
+export const ägerAnsökan = (applicationId, profileId) => finns(
+  `SELECT 1 FROM applications WHERE id = $1 AND profile_id = $2`,
+  [applicationId, profileId]);
+
+export const ägerFörslag = (suggestionId, profileId) => finns(
+  `SELECT 1 FROM suggested_replies sr JOIN applications a ON a.id = sr.application_id
+   WHERE sr.id = $1 AND a.profile_id = $2`,
+  [suggestionId, profileId]);
+
+export const ägerBilaga = (attachmentId, profileId) => finns(
+  `SELECT 1 FROM attachments WHERE id = $1 AND profile_id = $2`,
+  [attachmentId, profileId]);

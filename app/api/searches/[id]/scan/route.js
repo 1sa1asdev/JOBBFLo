@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { scanSearch } from '../../../../../src/score.js';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic';
 // and watches the pending cards resolve.
 export async function POST(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   try {
     // find-only: pages through JobSearch and stores candidates. No
     // model is called, so this is safe to run as often as you like.

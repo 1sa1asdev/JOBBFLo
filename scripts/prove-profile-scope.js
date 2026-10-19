@@ -105,6 +105,25 @@ kolla('no query reads "the first profile"', !förstaRaden.length, förstaRaden.j
 kolla('no UPDATE of profile without a WHERE', !utanWhere.length, utanWhere.join(', '));
 kolla('no Gmail credentials read from the environment', !gmailUrMiljön.length, gmailUrMiljön.join(', '));
 kolla('no user AI keys or models read from the environment', !aiUrMiljön.length, aiUrMiljön.join(', '));
+
+// Every route that is handed someone's row — an [id] in the path, or a
+// search id in the request — must ask whose it is before it touches it
+// (src/auth.js ägareAv*). The ads themselves are the shared pool and
+// need no owner. A new route that forgets fails here, not in production;
+// scripts/prove-owner-checks.js then proves the checks hold at runtime.
+const GEMENSAMMA = [/^ads[\\/]/];
+const utanÄgarkontroll = [];
+for (const f of filer('app/api')) {
+  if (!/route\.js$/.test(f)) continue;
+  const väg = f.replace(/^app[\\/]api[\\/]/, '').replace(/[\\/]route\.js$/, '');
+  if (GEMENSAMMA.some((re) => re.test(väg))) continue;
+  const kod = readFileSync(f, 'utf8');
+  const tarId = /\[id\]/.test(väg) || /\bsearchId\b/.test(kod);
+  // No \b before "ä": JavaScript's word boundary only knows ASCII, so it
+  // never matches there and every route looked unchecked.
+  if (tarId && !/ägareAv(Sökning|Ansökan|Förslag|Bilaga)\(/.test(kod)) utanÄgarkontroll.push(väg);
+}
+kolla('every route taking someone\'s id checks the owner', !utanÄgarkontroll.length, utanÄgarkontroll.join(', '));
 kolla('every model call says whose it is', !anropUtanÄgare.length, anropUtanÄgare.join(', '));
 
 // ------------------------------------------------------------

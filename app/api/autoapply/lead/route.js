@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { fingerprint } from '../../../../src/fetchJobs.js';
 
@@ -29,6 +30,7 @@ export async function POST(req) {
   const { searchId, employer, email, title, note, municipality } = await req.json();
 
   if (!searchId) return NextResponse.json({ error: 'searchId krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
 
   const addr = String(email || '').trim().toLowerCase();
   // Deliberately loose: a real address this rejects is worse than a

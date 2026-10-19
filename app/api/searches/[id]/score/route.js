@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { scorePending } from '../../../../../src/score.js';
 
@@ -17,6 +18,8 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function POST(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   const { ad_ids, rescore = false } = await req.json();
 
   if (!Array.isArray(ad_ids) || !ad_ids.length) {

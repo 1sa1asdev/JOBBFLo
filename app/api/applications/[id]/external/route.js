@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvAnsökan, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,8 @@ export const dynamic = 'force-dynamic';
 // ------------------------------------------------------------
 export async function POST(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
 
   const { rows: [app] } = await pool.query(
     `SELECT a.status, ads.apply_url, ads.apply_email

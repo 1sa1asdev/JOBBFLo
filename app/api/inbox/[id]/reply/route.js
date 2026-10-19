@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ägareAvAnsökan, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { sendReply } from '../../../../../src/mailer.js';
 
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 // user-approved reply / follow-up in an existing thread
 export async function POST(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvAnsökan(id);
+  if (!profileId) return inteHittad('ansökan finns inte');
   const { body, suggestedReplyId } = await req.json();
   if (!body?.trim()) return NextResponse.json({ error: 'body krävs' }, { status: 400 });
 

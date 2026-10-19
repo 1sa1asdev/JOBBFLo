@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { ägareAvSökning, inteHittad } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   const { rows: [search] } = await pool.query(
     `SELECT * FROM searches WHERE id = $1 AND deleted_at IS NULL`, [id]
   );
@@ -19,6 +22,8 @@ export async function GET(_req, { params }) {
 
 export async function PATCH(req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   const body = await req.json();
   const sets = [];
   const vals = [id];
@@ -153,6 +158,8 @@ export async function PATCH(req, { params }) {
 // soft delete — the inbox back-references searches
 export async function DELETE(_req, { params }) {
   const { id } = await params;
+  const profileId = await ägareAvSökning(id);
+  if (!profileId) return inteHittad('sökningen finns inte');
   await pool.query(`UPDATE searches SET deleted_at = now() WHERE id = $1`, [id]);
   return NextResponse.json({ ok: true });
 }

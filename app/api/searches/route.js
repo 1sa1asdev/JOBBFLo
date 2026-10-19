@@ -13,8 +13,9 @@ export async function GET() {
        (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status = 'drafted') AS draft_count,
        (SELECT count(*) FROM search_results r WHERE r.search_id = s.id AND r.application_status IN ('sending','sent','replied','interview')) AS sent_count
      FROM searches s
-     WHERE s.deleted_at IS NULL
-     ORDER BY s.created_at`
+     WHERE s.deleted_at IS NULL AND s.profile_id = $1
+     ORDER BY s.created_at`,
+    [await aktivProfilId()]
   );
   return NextResponse.json(rows);
 }

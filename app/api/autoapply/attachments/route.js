@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../../src/auth.js';
+import { aktivProfilId, ägareAvSökning, ägareAvBilaga, inteHittad } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +12,7 @@ const BLOCKED = /\.(exe|bat|cmd|com|scr|js|jar|msi|vbs|ps1|sh|dll|zip|7z)$/i;
 export async function GET(req) {
   const searchId = new URL(req.url).searchParams.get('search');
   if (!searchId) return NextResponse.json({ error: 'search krävs' }, { status: 400 });
+  if (!(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
 
   const { rows: [cv] } = await pool.query(
     `SELECT COALESCE(s.cv_filename, p.cv_filename) AS filename,
@@ -56,6 +57,8 @@ export async function POST(req) {
     }
 
     const profileId = await aktivProfilId();
+    // a file attached to a campaign must be attached to one of the caller's
+    if (!global && searchId && !(await ägareAvSökning(searchId))) return inteHittad('kampanjen finns inte');
     const { rows: [row] } = await pool.query(
       `INSERT INTO attachments (profile_id, search_id, filename, mime, bytes, size_bytes)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, filename, size_bytes, search_id`,
@@ -70,6 +73,8 @@ export async function POST(req) {
 export async function DELETE(req) {
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id krävs' }, { status: 400 });
-  await pool.query(`DELETE FROM attachments WHERE id = $1`, [id]);
+  const profileId = await ägareAvBilaga(id);
+  if (!profileId) return inteHittad('bilagan finns inte');
+  await pool.query(`DELETE FROM attachments WHERE id = $1 AND profile_id = $2`, [id, profileId]);
   return NextResponse.json({ ok: true });
 }
