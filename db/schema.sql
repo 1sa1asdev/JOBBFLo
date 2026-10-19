@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 044.
+-- Baseline covers migrations up to 043; latest migration 045.
 -- ============================================================
 
 --
@@ -597,6 +597,8 @@ CREATE TABLE public.profile (
     daily_score_limit integer DEFAULT 400 NOT NULL,
     embeddings_enabled boolean DEFAULT false NOT NULL,
     monthly_budget_usd numeric(10,2),
+    gmail_app_password_enc text,
+    gmail_verified_at timestamp with time zone,
     CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
 );
 
@@ -665,6 +667,18 @@ COMMENT ON COLUMN public.profile.embeddings_enabled IS 'Whether the worker may s
 --
 
 COMMENT ON COLUMN public.profile.monthly_budget_usd IS 'Optional ceiling on model spend per calendar month. NULL = uncapped. daily_score_limit is derived from this when set.';
+
+--
+-- Name: COLUMN profile.gmail_app_password_enc; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.gmail_app_password_enc IS 'The user''s Gmail app password, AES-256-GCM encrypted (src/secrets.js). Never sent to the browser, not even masked. Saved only after a login against both SMTP and IMAP succeeded.';
+
+--
+-- Name: COLUMN profile.gmail_verified_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.gmail_verified_at IS 'When a login to Gmail with the stored app password last succeeded. NULL = not connected, or never verified.';
 
 --
 -- Name: projects; Type: TABLE; Schema: public; Owner: -

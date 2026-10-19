@@ -1,36 +1,18 @@
-import 'dotenv/config';
-import nodemailer from 'nodemailer';
 import { pool } from './db.js';
+import { gmailFör, smtpTransport } from './credentials.js';
 
 // ------------------------------------------------------------
 // Outgoing mail. The ONLY function that sends anything, and it
 // is only ever called from the user-initiated send endpoint —
 // there is no scheduled or automatic path into this file.
+//
+// Every send goes out through the account of the application's owner
+// (src/credentials.js), never through a server-wide one.
 // ------------------------------------------------------------
-
-export function gmailAuth() {
-  const user = process.env.GMAIL_USER?.trim();
-  // Google shows app passwords as "abcd efgh ijkl mnop" — the spaces
-  // are display formatting only and must not be sent.
-  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
-  return { user, pass };
-}
-
-function transport() {
-  const { user, pass } = gmailAuth();
-  if (!user || !pass) throw new Error('GMAIL_USER / GMAIL_APP_PASSWORD saknas i .env');
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user, pass },
-  });
-}
 
 // plus-alias: din+frontend@gmail.com — Gmail delivers it to the same
 // inbox but lets replies be traced back to the search that sent them.
-function aliasFrom(alias) {
-  const user = process.env.GMAIL_USER;
+function aliasFrom(alias, user) {
   if (!alias) return user;
   return alias.includes('@') ? alias : user.replace('@', `+${alias}@`);
 }
@@ -117,7 +99,10 @@ export async function sendApplication(applicationId, { to } = {}) {
   // letter before it goes. The address guard belongs to campaigns,
   // where nobody is, and lives in candidatesFor and the auto-only
   // unique index instead.
-  const from = aliasFrom(app.email_alias);
+  // The owner's account, fetched before anything is claimed: a user who
+  // has not connected Gmail gets told so, and no row starts 'sending'.
+  const gmail = await gmailFör(app.profile_id);
+  const from = aliasFrom(app.email_alias, gmail.user);
   // The sender's name is the application's owner, not the first profile.
   const { rows: [profile] } = await pool.query(
     `SELECT name FROM profile WHERE id = $1`, [app.profile_id]);
@@ -143,7 +128,7 @@ export async function sendApplication(applicationId, { to } = {}) {
 
   let info;
   try {
-    info = await transport().sendMail({
+    info = await smtpTransport(gmail).sendMail({
       from: `"${profile?.name || ''}" <${from}>`,
       to: recipient,
       subject: app.subject,
@@ -216,7 +201,8 @@ export async function sendReply(applicationId, body, { suggestedReplyId = null }
   const to = lastIn?.from_addr || app.sent_to;
   if (!to) throw new Error('ingen mottagare i tråden');
 
-  const from = app.sent_from || process.env.GMAIL_USER;
+  const gmail = await gmailFör(app.profile_id);
+  const from = app.sent_from || gmail.user;
   const refs = [
     ...(lastIn?.references_ids || []),
     ...(lastIn?.message_id ? [lastIn.message_id] : []),
@@ -224,7 +210,7 @@ export async function sendReply(applicationId, body, { suggestedReplyId = null }
   const { rows: [profile] } = await pool.query(
     `SELECT name FROM profile WHERE id = $1`, [app.profile_id]);
 
-  const info = await transport().sendMail({
+  const info = await smtpTransport(gmail).sendMail({
     from: `"${profile?.name || ''}" <${from}>`,
     to,
     subject: lastIn?.subject?.startsWith('Re:') ? lastIn.subject : `Re: ${lastIn?.subject || app.subject}`,

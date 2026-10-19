@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { syncNow, syncSentNow } from '../../../../src/imap.js';
+import { aktivProfilId } from '../../../../src/auth.js';
 
 const antalMeddelanden = async () => (
   await pool.query('SELECT count(*)::int AS n FROM email_messages')
@@ -57,11 +58,14 @@ export async function POST() {
       return NextResponse.json({ nya: totalt - före, totalt, via: 'worker' });
     }
 
-    const r = await syncNow();
-    syncSentNow().catch((e) => console.error('sent-sync:', e.message));
+    // Whoever pressed the button: their mailbox, their credentials.
+    const profileId = await aktivProfilId();
+    const r = await syncNow(profileId);
+    syncSentNow(profileId).catch((e) => console.error('sent-sync:', e.message));
     return NextResponse.json({ ...r, via: 'direkt' });
   } catch (err) {
+    // Gmail not connected is the user's to fix, not a server failure.
     return NextResponse.json(
-      { error: `kunde inte hämta posten: ${err.message}` }, { status: 502 });
+      { error: `kunde inte hämta posten: ${err.message}` }, { status: err.status || 502 });
   }
 }
