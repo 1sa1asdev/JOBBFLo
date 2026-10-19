@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
+import GmailSettings from './GmailSettings.jsx';
 import CvUpload from './CvUpload.jsx';
 import CvProfilePanel, { HomePanel, EmbeddingPanel, BudgetPanel } from './CvProfilePanel.jsx';
 import Dots from './Dots';
@@ -57,6 +58,9 @@ export default function ProfileView({ onClose }) {
         {/* First: the setting that gates scoring, letters and chat.
             Everything below is CV data, which is useless without it. */}
         <LlmSettings />
+
+        {/* The account letters go out from and replies come back to. */}
+        <GmailSettings />
 
         <div className="field-group">
           <span className="label">Bas-CV</span>

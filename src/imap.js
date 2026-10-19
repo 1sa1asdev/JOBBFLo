@@ -1,7 +1,7 @@
-import 'dotenv/config';
-import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { pool } from './db.js';
+import { gmailFör, imapKlient } from './credentials.js';
+import { endaProfilId } from './owner.js';
 import { classifyReply, draftReply, generateInterviewPrep } from './classify.js';
 
 // ------------------------------------------------------------
@@ -16,17 +16,20 @@ import { classifyReply, draftReply, generateInterviewPrep } from './classify.js'
 
 const MAILBOX = 'INBOX';
 
-function client() {
-  const user = process.env.GMAIL_USER?.trim();
-  // strip Google's display spaces from the app password (see mailer.js)
-  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
-  return new ImapFlow({
-    host: 'imap.gmail.com',
-    port: 993,
-    secure: true,
-    auth: { user, pass },
-    logger: false,
-  });
+// ------------------------------------------------------------
+// Whose mailbox. The credentials used to come from .env; they now come
+// from a profile (src/credentials.js), and the owner travels with the
+// connection into everything that reads from it — so the same code can
+// later run one loop per user without a shared "current user" anywhere.
+//
+// The worker still runs ONE loop, for the one profile there is
+// (endaProfilId refuses to guess when there are several). One loop per
+// user is its own change.
+// ------------------------------------------------------------
+async function ägareFör(profileId) {
+  const id = profileId || await endaProfilId();
+  const { user, pass } = await gmailFör(id);
+  return { profileId: id, user, pass };
 }
 
 async function getState() {
@@ -164,7 +167,7 @@ async function hanteraStuds(applicationId, studs, subject) {
     + `${rensad ? ' — adressen borttagen från annonsen' : ''}`);
 }
 
-async function handleMessage(parsed, uid) {
+async function handleMessage(parsed, uid, ägare) {
   const fromAddr = parsed.from?.value?.[0]?.address || '';
   const fromName = parsed.from?.value?.[0]?.name || null;
   const references = Array.isArray(parsed.references)
@@ -172,7 +175,7 @@ async function handleMessage(parsed, uid) {
     : parsed.references ? [parsed.references] : [];
 
   // ignore our own sent mail showing up in All Mail / self-tests
-  if (fromAddr.toLowerCase() === (process.env.GMAIL_USER || '').toLowerCase()) return;
+  if (fromAddr.toLowerCase() === ägare.user.toLowerCase()) return;
 
   const { applicationId, inferred } = await matchReply({
     inReplyTo: parsed.inReplyTo,
@@ -484,7 +487,7 @@ export async function catchUpSent(imap) {
 // unanswered thread and takes 35 seconds where INBOX takes two. Nobody
 // waits 35 seconds for a button, and the thing they pressed it for is
 // new mail — what they sent themselves, they already know about.
-async function catchUp(imap, { medSkickat = true } = {}) {
+async function catchUp(imap, ägare, { medSkickat = true } = {}) {
   // Sent first, so a thread the user already answered is up to date
   // before anything decides it needs a draft.
   if (medSkickat) {
@@ -505,7 +508,7 @@ async function catchUp(imap, { medSkickat = true } = {}) {
   for await (const msg of imap.fetch(range, { uid: true, source: true }, { uid: sinceUid > 0 })) {
     if (msg.uid <= sinceUid) continue;
     const parsed = await simpleParser(msg.source);
-    await handleMessage(parsed, msg.uid).catch((e) => console.error('handle:', e.message));
+    await handleMessage(parsed, msg.uid, ägare).catch((e) => console.error('handle:', e.message));
     maxUid = Math.max(maxUid, msg.uid);
   }
 
@@ -536,12 +539,13 @@ async function catchUp(imap, { medSkickat = true } = {}) {
 // mail they wrote themselves — the worker picks that up on its own
 // timer.
 // ------------------------------------------------------------
-export async function syncNow() {
-  const imap = client();
+export async function syncNow(profileId) {
+  const ägare = await ägareFör(profileId);
+  const imap = imapKlient(ägare);
   const före = await pool.query(`SELECT count(*)::int AS n FROM email_messages`);
   try {
     await imap.connect();
-    await catchUp(imap, { medSkickat: false });
+    await catchUp(imap, ägare, { medSkickat: false });
   } finally {
     await imap.logout().catch(() => { /* closing is best-effort */ });
   }
@@ -557,8 +561,8 @@ export async function syncNow() {
 // reply the user wrote in Gmail lands a few seconds later — which the
 // inbox's own three-second poll then shows without anyone doing
 // anything.
-export async function syncSentNow() {
-  const imap = client();
+export async function syncSentNow(profileId) {
+  const imap = imapKlient(await ägareFör(profileId));
   try {
     await imap.connect();
     await catchUpSent(imap);
@@ -569,8 +573,12 @@ export async function syncSentNow() {
 
 export async function runImapLoop({ signal } = {}) {
   let backoff = 2000;
+  // A missing app password is retried every minute, and saying so every
+  // minute would bury the rest of the log. Said once, and again only
+  // when the reason changes.
+  let senasteFel = null;
   while (!signal?.aborted) {
-    const imap = client();
+    let imap = null;
     // Declared out here so the error path clears it too — a leaked
     // timer would go on polling a dead connection every two minutes for
     // as long as the worker lives.
@@ -578,14 +586,17 @@ export async function runImapLoop({ signal } = {}) {
     let inboxPoll = null;
     let begäranPoll = null;
     try {
+      const ägare = await ägareFör();
+      imap = imapKlient(ägare);
       await imap.connect();
-      console.log('imap: connected');
+      console.log(`imap: connected (${ägare.user})`);
       backoff = 2000;
+      senasteFel = null;
 
-      await catchUp(imap);
+      await catchUp(imap, ägare);
 
       imap.on('exists', async () => {
-        try { await catchUp(imap); } catch (e) { console.error('imap catchup:', e.message); }
+        try { await catchUp(imap, ägare); } catch (e) { console.error('imap catchup:', e.message); }
       });
 
       // IDLE fires for INBOX, so a reply the user sends from Gmail is
@@ -617,7 +628,7 @@ export async function runImapLoop({ signal } = {}) {
       inboxPoll = setInterval(async () => {
         try {
           await imap.noop();
-          await catchUp(imap);
+          await catchUp(imap, ägare);
         } catch (e) {
           console.error('imap-poll:', e.message);
           imap.close();
@@ -657,7 +668,7 @@ export async function runImapLoop({ signal } = {}) {
             // connection, and the press was about what came IN — a
             // reply the user wrote themselves lands a few seconds later
             // and the inbox's own poll shows it without another press.
-            await catchUp(imap, { medSkickat: false });
+            await catchUp(imap, ägare, { medSkickat: false });
           } finally {
             await pool.query(
               `UPDATE poll_state SET last_run_at = now(), note = 'klar'
@@ -678,8 +689,9 @@ export async function runImapLoop({ signal } = {}) {
       clearInterval(sentPoll); clearInterval(inboxPoll); clearInterval(begäranPoll);
       console.log('imap: connection closed');
     } catch (err) {
-      console.error('imap:', err.message);
-      try { await imap.logout(); } catch { /* already gone */ }
+      if (err.message !== senasteFel) console.error('imap:', err.message);
+      senasteFel = err.message;
+      try { await imap?.logout(); } catch { /* already gone */ }
     }
     if (sentPoll) clearInterval(sentPoll);
     if (inboxPoll) clearInterval(inboxPoll);

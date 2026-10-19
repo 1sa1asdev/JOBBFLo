@@ -5,9 +5,10 @@
 // correct; with two, one user's letter is written from the other's CV,
 // sent in their name, billed to their key. This checks both halves:
 //
-//   static    no query in src/ or app/ reads the first profile, and no
-//             UPDATE of profile lacks a WHERE — so the bug cannot come
-//             back quietly in a new route
+//   static    no query in src/ or app/ reads the first profile, no
+//             UPDATE of profile lacks a WHERE, and no code reads a
+//             user's Gmail credentials from the environment — so none
+//             of it can come back quietly in a new route
 //   dynamic   with a second profile present, everything that has no
 //             owner to go on REFUSES instead of answering with the
 //             first row: the owner lookup, the LLM key lookup, the
@@ -46,6 +47,10 @@ function* filer(dir) {
 }
 const förstaRaden = [];
 const utanWhere = [];
+// A user's mail credentials live on their profile (src/credentials.js).
+// Reading them from the environment is how one user's mail goes out
+// through another's account.
+const gmailUrMiljön = [];
 for (const dir of ['src', 'app', 'lib']) {
   for (const f of filer(dir)) {
     const t = readFileSync(f, 'utf8');
@@ -55,14 +60,25 @@ for (const dir of ['src', 'app', 'lib']) {
     for (const m of kod.matchAll(/UPDATE\s+profile\s+SET[\s\S]*?`/gi)) {
       if (!/\bWHERE\b/i.test(m[0])) utanWhere.push(f);
     }
+    if (/process\.env\.GMAIL_(USER|APP_PASSWORD)\b/.test(kod)) gmailUrMiljön.push(f);
   }
 }
 kolla('no query reads "the first profile"', !förstaRaden.length, förstaRaden.join(', '));
 kolla('no UPDATE of profile without a WHERE', !utanWhere.length, utanWhere.join(', '));
+kolla('no Gmail credentials read from the environment', !gmailUrMiljön.length, gmailUrMiljön.join(', '));
 
 // ------------------------------------------------------------
 // dynamic — one profile: everything answers as before
 // ------------------------------------------------------------
+
+// A run killed mid-way (Ctrl+C, or output piped into `head`) never
+// reaches its cleanup, and the throwaway profile it left behind makes
+// the worker refuse every model call and mail login — by design, since
+// it cannot tell whose they are. So a leftover is removed first.
+const { rowCount: kvarlämnade } = await pool.query(
+  `DELETE FROM profile WHERE email = 'proof+scope@example.invalid'`);
+if (kvarlämnade) console.log(`· tog bort ${kvarlämnade} kvarlämnad testprofil från en avbruten körning`);
+
 const { rows: [äkta] } = await pool.query(`SELECT id, name FROM profile LIMIT 2`);
 const { rows: [{ n: antal }] } = await pool.query(`SELECT count(*)::int AS n FROM profile`);
 if (antal !== 1) {

@@ -2,15 +2,23 @@ import 'dotenv/config';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 
 // ------------------------------------------------------------
-// AES-256-GCM for API keys stored in Postgres. The key is
-// derived from AUTH_SECRET, so rotating that secret invalidates
-// stored keys (users re-enter them) rather than exposing them.
+// AES-256-GCM for users' keys and passwords stored in Postgres —
+// LLM API keys and Gmail app passwords. Rotating the secret
+// invalidates what is stored (users re-enter it) rather than
+// exposing it.
+//
+// ENCRYPTION_KEY is the platform's own setting for this. It used to be
+// derived from AUTH_SECRET, which signed sessions — and once Supabase
+// handles login, AUTH_SECRET has nothing left to do with sessions. It
+// stays as the fallback so values already encrypted under it (and
+// under the development key, locally) can still be read.
 // ------------------------------------------------------------
 
 function key() {
-  const secret = process.env.AUTH_SECRET
+  const secret = process.env.ENCRYPTION_KEY
+    || process.env.AUTH_SECRET
     || (process.env.NODE_ENV === 'production' ? null : 'dev-secret-not-for-production');
-  if (!secret) throw new Error('AUTH_SECRET krävs för att kryptera API-nycklar');
+  if (!secret) throw new Error('ENCRYPTION_KEY krävs för att kryptera användares nycklar och lösenord');
   return scryptSync(secret, 'jobbflo-secrets-v1', 32);
 }
 
