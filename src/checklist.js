@@ -209,21 +209,65 @@ export const sammanfatta = ({ krav, plus, brutna = [], odömbar = false }, items
 };
 
 // The cache key covers everything the answer depends on: the CV, and a
-// campaign's own hard rule when there is one. Without the rule in the
+// campaign's own hard rule — inside one user's checklists (ad_checks is
+// keyed on the owner too, migration 052). Without the rule in the
 // key, the first campaign to check an ad would leave its private
 // requirement in the row every other search then reads.
 export const cvKey = (cvText, mustCriteria = null) => crypto.createHash('sha256')
   .update(`${cvText || ''}\u0000${mustCriteria || ''}`).digest('hex').slice(0, 16);
 
-// The ad's requirements, read once and kept on the ad. Every search
-// that finds this ad reuses them, and so does every future CV.
-async function kravFörAnnons(ad, profileId) {
-  if (ad.ad_profile) return ad.ad_profile;
-  const profil = await buildAdProfile(ad, { profileId });
+// A read too thin to grade on. Thrown rather than returned so the
+// scoring drain records it on the card — and parks the ad at once,
+// because reading it again in the queue would pay for two reads per
+// attempt to learn the same thing.
+export class OläsbarAnnonsError extends Error {
+  constructor(orsak) {
+    super(`Annonsen kunde inte läsas tillförlitligt: ${orsak || 'för få krav med belägg'}`);
+    this.kod = 'OLÄSBAR';
+    this.orsak = orsak;
+  }
+}
+
+// ------------------------------------------------------------
+// The ad's requirements, as THIS user read them.
+//
+// Read once per (ad, user) and reused by every search and every CV of
+// theirs. Never another user's: they chose their own model and pay with
+// their own key, and nothing one user reads decides another's checklist
+// (ad_reads, migration 052). A failed read is kept too, so the queue
+// does not buy it again; "Försök igen" forgets it first.
+// ------------------------------------------------------------
+async function kravFörAnnons(ad, profileId, { läsare } = {}) {
+  if (!profileId) throw new Error('kravFörAnnons: profileId krävs — läsningen är användarens egen');
+  const { rows: [fanns] } = await pool.query(
+    `SELECT status, profile, reason FROM ad_reads WHERE ad_id = $1 AND profile_id = $2`,
+    [ad.id, profileId]);
+  if (fanns) {
+    if (fanns.status === 'misslyckad') throw new OläsbarAnnonsError(fanns.reason);
+    return { status: fanns.status, profil: fanns.profile };
+  }
+
+  const profil = await buildAdProfile(ad, { profileId, ...(läsare ? { läsare } : {}) });
+  const status = profil.__tom ? 'tom' : profil.__otillförlitlig ? 'misslyckad' : 'ok';
   await pool.query(
-    `UPDATE ads SET ad_profile = $2::jsonb, ad_profile_at = now(), ad_profile_model = $3
-     WHERE id = $1`, [ad.id, JSON.stringify(profil), profil.__model || null]);
-  return profil;
+    `INSERT INTO ad_reads (ad_id, profile_id, status, model, profile, reason, read_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, now())
+     ON CONFLICT (ad_id, profile_id) DO UPDATE SET status = EXCLUDED.status,
+       model = EXCLUDED.model, profile = EXCLUDED.profile, reason = EXCLUDED.reason,
+       read_at = now()`,
+    [ad.id, profileId, status, profil.__model || null, JSON.stringify(profil),
+     profil.__otillförlitlig || null]);
+  if (status === 'misslyckad') throw new OläsbarAnnonsError(profil.__otillförlitlig);
+  return { status, profil };
+}
+
+// "Försök igen" on a card whose ad could not be read: the next check
+// reads it again, with the user's current model.
+export async function glömMisslyckadeLäsningar(adIds, profileId) {
+  if (!profileId) throw new Error('glömMisslyckadeLäsningar: profileId krävs');
+  await pool.query(
+    `DELETE FROM ad_reads WHERE ad_id = ANY($1::uuid[]) AND profile_id = $2 AND status = 'misslyckad'`,
+    [adIds, profileId]);
 }
 
 // ------------------------------------------------------------
@@ -231,16 +275,26 @@ async function kravFörAnnons(ad, profileId) {
 // depends on the ad and the CV, and on nothing else.
 // ------------------------------------------------------------
 export async function checkAd(ad, {
-  cvText, cvProfile, mustCriteria = null, force = false, fråga = llmJson, profileId,
+  cvText, cvProfile, mustCriteria = null, force = false, fråga = llmJson, läsare = null, profileId,
 } = {}) {
+  if (!profileId) throw new Error('checkAd: profileId krävs — checklistan är användarens egen');
   const nyckel = cvKey(cvText, mustCriteria);
   if (!force) {
     const { rows: [fanns] } = await pool.query(
-      `SELECT * FROM ad_checks WHERE ad_id = $1 AND cv_key = $2`, [ad.id, nyckel]);
+      `SELECT * FROM ad_checks WHERE ad_id = $1 AND profile_id = $2 AND cv_key = $3`,
+      [ad.id, profileId, nyckel]);
     if (fanns) return { ...fanns, återanvänd: true };
   }
 
-  const profil = await kravFörAnnons(ad, profileId);
+  const { status: läsning, profil } = await kravFörAnnons(ad, profileId, { läsare });
+  if (läsning === 'tom') {
+    // A hand-added lead with no ad text. It did not "state no
+    // requirements" — there was nothing to read, and nothing was paid.
+    const rad = { ad_id: ad.id, profile_id: profileId, cv_key: nyckel, items: [], score: null,
+      summary: 'Annonsen har ingen text att läsa', must_missing: null, model: null };
+    await spara(rad);
+    return rad;
+  }
   const cvRenderad = renderCvProfile(cvProfile) || cvText || '';
   if (!cvRenderad.trim()) throw new Error('Inget CV inlagt — ladda upp ett CV innan annonser kan bedömas.');
 
@@ -310,7 +364,7 @@ export async function checkAd(ad, {
     // An ad with no stated requirements is not a match and not a
     // mismatch. Recorded as such rather than scored, so it is visible
     // instead of being quietly ranked at zero.
-    const rad = { ad_id: ad.id, cv_key: nyckel, items: [], score: null,
+    const rad = { ad_id: ad.id, profile_id: profileId, cv_key: nyckel, items: [], score: null,
       summary: 'Annonsen anger inga krav', must_missing: null, model: null };
     await spara(rad);
     return rad;
@@ -371,6 +425,7 @@ export async function checkAd(ad, {
   const poäng = scoreFromItems(items, profil);
   const rad = {
     ad_id: ad.id,
+    profile_id: profileId,
     cv_key: nyckel,
     items,
     score: poäng.score,
@@ -384,12 +439,12 @@ export async function checkAd(ad, {
 
 async function spara(rad) {
   await pool.query(
-    `INSERT INTO ad_checks (ad_id, cv_key, items, score, summary, must_missing, model, checked_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6::text[], $7, now())
-     ON CONFLICT (ad_id, cv_key) DO UPDATE SET
+    `INSERT INTO ad_checks (ad_id, profile_id, cv_key, items, score, summary, must_missing, model, checked_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::text[], $8, now())
+     ON CONFLICT (ad_id, profile_id, cv_key) DO UPDATE SET
        items = EXCLUDED.items, score = EXCLUDED.score, summary = EXCLUDED.summary,
        must_missing = EXCLUDED.must_missing, model = EXCLUDED.model, checked_at = now()`,
-    [rad.ad_id, rad.cv_key, JSON.stringify(rad.items), rad.score, rad.summary,
+    [rad.ad_id, rad.profile_id, rad.cv_key, JSON.stringify(rad.items), rad.score, rad.summary,
      rad.must_missing, rad.model]);
 }
 

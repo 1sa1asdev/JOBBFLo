@@ -74,11 +74,13 @@ const { rows: [p] } = await pool.query(`SELECT cv_text, cv_profile FROM profile 
 const cvProfil = renderCvProfile(p.cv_profile) || p.cv_text || '';
 
 const { rows } = await pool.query(
-  `SELECT a.title, a.description, a.ad_profile, c.score,
+  `SELECT a.title, a.description, r.profile AS ad_profile, c.score,
           (SELECT s.criteria_text FROM match_results m JOIN searches s ON s.id = m.search_id
            WHERE m.ad_id = a.id LIMIT 1) AS kriterier
    FROM ad_checks c JOIN ads a ON a.id = c.ad_id
-   WHERE c.score IS NOT NULL AND a.ad_profile IS NOT NULL`);
+   -- the read the checklist was built on: the same user's own
+   JOIN ad_reads r ON r.ad_id = c.ad_id AND r.profile_id = c.profile_id AND r.status = 'ok'
+   WHERE c.score IS NOT NULL`);
 if (rows.length < 8) { console.log(`bara ${rows.length} annonser med kravpoäng — för få`); process.exit(0); }
 
 const kriterier = rows[0].kriterier || '';

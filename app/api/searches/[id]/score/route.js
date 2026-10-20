@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { scorePending } from '../../../../../src/score.js';
+import { glömMisslyckadeLäsningar } from '../../../../../src/checklist.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,10 @@ export async function POST(req, { params }) {
   const { id } = await params;
   const profileId = await ägareAvSökning(id);
   if (!profileId) return inteHittad('sökningen finns inte');
-  const { ad_ids, rescore = false } = await req.json();
+  // retry: "Försök igen" on a card that could not be judged. Its
+  // attempts start over, and an ad that could not be read is read again
+  // with the user's current model.
+  const { ad_ids, rescore = false, retry = false } = await req.json();
 
   if (!Array.isArray(ad_ids) || !ad_ids.length) {
     return NextResponse.json(
@@ -28,6 +32,8 @@ export async function POST(req, { params }) {
       { status: 400 }
     );
   }
+
+  if (retry) await glömMisslyckadeLäsningar(ad_ids, profileId);
 
   // Only mark ads that are not already scored. Re-requesting a scored
   // ad is a no-op rather than a second charge for the same verdict.
@@ -38,11 +44,13 @@ export async function POST(req, { params }) {
          -- re-scoring means judging again, so the old verdict has to go;
          -- src/score.js only picks up rows where score IS NULL
          score   = CASE WHEN $3 THEN NULL ELSE score END,
-         summary = CASE WHEN $3 THEN NULL ELSE summary END
+         summary = CASE WHEN $3 THEN NULL ELSE summary END,
+         attempts   = CASE WHEN $4 THEN 0 ELSE attempts END,
+         last_error = CASE WHEN $4 THEN NULL ELSE last_error END
      WHERE search_id = $1 AND ad_id = ANY($2::uuid[])
        AND ($3::boolean OR score IS NULL)
      RETURNING ad_id`,
-    [id, ad_ids, rescore]
+    [id, ad_ids, rescore, retry]
   );
 
   if (rows.length) {

@@ -52,20 +52,19 @@ export async function GET(req, { params }) {
   // The rows the score was computed from. Keyed to the verdict the UI
   // is showing (check_cv_key), so an old verdict opens the checklist it
   // was actually made from rather than a newer one against another CV.
-  // ad_checks is keyed on (ad, CV), not on a user. The fallback used to
-  // be "the newest checklist for this ad" — which, with more than one
-  // user, is whoever graded it last, CV quotes and all. It is now the
-  // newest one made for one of the caller's own searches.
+  // Only ever the caller's own (ad_checks.profile_id): the fallback
+  // used to be "the newest checklist for this ad", which with more than
+  // one user was whoever graded it last, CV quotes and all.
   const { rows: [check] } = await pool.query(
     match?.check_cv_key
-      ? `SELECT * FROM ad_checks WHERE ad_id = $1 AND cv_key = $2`
+      ? `SELECT * FROM ad_checks WHERE ad_id = $1 AND cv_key = $2 AND profile_id = $3`
       : `SELECT c.* FROM ad_checks c
-         WHERE c.ad_id = $1 AND c.cv_key IN (
+         WHERE c.ad_id = $1 AND c.profile_id = $2 AND c.cv_key IN (
            SELECT m.check_cv_key FROM match_results m
            JOIN searches s ON s.id = m.search_id AND s.profile_id = $2
            WHERE m.ad_id = $1 AND m.check_cv_key IS NOT NULL)
          ORDER BY c.checked_at DESC LIMIT 1`,
-    match?.check_cv_key ? [id, match.check_cv_key] : [id, profileId]
+    match?.check_cv_key ? [id, match.check_cv_key, profileId] : [id, profileId]
   );
 
   return NextResponse.json({ ad, match, duplicates, application, check });

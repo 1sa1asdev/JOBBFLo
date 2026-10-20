@@ -18,7 +18,7 @@ import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
-import { embedPendingAds, embedPendingProfiles, embedSearchQuery } from './src/embed.js';
+import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
@@ -200,12 +200,6 @@ async function embedTick() {
         .then(() => console.log(`embed: sökvektor för "${s2.name}"`))
         .catch((e) => console.error(`embed sökvektor ${s2.name}:`, e.message.slice(0, 90)));
     }
-
-    // The second vector: the ad as requirements, against the CV in the
-    // same shape. Cheap (an embedding, not a model call) and only for
-    // ads that have a profile at all.
-    const np = await embedPendingProfiles({ limit: 96 });
-    if (np) console.log(`embed: ${np} kravprofiler vektoriserade`);
 
     const n = await embedPendingAds({ limit: 64 });
     if (n) {

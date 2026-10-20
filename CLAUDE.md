@@ -13,9 +13,10 @@ additive, not a rewrite.
    data is what this replaced. LinkedIn and Academic Work are paste-in
    only (no usable API, ToS forbids scraping).
 2. **Grades them** against the CV as a checklist (`src/checklist.js`) —
-   the ad's requirements read once per ad, each answered against the CV
-   with a verbatim quote from both sides, and the score computed in
-   code from those rows. Stored per (ad, CV), so every search reuses it.
+   the ad's requirements read once per (ad, user), each answered against
+   the CV with a verbatim quote from both sides, and the score computed
+   in code from those rows. Stored per (ad, user, CV), so every search
+   of theirs reuses it.
    The number must always be a sum of rows the user can read; a model
    picking a 0-100 is what this replaced.
 3. **Drafts cover letters**, revised through a chat loop, sent via Gmail
@@ -93,11 +94,19 @@ model. A model may read requirements and answer them; the weighting
 lives in code (`scoreFromItems`), so the same checklist always gives
 the same number and re-weighting costs nothing.
 
-The checklist is per (ad, CV) — not per search. "Does this CV meet
+The checklist is per (ad, user, CV) — not per search. "Does this CV meet
 these requirements" does not depend on which search found the ad, and
 paying for it twice is what the cache key prevents. A campaign's
 `must_criteria` is one extra row and gets its own key, so a campaign's
 private rule cannot leak into what another search sees.
+
+Both steps belong to one user. The read (`ad_reads`) is made with that
+user's model on their key, and the checklist (`ad_checks.profile_id`)
+is built from it — never reused for another user, even one with the
+same CV. A read that is still thin after the better model re-reads it
+is stored as failed and **not graded**: the gap between reading and
+grading is a quality gate, and spending on a checklist over the wrong
+requirements is what it stops. `prove-ad-reads.js` holds all of this.
 
 ---
 
@@ -206,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Seven scripts, each one a rule that protects money, reputation or the
+Eight scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -219,6 +228,7 @@ node scripts/prove-injection.js          # ad text cannot give the models orders
 node scripts/prove-profile-scope.js      # no code picks a profile by guessing
 node scripts/prove-owner-checks.js       # one user cannot reach another's rows
 node scripts/prove-imap-scope.js         # one user's mail stays that user's
+node scripts/prove-ad-reads.js           # each user reads ads themselves; thin reads aren't graded
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)

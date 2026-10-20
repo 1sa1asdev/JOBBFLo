@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 051.
+-- Baseline covers migrations up to 043; latest migration 052.
 -- ============================================================
 
 --
@@ -49,8 +49,15 @@ CREATE TABLE public.ad_checks (
     summary text,
     must_missing text[],
     model text,
-    checked_at timestamp with time zone DEFAULT now() NOT NULL
+    checked_at timestamp with time zone DEFAULT now() NOT NULL,
+    profile_id uuid NOT NULL
 );
+
+--
+-- Name: COLUMN ad_checks.profile_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_checks.profile_id IS 'Whose checklist. Built from that user''s own read of the ad (ad_reads) and their CV; never reused for another user, even one with the same CV text.';
 
 --
 -- Name: ad_contacts; Type: TABLE; Schema: public; Owner: -
@@ -86,6 +93,39 @@ CREATE TABLE public.ad_opens (
 COMMENT ON TABLE public.ad_opens IS 'When a user last opened an ad''s application link from inside the app. Per user: it used to sit on the shared ad, where one user''s click showed for everyone.';
 
 --
+-- Name: ad_reads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ad_reads (
+    ad_id uuid NOT NULL,
+    profile_id uuid NOT NULL,
+    status text NOT NULL,
+    model text,
+    profile jsonb,
+    reason text,
+    read_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ad_reads_status_check CHECK ((status = ANY (ARRAY['ok'::text, 'misslyckad'::text, 'tom'::text])))
+);
+
+--
+-- Name: TABLE ad_reads; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.ad_reads IS 'One user''s read of one ad''s requirements (src/adprofile.js), made on that user''s key with their model and never shown to anyone else. Keyed without the model on purpose: a read that passed the thin-read gate stays good when the user changes model, and "Försök igen" reads again with the current one.';
+
+--
+-- Name: COLUMN ad_reads.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_reads.status IS 'ok: graded on. misslyckad: even the better model''s read was too thin to trust, so nothing was graded and the queue does not pay to read it again — "Försök igen" does. tom: the ad has no text to read; nothing was paid.';
+
+--
+-- Name: COLUMN ad_reads.reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_reads.reason IS 'Why a read failed, in words the user reads on the card.';
+
+--
 -- Name: ads; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -115,12 +155,7 @@ CREATE TABLE public.ads (
     embedded_at timestamp with time zone,
     apply_email_source text,
     apply_email_found_at timestamp with time zone,
-    ad_profile jsonb,
-    ad_profile_at timestamp with time zone,
-    ad_profile_model text,
     fts tsvector GENERATED ALWAYS AS (to_tsvector('swedish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(description, ''::text)))) STORED,
-    profile_embedding public.vector(768),
-    profile_embedded_at timestamp with time zone,
     owner_profile_id uuid,
     CONSTRAINT ads_apply_email_source_check CHECK ((apply_email_source = ANY (ARRAY['api'::text, 'scanned'::text, 'manual'::text]))),
     CONSTRAINT ads_source_check CHECK ((source = ANY (ARRAY['platsbanken'::text, 'linkedin'::text, 'academicwork'::text, 'manual'::text])))
@@ -179,12 +214,6 @@ COMMENT ON COLUMN public.ads.embedding_model IS 'Which model produced this vecto
 --
 
 COMMENT ON COLUMN public.ads.apply_email_source IS 'api = published by Arbetsförmedlingen; scanned = read off the ad page and confirmed by the user; manual = typed in by hand.';
-
---
--- Name: COLUMN ads.ad_profile; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ads.ad_profile IS 'The ad read into the CV profile''s vocabulary — see src/adprofile.js. Used for embedding and grading so both sides of the comparison have the same shape.';
 
 --
 -- Name: COLUMN ads.owner_profile_id; Type: COMMENT; Schema: public; Owner: -
@@ -1072,7 +1101,7 @@ COMMENT ON TABLE public.users IS 'Login identity. One account = one profile.';
 --
 
 ALTER TABLE ONLY public.ad_checks
-    ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, cv_key);
+    ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, profile_id, cv_key);
 
 --
 -- Name: ad_contacts ad_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1087,6 +1116,13 @@ ALTER TABLE ONLY public.ad_contacts
 
 ALTER TABLE ONLY public.ad_opens
     ADD CONSTRAINT ad_opens_pkey PRIMARY KEY (profile_id, ad_id);
+
+--
+-- Name: ad_reads ad_reads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_pkey PRIMARY KEY (ad_id, profile_id);
 
 --
 -- Name: ads ads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1341,12 +1377,6 @@ CREATE INDEX ads_latlon ON public.ads USING btree (lat, lon) WHERE (lat IS NOT N
 CREATE INDEX ads_needs_embedding ON public.ads USING btree (published_at DESC NULLS LAST) WHERE ((embedding IS NULL) AND (removed_at IS NULL));
 
 --
--- Name: ads_needs_profile_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_needs_profile_idx ON public.ads USING btree (published_at DESC NULLS LAST) WHERE ((ad_profile IS NULL) AND (removed_at IS NULL));
-
---
 -- Name: ads_open_deadline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1405,12 +1435,6 @@ CREATE INDEX ads_open_worktime_c_idx ON public.ads USING btree ((((raw -> 'worki
 --
 
 CREATE INDEX ads_owner ON public.ads USING btree (owner_profile_id) WHERE (owner_profile_id IS NOT NULL);
-
---
--- Name: ads_profile_vec_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_profile_vec_idx ON public.ads USING hnsw (profile_embedding public.vector_cosine_ops) WHERE (removed_at IS NULL);
 
 --
 -- Name: ads_source_external; Type: INDEX; Schema: public; Owner: -
@@ -1540,6 +1564,13 @@ ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
 
 --
+-- Name: ad_checks ad_checks_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_checks
+    ADD CONSTRAINT ad_checks_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
 -- Name: ad_contacts ad_contacts_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1566,6 +1597,20 @@ ALTER TABLE ONLY public.ad_opens
 
 ALTER TABLE ONLY public.ad_opens
     ADD CONSTRAINT ad_opens_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_reads ad_reads_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_reads ad_reads_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
 -- Name: ads ads_owner_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

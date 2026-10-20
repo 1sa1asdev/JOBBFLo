@@ -42,11 +42,16 @@ const profil = {
 
 const { rows: [ad] } = await pool.query(
   `INSERT INTO ads (source, external_id, fingerprint, title, employer, municipality,
-     description, published_at, raw, ad_profile)
+     description, published_at, raw)
    VALUES ('manual', $1, $2, 'Frontendutvecklare', 'Provbolaget AB', 'Stockholm',
      'Du kan React och har erfarenhet av Node.js. B-körkort krävs. Vi ser gärna Docker.',
-     now(), '{}'::jsonb, $3::jsonb) RETURNING *`,
-  [`prov-krav-${Date.now()}`, `prov${Date.now()}`, JSON.stringify(profil)]);
+     now(), '{}'::jsonb) RETURNING *`,
+  [`prov-krav-${Date.now()}`, `prov${Date.now()}`]);
+// The profile's own read of the ad, already made — so the proof needs
+// no reading model either. Removed with the ad (ON DELETE CASCADE).
+await pool.query(
+  `INSERT INTO ad_reads (ad_id, profile_id, status, model, profile)
+   VALUES ($1, $2, 'ok', 'bevis', $3::jsonb)`, [ad.id, p.id, JSON.stringify(profil)]);
 
 // What a model would answer. One quote is verbatim from the CV, one is
 // invented — the invented one must lose its evidence AND its status.
@@ -71,7 +76,7 @@ const fråga = async () => { anrop += 1; return svar; };
 
 try {
   const rad = await checkAd(ad, {
-    cvText: p.cv_text, cvProfile: p.cv_profile, fråga,
+    cvText: p.cv_text, cvProfile: p.cv_profile, profileId: p.id, fråga,
   });
   console.log(`poäng ${rad.score} — ${rad.summary}`);
   for (const i of rad.items) {
@@ -81,11 +86,11 @@ try {
   påstå('påhittat belägg avvisat', hittepå.cv_belagg === null && hittepå.status !== 'uppfyllt');
   påstå('dealbreaker sänker taket', rad.score <= 35, `must_missing ${JSON.stringify(rad.must_missing)}`);
 
-  const igen = await checkAd(ad, { cvText: p.cv_text, cvProfile: p.cv_profile, fråga });
+  const igen = await checkAd(ad, { cvText: p.cv_text, cvProfile: p.cv_profile, profileId: p.id, fråga });
   påstå('återanvänd utan modellanrop', Boolean(igen.återanvänd) && anrop === 1, `anrop totalt ${anrop}`);
 
   const medKampanjkrav = await checkAd(ad, {
-    cvText: p.cv_text, cvProfile: p.cv_profile, mustCriteria: 'bara juniora roller',
+    cvText: p.cv_text, cvProfile: p.cv_profile, profileId: p.id, mustCriteria: 'bara juniora roller',
     fråga: async () => ({ items: [...svar.items, { id: 4, status: 'uppfyllt', cv_belagg: äkta, varfor: 'junior' }] }),
   });
   påstå('kampanjkrav egen rad', medKampanjkrav.cv_key !== rad.cv_key

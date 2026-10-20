@@ -96,7 +96,7 @@ export async function embeddingCoverage() {
 //   218  untouched candidate rows, still listed under Hittade
 //    33  score requests the drain would skip for ever but kept counting
 //   139  address scans for jobs nobody can apply to any more
-//    69  ad profiles
+//    69  ad requirement reads
 //
 // This releases all of that, and deliberately nothing else. A closed
 // ad is never ranked, profiled, scored or scanned again, so its vector,
@@ -113,7 +113,9 @@ export async function retireClosedAds({ dryRun = false } = {}) {
 
   const plan = {
     vektorer: await räkna(`SELECT count(*)::int AS n FROM ads a
-      WHERE (a.embedding IS NOT NULL OR a.ad_profile IS NOT NULL) AND ${STANGD}`),
+      WHERE a.embedding IS NOT NULL AND ${STANGD}`),
+    läsningar: await räkna(`SELECT count(*)::int AS n FROM ad_reads r JOIN ads a ON a.id = r.ad_id
+      WHERE ${STANGD}`),
     kandidater: await räkna(`SELECT count(*)::int AS n FROM match_results m JOIN ads a ON a.id = m.ad_id
       WHERE m.score IS NULL AND m.shortlisted_at IS NULL AND ${STANGD}
         AND NOT EXISTS (SELECT 1 FROM applications ap WHERE ap.ad_id = a.id)`),
@@ -125,9 +127,12 @@ export async function retireClosedAds({ dryRun = false } = {}) {
   if (dryRun) return { ...plan, dryRun: true };
 
   await pool.query(`UPDATE ads a SET
-      embedding = NULL, embedding_model = NULL, embedded_at = NULL,
-      ad_profile = NULL, ad_profile_at = NULL, ad_profile_model = NULL
-    WHERE (a.embedding IS NOT NULL OR a.ad_profile IS NOT NULL) AND ${STANGD}`);
+      embedding = NULL, embedding_model = NULL, embedded_at = NULL
+    WHERE a.embedding IS NOT NULL AND ${STANGD}`);
+
+  // Every user's read of it. A verdict already paid for keeps its rows
+  // in ad_checks; the read was only ever the input to the next one.
+  await pool.query(`DELETE FROM ad_reads r USING ads a WHERE a.id = r.ad_id AND ${STANGD}`);
 
   // Untouched rows only. A favourite or a verdict is a decision somebody
   // made and stays; a row nobody looked at is a job nobody can apply to.
@@ -144,9 +149,9 @@ export async function retireClosedAds({ dryRun = false } = {}) {
   await pool.query(`DELETE FROM lead_scans ls USING ads a
     WHERE a.id = ls.ad_id AND ${STANGD}`);
 
-  const summa = plan.vektorer + plan.kandidater + plan.begaranden + plan.skanningar;
+  const summa = plan.vektorer + plan.läsningar + plan.kandidater + plan.begaranden + plan.skanningar;
   if (summa) {
-    console.log(`stängda annonser: släppte ${plan.vektorer} vektorer/profiler, `
+    console.log(`stängda annonser: släppte ${plan.vektorer} vektorer, ${plan.läsningar} kravläsningar, `
       + `${plan.kandidater} kandidater, ${plan.begaranden} bedömningsbegäranden, `
       + `${plan.skanningar} adresskanningar`);
   }

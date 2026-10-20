@@ -93,6 +93,9 @@ jobs:
       - name: Proof — one user's mail stays that user's
         run: time node scripts/prove-imap-scope.js
 
+      - name: Proof — each user reads ads for themselves, thin reads are not graded
+        run: time node scripts/prove-ad-reads.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

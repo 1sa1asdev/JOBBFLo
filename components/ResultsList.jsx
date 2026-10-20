@@ -239,6 +239,20 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     setBusyAd(null);
   }
 
+  // A card that could not be judged — the model failed three times, or
+  // the ad could not be read reliably. Starts its attempts over, and an
+  // unreadable ad is read again with the user's current model.
+  async function retryScore(adId) {
+    setBusyAd(adId);
+    try {
+      await api(`/api/searches/${search.id}/score`, {
+        method: 'POST', body: { ad_ids: [adId], retry: true },
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+    setBusyAd(null);
+  }
+
   // The only button in the app that spends money on scoring, and it
   // spends it on exactly the ads named here.
   async function requestScore(adIds) {
@@ -592,6 +606,15 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                     onClick={(e) => { e.stopPropagation(); requestScore([r.ad_id]); }}
                   >
                     {busyAd === r.ad_id ? <>Köar<Dots label="Köar" /></> : 'Bedöm →'}
+                  </button>
+                ) : failed ? (
+                  <button
+                    className="open-btn judge"
+                    disabled={busyAd === r.ad_id}
+                    title="Försöker bedöma annonsen igen — kostar en ny bedömning"
+                    onClick={(e) => { e.stopPropagation(); retryScore(r.ad_id); }}
+                  >
+                    Försök igen →
                   </button>
                 ) : waiting ? (
                   <button className="open-btn" disabled>Bedöms<Dots label="Bedöms" /></button>
