@@ -52,6 +52,15 @@ export default function GmailSettings() {
           : <>Inte kopplat. Brev kan inte skickas och svar kan inte läsas förrän Gmail är kopplat.</>}
       </div>
 
+      {/* The worker stopped reading this mailbox, and this is the only
+          place the user would find out why. */}
+      {data.error && (
+        <div className="llm-test fail">
+          ✗ Svar läses inte just nu: {data.error}
+          {data.error_at && <> ({fmtDate(data.error_at)})</>}
+        </div>
+      )}
+
       <div className="llm-form">
         <ol className="hint" style={{ margin: '0 0 14px', paddingLeft: 18 }}>
           <li>

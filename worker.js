@@ -1,6 +1,6 @@
 // ------------------------------------------------------------
 // The long-running worker (Railway/Fly/Render — NOT Vercel):
-//   - IMAP IDLE loop (push, reconnect wrapper)
+//   - IMAP IDLE, one mailbox per user (push, reconnect wrapper)
 //   - one global JobStream poll on a timer (never per search)
 //   - scan queue: queues ads for searches whose scan_interval elapsed
 //   - scoring drain: judges queued ads, one score at a time
@@ -17,7 +17,7 @@ import { scanSearch, scorePending, queueSearch, MAX_SCORE_ATTEMPTS } from './src
 import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
-import { runImapLoop } from './src/imap.js';
+import { postansvarig } from './src/imapManager.js';
 import { embedPendingAds, embedPendingProfiles, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
@@ -359,7 +359,11 @@ setInterval(judgeTick, JUDGE_EVERY);
 // (checkAd → kravFörAnnons). A background reader has no user to bill,
 // so it would land on the operator, who pays only for embeddings.
 
-runImapLoop({ signal: abort.signal }).then(() => {
+// One mailbox per user with Gmail and a letter sent (src/imapManager.js).
+const post = postansvarig();
+post.start();
+abort.signal.addEventListener('abort', async () => {
+  await post.stoppa();
   console.log('worker stopped');
   process.exit(0);
-});
+}, { once: true });

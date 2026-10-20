@@ -90,6 +90,9 @@ jobs:
       - name: Proof — no code picks a profile by guessing
         run: time node scripts/prove-profile-scope.js
 
+      - name: Proof — one user's mail stays that user's
+        run: time node scripts/prove-imap-scope.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
