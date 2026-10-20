@@ -15,10 +15,12 @@ export const PROVIDERS = {
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     keyUrl: 'https://openrouter.ai/keys',
-    smart: 'google/gemma-4-31b-it:free',
-    fast: 'nvidia/nemotron-nano-9b-v2:free',
-    bulk: 'openai/gpt-oss-120b',
-    write: 'anthropic/claude-sonnet-4.6',
+    // What Jobbflo is run and measured on (src/kostnad.js estimates with
+    // these): cheap reads, a capable grader, a writer that reads well.
+    smart: 'google/gemini-2.5-flash',
+    fast: 'google/gemini-2.5-flash-lite',
+    bulk: 'google/gemini-2.5-flash',
+    write: 'openai/gpt-oss-120b',
     eu: false,
     note: 'Router till många modeller. Gratisnivå finns men har dagskvot (~50 anrop); $10 credits ger 1000/dag.',
   },

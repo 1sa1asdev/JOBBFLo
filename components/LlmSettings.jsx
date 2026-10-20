@@ -2,8 +2,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import Dots from './Dots';
+import CostEstimate from './CostEstimate.jsx';
 
-export default function LlmSettings() {
+// onSaved: the onboarding guide moves on once a provider is saved.
+export default function LlmSettings({ onSaved } = {}) {
   const [data, setData] = useState(null);
   const [provider, setProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -161,6 +163,7 @@ export default function LlmSettings() {
       });
       setApiKey('');
       setSaved(true);
+      onSaved?.();
       setData((d) => ({ ...d, active: r.active, current: { ...d.current, provider, key_masked: d.current.key_masked || '••••' } }));
     } catch (e) { setError(e.message); }
     setBusy(null);
@@ -313,6 +316,13 @@ export default function LlmSettings() {
             ca 200 kr i månaden. Flera modeller kan anges kommaseparerat — de provas i tur
             och ordning, bra för "betald först, gratis som reserv".
           </p>
+
+          <CostEstimate
+            provider={provider} fast={fast} bulk={bulk} write={write}
+            onRekommendera={(r) => {
+              setFast(r.fast); setBulk(r.bulk); setWrite(r.write); setSmart(r.smart); setSaved(false);
+            }}
+          />
 
           {test && (
             <div className={test.ok ? 'llm-test ok' : 'llm-test fail'}>

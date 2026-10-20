@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 054.
+-- Baseline covers migrations up to 043; latest migration 055.
 -- ============================================================
 
 --
@@ -718,6 +718,7 @@ CREATE TABLE public.profile (
     gmail_error text,
     gmail_error_at timestamp with time zone,
     google_refresh_token_enc text,
+    onboarded_at timestamp with time zone,
     CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
 );
 
@@ -804,6 +805,12 @@ COMMENT ON COLUMN public.profile.gmail_error IS 'Last reason Gmail refused this 
 --
 
 COMMENT ON COLUMN public.profile.google_refresh_token_enc IS 'Google OAuth refresh token from sign-in, encrypted (src/secrets.js). Unused until Gmail access over OAuth is approved.';
+
+--
+-- Name: COLUMN profile.onboarded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.onboarded_at IS 'When the user finished (or skipped through) the first-run guide at /valkommen. NULL sends them there from the start page.';
 
 --
 -- Name: projects; Type: TABLE; Schema: public; Owner: -

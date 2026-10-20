@@ -155,6 +155,10 @@ jobs:
           # actually stops the account, its campaigns and its mailbox.
           time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-admin.js \
             || { cat next.log; exit 1; }
+          # A new account is guided in once; the cost estimate is
+          # arithmetic over measured tokens and listed prices.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-onboarding.js \
+            || { cat next.log; exit 1; }
 
   supabase:
     runs-on: ubuntu-latest
