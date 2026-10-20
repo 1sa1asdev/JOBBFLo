@@ -22,6 +22,11 @@
 # every migration must work with the code before it (add, backfill,
 # switch over, and drop in a LATER release — never rename in place).
 #
+# Off until the environments exist: the repository variable
+# DEPLOY_ENABLED = true (Settings → Secrets and variables → Actions →
+# Variables) turns it on. Without it a merge would start a deploy with
+# no database to migrate.
+#
 # Secrets live in GitHub → Settings → Environments, per environment:
 #   DATABASE_URL       Supabase session pooler (port 5432)
 #   SUPABASE_URL       for the Data API check
@@ -49,9 +54,10 @@ permissions:
 jobs:
   staging:
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-        && github.event.workflow_run.event == 'push')
-      || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'staging')
+      vars.DEPLOY_ENABLED == 'true' && (
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.event == 'push')
+        || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'staging'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
@@ -87,8 +93,9 @@ jobs:
 
   production:
     if: >-
-      github.event_name == 'release'
-      || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'production')
+      vars.DEPLOY_ENABLED == 'true' && (
+        github.event_name == 'release'
+        || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'production'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Required reviewers on this environment make a person approve

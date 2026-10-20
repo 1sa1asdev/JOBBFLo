@@ -191,6 +191,10 @@ ge den minst 1 GB minne.
 - `production`: **Required reviewers** = du. Ingen release migrerar
   produktion utan ditt godkännande.
 
+**Settings → Secrets and variables → Actions → Variables**: lägg till
+`DEPLOY_ENABLED` = `true` när allt ovan finns. Innan dess gör en merge
+ingenting mer än att köra CI.
+
 **Settings → Branches → main**: kräv pull request och att CI-jobben
 `schema`, `proofs`, `build-e2e` och `supabase` är gröna.
 
