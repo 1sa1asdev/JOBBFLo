@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { draftLetter } from '../../../src/letters.js';
 
@@ -18,6 +19,7 @@ export async function POST(req) {
       { originSearchId: searchId || null, profileId: await aktivProfilId() });
     return NextResponse.json(app, { status: 201 });
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

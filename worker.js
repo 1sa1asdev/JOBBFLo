@@ -18,6 +18,7 @@ import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
+import { embeddingsPåslagna } from './src/platform.js';
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
@@ -182,9 +183,8 @@ async function drainTick() {
 let embedQuiet = false;
 async function embedTick() {
   try {
-    const { rows: [p] } = await pool.query(
-      `SELECT embeddings_enabled FROM profile LIMIT 1`);
-    if (!p?.embeddings_enabled) return;
+    // The platform's spend, switched on the admin page (src/platform.js).
+    if (!(await embeddingsPåslagna())) return;
 
     // A changed purpose must not keep ranking against the old one, and
     // that cannot wait for the daily tick — the user changes criteria
@@ -221,9 +221,8 @@ async function embedTick() {
 // rebuilding a query vector costs money like any other embedding.
 async function vectorsTick() {
   try {
-    const { rows: [p] } = await pool.query(
-      `SELECT embeddings_enabled FROM profile LIMIT 1`);
-    if (!p?.embeddings_enabled) return;
+    // The platform's spend, switched on the admin page (src/platform.js).
+    if (!(await embeddingsPåslagna())) return;
     // Expired vectors are released by retireClosedAds, which also
     // covers withdrawn ads and runs whether or not embeddings are on.
     await refreshQueryVectors();

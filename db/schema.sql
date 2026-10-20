@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 053.
+-- Baseline covers migrations up to 043; latest migration 054.
 -- ============================================================
 
 --
@@ -628,6 +628,23 @@ CREATE TABLE public.never_apply (
 COMMENT ON TABLE public.never_apply IS 'One user''s "never apply". Keyed on (profile, FINGERPRINT), not ad_id, so a repost with a fresh external_id stays hidden — for that user only.';
 
 --
+-- Name: platform_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.platform_settings (
+    key text NOT NULL,
+    value jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_by uuid
+);
+
+--
+-- Name: TABLE platform_settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.platform_settings IS 'Settings that belong to the platform, not to any user: changed on the admin page (src/platform.js). embeddings_enabled: whether the worker embeds new ads and rebuilds query vectors — the operator''s spend.';
+
+--
 -- Name: poll_state; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -695,7 +712,6 @@ CREATE TABLE public.profile (
     cv_embedding_model text,
     cv_embedded_at timestamp with time zone,
     daily_score_limit integer DEFAULT 400 NOT NULL,
-    embeddings_enabled boolean DEFAULT false NOT NULL,
     monthly_budget_usd numeric(10,2),
     gmail_app_password_enc text,
     gmail_verified_at timestamp with time zone,
@@ -758,12 +774,6 @@ COMMENT ON COLUMN public.profile.home_label IS 'What the user typed (postcode or
 --
 
 COMMENT ON COLUMN public.profile.daily_score_limit IS 'Most ads that may be scored in one calendar day. Counted from match_results.scored_at; finding ads is free and not counted.';
-
---
--- Name: COLUMN profile.embeddings_enabled; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.profile.embeddings_enabled IS 'Whether the worker may spend money embedding ads. False = the embed tick is skipped entirely; existing vectors are retained untouched.';
 
 --
 -- Name: COLUMN profile.monthly_budget_usd; Type: COMMENT; Schema: public; Owner: -
@@ -1097,6 +1107,7 @@ CREATE TABLE public.users (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     auth_id uuid,
     role text DEFAULT 'user'::text NOT NULL,
+    disabled_at timestamp with time zone,
     CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))
 );
 
@@ -1123,6 +1134,12 @@ COMMENT ON COLUMN public.users.auth_id IS 'The Supabase Auth user (auth.users.id
 --
 
 COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages, platform settings and every user''s usage. Set by hand: node scripts/make-admin.js <email>.';
+
+--
+-- Name: COLUMN users.disabled_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.disabled_at IS 'Blocked by the operator. Sign-in is refused (403), campaigns are paused with the reason, the mailbox closes. Cleared to let them back in; campaigns stay paused for the user to restart.';
 
 --
 -- Name: ad_checks ad_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1284,6 +1301,13 @@ ALTER TABLE ONLY public.match_results
 
 ALTER TABLE ONLY public.never_apply
     ADD CONSTRAINT never_apply_pkey PRIMARY KEY (profile_id, fingerprint);
+
+--
+-- Name: platform_settings platform_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.platform_settings
+    ADD CONSTRAINT platform_settings_pkey PRIMARY KEY (key);
 
 --
 -- Name: poll_state poll_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1802,6 +1826,13 @@ ALTER TABLE ONLY public.never_apply
     ADD CONSTRAINT never_apply_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
+-- Name: platform_settings platform_settings_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.platform_settings
+    ADD CONSTRAINT platform_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+--
 -- Name: profile profile_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1950,6 +1981,12 @@ ALTER TABLE public.match_results ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.never_apply ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: platform_settings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: poll_state; Type: ROW SECURITY; Schema: public; Owner: -

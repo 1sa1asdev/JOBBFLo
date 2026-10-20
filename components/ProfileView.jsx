@@ -5,7 +5,7 @@ import LlmSettings from './LlmSettings.jsx';
 import GmailSettings from './GmailSettings.jsx';
 import AccountSettings from './AccountSettings.jsx';
 import CvUpload from './CvUpload.jsx';
-import CvProfilePanel, { HomePanel, EmbeddingPanel, BudgetPanel } from './CvProfilePanel.jsx';
+import CvProfilePanel, { HomePanel, BudgetPanel } from './CvProfilePanel.jsx';
 import Dots from './Dots';
 
 export default function ProfileView({ onClose }) {
@@ -53,8 +53,6 @@ export default function ProfileView({ onClose }) {
         />
 
         <BudgetPanel />
-
-        <EmbeddingPanel />
 
         {/* First: the setting that gates scoring, letters and chat.
             Everything below is CV data, which is useless without it. */}

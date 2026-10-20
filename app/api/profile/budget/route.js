@@ -3,26 +3,12 @@ import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { unitCosts, spendThisMonth } from '../../../../src/prices.js';
 import { decryptSecret } from '../../../../src/secrets.js';
+import { openrouterKredit } from '../../../../src/openrouterCredit.js';
 
 export const dynamic = 'force-dynamic';
 
-// What is left at the provider. Only OpenRouter publishes this; the
-// others either bill afterwards or are free, and inventing a number for
-// them would be worse than saying nothing.
-async function providerCredit(provider, key) {
-  if (provider !== 'openrouter' || !key) return null;
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/credits', {
-      headers: { authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!res.ok) return null;
-    const { data } = await res.json();
-    const bought = Number(data.total_credits) || 0;
-    const used = Number(data.total_usage) || 0;
-    return { bought, used, left: bought - used };
-  } catch { return null; }
-}
+// Only OpenRouter publishes what is left on a key.
+const providerCredit = (provider, key) => (provider === 'openrouter' ? openrouterKredit(key) : null);
 
 export async function GET() {
   const profileId = await aktivProfilId();

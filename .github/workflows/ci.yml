@@ -151,6 +151,10 @@ jobs:
           done
           time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-owner-checks.js \
             || { cat next.log; exit 1; }
+          # The admin pages: 404 for everyone else, and a block that
+          # actually stops the account, its campaigns and its mailbox.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-admin.js \
+            || { cat next.log; exit 1; }
 
   supabase:
     runs-on: ubuntu-latest

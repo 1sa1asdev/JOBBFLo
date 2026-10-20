@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Ten scripts, each one a rule that protects money, reputation or the
+Eleven scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -231,6 +231,7 @@ node scripts/prove-imap-scope.js         # one user's mail stays that user's
 node scripts/prove-ad-reads.js           # each user reads ads themselves; thin reads aren't graded
 node scripts/prove-rls.js                # the database answers only to the server
 node scripts/prove-supabase-login.js     # Google-mode sign-in, end to end (local Supabase)
+node scripts/prove-admin.js              # admin pages answer only the operator; a block stops the account
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
@@ -287,6 +288,18 @@ and no policies, and the Data API roles have no grants** (migration
 
 Locally, `npx supabase start` runs a separate stack on ports 553xx
 (`supabase/config.toml`), with an email link in place of Google.
+
+## The operator
+
+`users.role = 'admin'` (set only by `node scripts/make-admin.js`) reaches
+`/admin`: the platform's key and credit, the embedding switch (the
+platform's spend, in `platform_settings` — never on a profile), pool and
+worker health, and every user's counts and costs — never their content.
+For anyone else the page and `/api/admin/*` answer 404. Blocking an
+account (`users.disabled_at`) answers its requests with 403 through
+`forbidden()` in `aktivProfilId()`, pauses its campaigns with the
+reason and closes its mailbox. A route that catches its own errors must
+call `unstable_rethrow(err)` first, or it turns that 403 into its own.
 
 ## Changing the schema
 

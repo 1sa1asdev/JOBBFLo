@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { adressFör } from '../../../src/addresses.js';
 import { pool } from '../../../src/db.js';
@@ -251,6 +252,7 @@ export async function PATCH(req) {
       sets.push(`location = $${vals.length}::text[]`);
       criteriaChanged = true;
     } catch (err) {
+      unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
       // No key, model down, out of credit. Do NOT substitute a crude
       // free-text filter here: the existing api_filters are the result
       // of a successful parse, and replacing working taxonomy filters
@@ -367,6 +369,7 @@ export async function POST(req) {
     const result = await runAutoApply(searchId, { dryRun: Boolean(dryRun), manual: true });
     return NextResponse.json(result);
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

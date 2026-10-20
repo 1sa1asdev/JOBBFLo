@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../../src/auth.js';
 import { refreshCvProfile } from '../../../../src/cvprofile.js';
 
@@ -17,6 +18,7 @@ export async function POST(req) {
     }
     return NextResponse.json(profile);
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

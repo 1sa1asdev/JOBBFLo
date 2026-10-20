@@ -3,16 +3,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
 // ------------------------------------------------------------
-// The account itself: who is signed in, and signing out. Shown only
-// when the app has login at all — on one person's own machine there is
-// no account to leave.
+// The account itself: who is signed in, signing out, and — for the
+// operator — the way to the admin page. Without login (one person on
+// their own machine) only the admin link is left.
 // ------------------------------------------------------------
 export default function AccountSettings() {
   const [me, setMe] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { api('/api/auth/me').then(setMe).catch(() => {}); }, []);
-  if (!me || me.inloggning === 'av') return null;
+  if (!me || (me.inloggning === 'av' && !me.admin)) return null;
 
   async function loggaUt() {
     setBusy(true);
@@ -23,13 +23,18 @@ export default function AccountSettings() {
   return (
     <div className="field-group">
       <span className="label">Konto</span>
-      <div className="llm-active">
-        Inloggad som <b>{me.email}</b>{me.inloggning === 'supabase' ? ' via Google' : ''}
-      </div>
+      {me.inloggning !== 'av' && (
+        <div className="llm-active">
+          Inloggad som <b>{me.email}</b>{me.inloggning === 'supabase' ? ' via Google' : ''}
+        </div>
+      )}
       <div className="llm-acts">
-        <button className="btn" type="button" onClick={loggaUt} disabled={busy}>
-          {busy ? 'Loggar ut…' : 'Logga ut'}
-        </button>
+        {me.admin && <a className="btn" href="/admin">Admin →</a>}
+        {me.inloggning !== 'av' && (
+          <button className="btn" type="button" onClick={loggaUt} disabled={busy}>
+            {busy ? 'Loggar ut…' : 'Logga ut'}
+          </button>
+        )}
       </div>
     </div>
   );

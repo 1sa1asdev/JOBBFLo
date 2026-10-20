@@ -3,6 +3,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypt
 import { cookies } from 'next/headers';
 import { pool } from './db.js';
 import { NextResponse } from 'next/server';
+import { forbidden, unauthorized } from 'next/navigation';
 import { endaProfilId, ägerSökning, ägerAnsökan, ägerFörslag, ägerBilaga, serAnnons } from './owner.js';
 import { inloggningsläge, utanInloggningTillåtet } from './authMode.js';
 import { supabaseServer, supabaseAnvändarId, kontoFörSupabase } from './supabase.js';
@@ -81,7 +82,6 @@ export function sessionCookieOptions() {
 }
 
 // ---------- request helpers (API routes / server components) ----------
-const inteInloggad = (text = 'inte inloggad') => Object.assign(new Error(text), { status: 401 });
 
 // Our users.id for the request, whichever way they signed in.
 export async function currentUserId() {
@@ -143,15 +143,18 @@ export async function aktivProfilId() {
     }
     return endaProfilId();
   }
+  // unauthorized()/forbidden() end the request with 401/403 wherever
+  // this is called — every route asks it first, and none of them has to
+  // catch it (experimental.authInterrupts, next.config.mjs).
   const userId = await currentUserId();
-  if (!userId) throw inteInloggad();
+  if (!userId) unauthorized();
   const { rows: [p] } = await pool.query(
-    `SELECT id FROM profile WHERE user_id = $1`, [userId]);
-  if (!p) {
-    const err = new Error('profil saknas för kontot');
-    err.status = 401;
-    throw err;
-  }
+    `SELECT p.id, u.disabled_at FROM profile p JOIN users u ON u.id = p.user_id
+     WHERE p.user_id = $1`, [userId]);
+  if (!p) unauthorized();
+  // Blocked by the operator (users.disabled_at): signed in, and let in
+  // nowhere.
+  if (p.disabled_at) forbidden();
   return p.id;
 }
 
@@ -189,6 +192,6 @@ export async function adminProfilId() {
   if (!userId) return null;
   const { rows: [r] } = await pool.query(
     `SELECT p.id FROM users u JOIN profile p ON p.user_id = u.id
-     WHERE u.id = $1 AND u.role = 'admin'`, [userId]);
+     WHERE u.id = $1 AND u.role = 'admin' AND u.disabled_at IS NULL`, [userId]);
   return r?.id || null;
 }

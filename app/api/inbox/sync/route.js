@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { pool } from '../../../../src/db.js';
 import { syncNow, syncSentNow, antalMeddelanden } from '../../../../src/imap.js';
 import { harBrevlåda } from '../../../../src/imapManager.js';
@@ -72,6 +73,7 @@ export async function POST() {
     syncSentNow(profileId).catch((e) => console.error('sent-sync:', e.message));
     return NextResponse.json({ ...r, via: 'direkt' });
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     // Gmail not connected is the user's to fix, not a server failure.
     return NextResponse.json(
       { error: `kunde inte hämta posten: ${err.message}` }, { status: err.status || 502 });

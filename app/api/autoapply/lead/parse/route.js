@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { llmJson } from '../../../../../src/llm.js';
 import { aktivProfilId } from '../../../../../src/auth.js';
 
@@ -78,6 +79,7 @@ export async function POST(req) {
       messages: [{ role: 'user', content: råtext.slice(0, 20000) }],
     });
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     // The local parser still ran on the client, so a model outage costs
     // quality, not the feature.
     return NextResponse.json(
