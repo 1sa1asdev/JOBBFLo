@@ -11,7 +11,11 @@ export async function onboardingStatus(profileId) {
   const { rows: [p] } = await pool.query(
     `SELECT name, onboarded_at,
             gmail_verified_at IS NOT NULL AS gmail,
-            llm_provider IS NOT NULL AS ai,
+            -- a provider without its key does nothing: after a move of
+            -- history (src/flytt.js) the provider arrives and the key
+            -- does not, and the guide must still ask for it
+            llm_provider IS NOT NULL
+              AND (llm_api_key_enc IS NOT NULL OR llm_provider IN ('ollama', 'lmstudio')) AS ai,
             cv_text IS NOT NULL AS cv
      FROM profile WHERE id = $1`, [profileId]);
   return p ? { namn: p.name, klar: Boolean(p.onboarded_at), gmail: p.gmail, ai: p.ai, cv: p.cv } : null;

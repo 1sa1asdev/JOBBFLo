@@ -18,14 +18,11 @@
 //
 // Secrets are read from .env.supabase (gitignored) and never printed:
 // hosts are shown, passwords and keys are not.
-import { readFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import dotenv from 'dotenv';
+import { join, resolve } from 'node:path';
 import pg from 'pg';
-
-const ROT = join(dirname(fileURLToPath(import.meta.url)), '..');
+import { läsMiljö, värd, ROT } from './miljo.js';
 const [miljö, ...flaggor] = process.argv.slice(2);
 if (!['staging', 'production'].includes(miljö)) {
   console.error('användning: node scripts/setup-supabase.js staging|production [--flytta|--kontrollera]');
@@ -35,29 +32,14 @@ const flytta = flaggor.includes('--flytta');
 const baraKontroll = flaggor.includes('--kontrollera');
 
 const filIndex = flaggor.indexOf('--fil');
-const filen = filIndex >= 0 ? resolve(flaggor[filIndex + 1] || '') : join(ROT, '.env.supabase');
-if (!existsSync(filen)) { console.error(`${filen} saknas`); process.exit(1); }
-const env = dotenv.parse(readFileSync(filen));
-const P = miljö === 'staging' ? 'STAGING' : 'PROD';
-const url = env[`${P}_DATABASE_URL`]?.trim();
-const supabaseUrl = env[`${P}_SUPABASE_URL`]?.trim();
-const anon = env[`${P}_SUPABASE_ANON_KEY`]?.trim();
-const caFil = env[`${P}_CA_FIL`]?.trim() && resolve(ROT, env[`${P}_CA_FIL`].trim());
+let m;
+try {
+  m = läsMiljö(miljö, filIndex >= 0 ? resolve(flaggor[filIndex + 1] || '') : undefined);
+} catch (err) { console.error(err.message); process.exit(1); }
+const { url, supabaseUrl, anon, ca, caFil, P } = m;
+const env = { [`${P}_CA_FIL`]: m.caNamn };
 
-const saknas = [
-  !url && `${P}_DATABASE_URL`, !supabaseUrl && `${P}_SUPABASE_URL`, !anon && `${P}_SUPABASE_ANON_KEY`,
-].filter(Boolean);
-if (saknas.length) { console.error(`fyll i ${saknas.join(', ')} i .env.supabase`); process.exit(1); }
-if (/\[YOUR-PASSWORD\]/i.test(url)) { console.error(`${P}_DATABASE_URL innehåller fortfarande [YOUR-PASSWORD]`); process.exit(1); }
-if (/:6543\//.test(url)) {
-  console.error(`${P}_DATABASE_URL pekar på transaktionspoolern (6543). Använd session pooler (5432).`);
-  process.exit(1);
-}
-const ca = caFil && existsSync(caFil) ? readFileSync(caFil, 'utf8') : null;
-
-// What the person sees: the host, never the password.
-const värd = (() => { try { return new URL(url).host; } catch { return '(ogiltig URL)'; } })();
-console.log(`${miljö}: ${värd}${ca ? ', TLS verifieras mot Supabase-certifikatet' : ', UTAN certifikat (TLS ej verifierad)'}`);
+console.log(`${miljö}: ${värd(url)}${ca ? ', TLS verifieras mot Supabase-certifikatet' : ', UTAN certifikat (TLS ej verifierad)'}`);
 if (!ca) console.log(`  lägg certifikatet i ${env[`${P}_CA_FIL`] || `${P}_CA_FIL`} för att verifiera servern`);
 
 const barnEnv = {

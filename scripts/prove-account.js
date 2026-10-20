@@ -65,7 +65,11 @@ async function fyll(u, namn) {
   const sök = await q(`INSERT INTO searches (profile_id, name, criteria_text) VALUES ($1, $2, 'x') RETURNING id`,
     [u.profileId, `${namn}:s sökning`]);
   await q(`INSERT INTO search_messages (search_id, role, content) VALUES ($1, 'user', $2)`, [sök.id, `${namn}:s chatt`]);
-  await q(`INSERT INTO match_results (search_id, ad_id) VALUES ($1, $2)`, [sök.id, ad.id]);
+  // A candidate tied to one of the user's projects: the cascade has to
+  // remove the project while that row still points at it.
+  const projekt = await q(`INSERT INTO projects (profile_id, name, summary) VALUES ($1, $2, 'x') RETURNING id`,
+    [u.profileId, `${namn}:s projekt`]);
+  await q(`INSERT INTO match_results (search_id, ad_id, lead_project_id) VALUES ($1, $2, $3)`, [sök.id, ad.id, projekt.id]);
   const ans = await q(`INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text)
     VALUES ($1, $2, $3, 'drafted', 's', $4) RETURNING id`, [egen.id, u.profileId, sök.id, `${namn}:s brev`]);
   await q(`INSERT INTO email_messages (application_id, direction, from_addr, to_addr, subject, body_text, sent_at)
@@ -116,6 +120,17 @@ try {
           + (SELECT count(*) FROM applications WHERE profile_id = $1)
           + (SELECT count(*) FROM ad_reads WHERE profile_id = $1) AS n`, [B.profileId])).rows[0].n;
   const bFöre = await räknaB();
+
+  // ---- 0: every foreign key into a user's data says what happens on delete ----
+  const { rows: utanRegel } = await pool.query(
+    `SELECT src.relname || '.' || a.attname AS kolumn
+     FROM pg_constraint c JOIN pg_class src ON src.oid = c.conrelid
+     JOIN pg_class dst ON dst.oid = c.confrelid
+     JOIN pg_namespace n ON n.oid = src.relnamespace
+     JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+     WHERE c.contype = 'f' AND n.nspname = 'public' AND c.confdeltype IN ('a', 'r')`);
+  kolla('0. varje främmande nyckel har en regel för radering', utanRegel.length === 0,
+    utanRegel.map((r) => r.kolumn).join(', '));
 
   // ---- 1 ----
   const ex = await anrop(A.cookie, 'GET', '/api/account/export');
