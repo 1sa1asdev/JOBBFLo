@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
+import { adressFör } from '../../../src/addresses.js';
 import { pool } from '../../../src/db.js';
 import { candidatesFor, runAutoApply, whyNothing } from '../../../src/autoapply.js';
 import { leadProgress } from '../../../src/leadqueue.js';
@@ -59,7 +60,7 @@ export async function GET() {
     // the database.
     const { rows: [f] } = await pool.query(
       `SELECT count(*)::int AS hittade,
-              count(*) FILTER (WHERE a.apply_email IS NOT NULL)::int AS med_mejl,
+              count(*) FILTER (WHERE ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NOT NULL)::int AS med_mejl,
               count(*) FILTER (WHERE m.score IS NOT NULL)::int AS bedomda,
               count(*) FILTER (WHERE m.score >= $2)::int AS over_gransen,
               count(*) FILTER (WHERE m.score_requested_at IS NOT NULL

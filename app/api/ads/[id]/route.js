@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { findDuplicates } from '../../../../src/fetchJobs.js';
 import { ägareAvAnnons, inteHittad } from '../../../../src/auth.js';
+import { adressFör } from '../../../../src/addresses.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,12 @@ export async function GET(req, { params }) {
   const profileId = await ägareAvAnnons(id);
   if (!profileId) return inteHittad('annonsen finns inte');
 
-  const { rows: [ad] } = await pool.query(`SELECT * FROM ads WHERE id = $1`, [id]);
+  // the address shown is the one this user would write to: their own
+  // typed-in one if they have it, else the employer's
+  const { rows: [ad] } = await pool.query(
+    `SELECT a.*, ${adressFör('a', '$2')} AS apply_email,
+            EXISTS (SELECT 1 FROM ad_contacts ac WHERE ac.ad_id = a.id AND ac.profile_id = $2) AS egen_adress
+     FROM ads a WHERE a.id = $1`, [id, profileId]);
   if (!ad) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
   const { rows: [match] } = await pool.query(

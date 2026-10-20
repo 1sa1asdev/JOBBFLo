@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { renderCampaignLetter } from './campaign.js';
 import { sendApplication, attachmentsFor } from './mailer.js';
+import { adressFör, glömAdress } from './addresses.js';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns.
@@ -78,16 +79,19 @@ const FRI_MEJL = `('gmail.com','hotmail.com','hotmail.se','outlook.com','outlook
 // `tidigare` behind the sent application `ap`. Kept as one fragment so
 // the candidate query, the last check before sending and the "why is
 // nothing sending" diagnosis can never drift apart.
-export const sammaFöretag = (ny, tidigare, ap) => `(
+// `adress` is the address the new ad would be written to — the caller's
+// own one if they typed one in (src/addresses.js), so the cooldown sees
+// the domain the letter would actually go to.
+export const sammaFöretag = (ny, tidigare, ap, adress = `${ny}.apply_email`) => `(
   (${ny}.raw->'employer'->>'organization_number' IS NOT NULL
     AND ${tidigare}.raw->'employer'->>'organization_number'
         = ${ny}.raw->'employer'->>'organization_number')
   OR (lower(trim(${ny}.employer)) = lower(trim(${tidigare}.employer))
       AND lower(trim(${ny}.employer)) NOT IN ('', 'okänd arbetsgivare'))
-  OR (${ny}.apply_email IS NOT NULL AND ${ap}.sent_to IS NOT NULL
-      AND split_part(lower(${ny}.apply_email), '@', 2)
+  OR (${adress} IS NOT NULL AND ${ap}.sent_to IS NOT NULL
+      AND split_part(lower(${adress}), '@', 2)
           = split_part(lower(${ap}.sent_to), '@', 2)
-      AND split_part(lower(${ny}.apply_email), '@', 2) NOT IN ${FRI_MEJL})
+      AND split_part(lower(${adress}), '@', 2) NOT IN ${FRI_MEJL})
 )`;
 
 // A sent application to the same company inside the window.
@@ -97,12 +101,12 @@ export const sammaFöretag = (ny, tidigare, ap) => `(
 // same, and the whole point of the window is that they do not hear from
 // us twice. Waiting for the Sent-folder sync to confirm it would leave
 // a hole exactly as long as the repair takes.
-export const nyligenKontaktat = (ny, profil) => `EXISTS (
+export const nyligenKontaktat = (ny, profil, adress = `${ny}.apply_email`) => `EXISTS (
   SELECT 1 FROM applications fp
   JOIN ads fa ON fa.id = fp.ad_id
   WHERE fp.profile_id = ${profil}
     AND COALESCE(fp.sent_at, fp.sending_since) > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
-    AND ${sammaFöretag(ny, 'fa', 'fp')}
+    AND ${sammaFöretag(ny, 'fa', 'fp', adress)}
 )`;
 
 // A Postgres advisory lock, so two runs can never overlap: the worker
@@ -229,8 +233,13 @@ export function allocateByRatio(candidates, picked, ratio, limit) {
 }
 
 export async function candidatesFor(searchId, { limit = 10 } = {}) {
+  const ADRESS = adressFör('a', 'pr.id');
   const { rows } = await pool.query(
-    `SELECT r.ad_id, r.score, r.title, r.employer, a.apply_email, a.deadline,
+    `SELECT r.ad_id, r.score, r.title, r.employer,
+       -- the address this user's letter goes to: their own typed-in one
+       -- first, else the employer's (src/addresses.js). Named apply_email
+       -- so everything downstream, the send included, uses it unchanged.
+       ${ADRESS} AS apply_email, a.deadline,
        -- needed to bucket an ad by the campaign's chosen places
        a.municipality, a.raw->'workplace_address'->>'region' AS region
      FROM search_results r
@@ -240,7 +249,7 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
      WHERE r.search_id = $1
        AND r.application_status IS NULL          -- never applied to
        AND NOT r.suppressed
-       AND a.apply_email IS NOT NULL             -- the ad invites email
+       AND ${ADRESS} IS NOT NULL                -- an address to write to
        AND a.removed_at IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
        -- A verdict, once paid for, is never ignored: a scored ad must
@@ -271,11 +280,11 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
        AND NOT EXISTS (
          SELECT 1 FROM applications ap2
          WHERE ap2.profile_id = pr.id AND ap2.sent_to IS NOT NULL
-           AND lower(ap2.sent_to) = lower(a.apply_email)
+           AND lower(ap2.sent_to) = lower(${ADRESS})
        )
        -- ...and never a second letter to the same COMPANY within the
        -- month, whatever address this ad happens to give.
-       AND NOT ${nyligenKontaktat('a', 'pr.id')}
+       AND NOT ${nyligenKontaktat('a', 'pr.id', ADRESS)}
      -- NULLS LAST is load-bearing now that unscored ads can appear here:
      -- a plain score DESC sorts NULLs FIRST in Postgres, which would put
      -- every unjudged ad ahead of every high-scoring one and spend the
@@ -302,24 +311,25 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
 // approximating it.
 // ------------------------------------------------------------
 export async function whyNothing(searchId) {
+  const ADRESS = adressFör('a', 's.profile_id');
   const { rows: [r] } = await pool.query(
     `SELECT
        count(*) FILTER (WHERE true) AS matchningar,
-       count(*) FILTER (WHERE a.apply_email IS NULL) AS utan_adress,
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NULL) AS utan_adress,
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL
          AND (a.removed_at IS NOT NULL OR a.deadline < current_date)) AS stangda,
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL AND r.score IS NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL AND r.score IS NULL
          AND s.auto_apply_require_score AND a.source <> 'manual') AS obedomda,
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL AND r.score IS NOT NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL AND r.score IS NOT NULL
          AND r.score < s.auto_apply_min_score) AS for_lag_poang,
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL
          AND r.application_status IS NOT NULL) AS redan_ansokt,
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL
          AND r.application_status IS NULL
          AND r.score >= s.auto_apply_min_score
          AND EXISTS (SELECT 1 FROM applications ap2
                      WHERE ap2.profile_id = s.profile_id AND ap2.sent_to IS NOT NULL
-                       AND lower(ap2.sent_to) = lower(a.apply_email))) AS adress_redan_kontaktad,
+                       AND lower(ap2.sent_to) = lower(${ADRESS}))) AS adress_redan_kontaktad,
        -- Counted apart from the address guard, so the card can say which
        -- of the two is holding a campaign back. "Nothing sent" with a
        -- good score and a fresh address reads as broken unless it says
@@ -328,13 +338,13 @@ export async function whyNothing(searchId) {
        -- an address already written to is by definition at a company
        -- already written to, and counting it on both lines made the card
        -- say "24 … 24" about the same 24 ads.
-       count(*) FILTER (WHERE a.apply_email IS NOT NULL
+       count(*) FILTER (WHERE ${ADRESS} IS NOT NULL
          AND r.application_status IS NULL
          AND r.score >= s.auto_apply_min_score
          AND NOT EXISTS (SELECT 1 FROM applications ap3
                          WHERE ap3.profile_id = s.profile_id AND ap3.sent_to IS NOT NULL
-                           AND lower(ap3.sent_to) = lower(a.apply_email))
-         AND ${nyligenKontaktat('a', 's.profile_id')}) AS foretag_nyligen_kontaktat
+                           AND lower(ap3.sent_to) = lower(${ADRESS}))
+         AND ${nyligenKontaktat('a', 's.profile_id', ADRESS)}) AS foretag_nyligen_kontaktat
      FROM search_results r
      JOIN ads a ON a.id = r.ad_id
      JOIN searches s ON s.id = r.search_id
@@ -432,8 +442,9 @@ if (!search.auto_apply_require_score) return 0;
        AND m.score_requested_at IS NULL
        AND m.ad_id IN (
          SELECT r.ad_id FROM search_results r JOIN ads a ON a.id = r.ad_id
+         JOIN searches sx ON sx.id = r.search_id
          WHERE r.search_id = $1 AND NOT r.suppressed
-           AND a.apply_email IS NOT NULL
+           AND ${adressFör('a', 'sx.profile_id')} IS NOT NULL
            -- A hand-added lead has no ad text to judge, and needs no
            -- verdict anyway (see candidatesFor). Paying to score its
            -- placeholder description would be the purest waste here.
@@ -656,9 +667,9 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
          JOIN applications fp ON fp.profile_id = $1 AND fp.id <> $3
            AND COALESCE(fp.sent_at, fp.sending_since) > now() - interval '${FÖRETAGSPAUS_DAGAR} days'
          JOIN ads fa ON fa.id = fp.ad_id
-         WHERE a.id = $2 AND ${sammaFöretag('a', 'fa', 'fp')}
+         WHERE a.id = $2 AND ${sammaFöretag('a', 'fa', 'fp', '$4::text')}
          ORDER BY COALESCE(fp.sent_at, fp.sending_since) DESC LIMIT 1`,
-        [search.profile_id, c.ad_id, app.id]);
+        [search.profile_id, c.ad_id, app.id, c.apply_email]);
       if (företag) {
         await pool.query(`DELETE FROM applications WHERE id = $1 AND status = 'drafted'`, [app.id]);
         const dagar = Math.floor((Date.now() - new Date(företag.sent_at).getTime()) / 86400000);
@@ -710,9 +721,7 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
       // "utan mejladress" and can be found again properly instead of
       // failing the same way every run.
       if (/all recipients were rejected|5\.1\.[13]|5\.5\.2|550|553|555/i.test(err.message)) {
-        await pool.query(
-          `UPDATE ads SET apply_email = NULL, apply_email_source = NULL WHERE id = $1`,
-          [c.ad_id]);
+        await glömAdress(c.ad_id, search.profile_id, c.apply_email);
         await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
                     detail: `adressen avvisades av mottagarservern: ${err.message.slice(0, 120)}` });
         results.skipped.push({ title: c.title, detail: 'ogiltig adress — borttagen' });

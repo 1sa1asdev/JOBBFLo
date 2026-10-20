@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ägareAvSökning, ägareAvAnnons, inteHittad, aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
+import { adressFör, serverLästAdressen } from '../../../../src/addresses.js';
 import { scanForEmails, blockedBy } from '../../../../src/leadscan.js';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +61,7 @@ export async function GET(req) {
      JOIN ads a ON a.id = m.ad_id
      LEFT JOIN lead_scans ls ON ls.ad_id = a.id
      WHERE m.search_id = $1
-       AND a.apply_email IS NULL
+       AND ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NULL
        AND a.apply_url IS NOT NULL
        AND a.removed_at IS NULL
        AND (a.deadline IS NULL OR a.deadline >= current_date)
@@ -71,7 +72,7 @@ export async function GET(req) {
 
   const { rows: [n] } = await pool.query(
     `SELECT count(*)::int AS total FROM match_results m JOIN ads a ON a.id = m.ad_id
-     WHERE m.search_id = $1 AND a.apply_email IS NULL AND a.apply_url IS NOT NULL
+     WHERE m.search_id = $1 AND ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NULL AND a.apply_url IS NOT NULL
        AND a.removed_at IS NULL AND (a.deadline IS NULL OR a.deadline >= current_date)`,
     [searchId]
   );
@@ -164,17 +165,28 @@ export async function PATCH(req) {
       { error: `${addr} har redan fått en ansökan (${clash.employer}).` }, { status: 409 });
   }
 
-  const { rows: [ad] } = await pool.query(
-    `UPDATE ads
-       SET apply_email = $2,
-           apply_email_source = $3,
-           apply_email_found_at = now()
-     WHERE id = $1 AND apply_email IS NULL
-     RETURNING id, employer, apply_email`,
-    [adId, addr, source === 'manual' ? 'manual' : 'scanned']
-  );
-  if (!ad) {
-    return NextResponse.json({ error: 'annonsen har redan en adress' }, { status: 409 });
+  // Shared only if the server itself read this address off the ad's
+  // application page: then it is the employer's, and every user's
+  // campaign may write to it. Anything else — typed in, or a client
+  // calling it "scanned" — is the caller's own and goes nowhere else.
+  // The `source` the client sends is not evidence and is not used.
+  void source;
+  if (await serverLästAdressen(adId, addr)) {
+    const { rows: [ad] } = await pool.query(
+      `UPDATE ads
+         SET apply_email = $2, apply_email_source = 'scanned', apply_email_found_at = now()
+       WHERE id = $1 AND apply_email IS NULL
+       RETURNING id, employer, apply_email`,
+      [adId, addr]);
+    if (!ad) return NextResponse.json({ error: 'annonsen har redan en adress' }, { status: 409 });
+    return NextResponse.json({ ...ad, delad: true });
   }
-  return NextResponse.json(ad);
+  const profileId = await aktivProfilId();
+  await pool.query(
+    `INSERT INTO ad_contacts (profile_id, ad_id, email) VALUES ($1, $2, $3)
+     ON CONFLICT (profile_id, ad_id) DO UPDATE SET email = EXCLUDED.email, created_at = now()`,
+    [profileId, adId, addr]);
+  const { rows: [ad] } = await pool.query(
+    `SELECT id, employer, $2::text AS apply_email FROM ads WHERE id = $1`, [adId, addr]);
+  return NextResponse.json({ ...ad, delad: false });
 }

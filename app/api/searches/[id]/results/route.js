@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
+import { adressFör } from '../../../../../src/addresses.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -53,8 +54,10 @@ export async function GET(req, { params }) {
     : view === 'bedomda' ? 'r.score IS NOT NULL'
     : '(NOT r.shortlisted AND r.score IS NULL)';
 
-  const applySql = apply === 'email' ? 'a.apply_email IS NOT NULL'
-    : apply === 'external' ? '(a.apply_email IS NULL AND a.apply_url IS NOT NULL)'
+  // the address this user would write to — their own typed-in one first
+  const ADRESS = adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)');
+  const applySql = apply === 'email' ? `${ADRESS} IS NOT NULL`
+    : apply === 'external' ? `(${ADRESS} IS NULL AND a.apply_url IS NOT NULL)`
     : 'true';
 
   // An ad with no coordinates is kept, never silently dropped by a
@@ -141,7 +144,7 @@ export async function GET(req, { params }) {
 
   const { rows } = await pool.query(
     `SELECT r.*, m.matched, m.scored_at, m.lead_project_id, m.queue_rank,
-       a.published_at, a.apply_email, a.apply_url, a.employer_type, a.fingerprint,
+       a.published_at, ${ADRESS} AS apply_email, a.apply_url, a.employer_type, a.fingerprint,
        -- The two things that make "✓ Sökt" mean something: the user
        -- opened the ad's own link from here, or wrote a letter for it.
        -- Without either, marking it applied is a claim about something

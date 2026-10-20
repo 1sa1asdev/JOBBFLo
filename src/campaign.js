@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { ensureLetterShape } from './letters.js';
+import { adressFör } from './addresses.js';
 
 // ------------------------------------------------------------
 // The campaign letter: ONE letter, written by the user and the AI
@@ -73,7 +74,7 @@ async function context(searchId) {
   const { rows: sample } = await pool.query(
     `SELECT a.title, a.employer, left(a.description, 900) AS snippet
      FROM search_results r JOIN ads a ON a.id = r.ad_id
-     WHERE r.search_id = $1 AND r.score >= $2 AND a.apply_email IS NOT NULL
+     WHERE r.search_id = $1 AND r.score >= $2 AND ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NOT NULL
      ORDER BY r.score DESC LIMIT 3`,
     [searchId, s.auto_apply_min_score]
   );
@@ -163,9 +164,9 @@ export async function previewCampaign(searchId) {
   if (!s?.campaign_letter) return { letter: null };
 
   const { rows: [ad] } = await pool.query(
-    `SELECT a.title, a.employer, a.municipality, a.apply_email, r.score
+    `SELECT a.title, a.employer, a.municipality, ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} AS apply_email, r.score
      FROM search_results r JOIN ads a ON a.id = r.ad_id
-     WHERE r.search_id = $1 AND r.score >= $2 AND a.apply_email IS NOT NULL
+     WHERE r.search_id = $1 AND r.score >= $2 AND ${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NOT NULL
        AND r.application_status IS NULL
      ORDER BY r.score DESC LIMIT 1`,
     [searchId, s.auto_apply_min_score]
