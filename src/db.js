@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import pg from 'pg';
+import { anslutning, poolStorlek } from './dbConfig.js';
 
 export const pool = new pg.Pool({
-  connectionString:
-    process.env.DATABASE_URL ||
-    'postgres://jobbjakt:jobbjakt@localhost:5432/jobbjakt',
-  max: 10,
+  ...anslutning(process.env.DATABASE_URL || 'postgres://jobbjakt:jobbjakt@localhost:5432/jobbjakt'),
+  max: poolStorlek(),
 });
 
 // one-liner helper so callers don't need to import the pool for simple reads

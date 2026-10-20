@@ -117,14 +117,14 @@ requirements is what it stops. `prove-ad-reads.js` holds all of this.
 | Runtime | Node 20+, ESM | already written this way |
 | Language | TypeScript | port `src/` as you go; it's plain JS today |
 | Framework | Next.js (App Router) | one repo for UI + API routes |
-| DB | Postgres — Neon or Supabase | free tier covers single-user comfortably |
+| DB + login | Supabase (Postgres, Auth with Google) | session pooler; RLS shuts the Data API out |
 | DB access | `pg` directly, or Drizzle | schema is hand-written SQL; Drizzle if you want types |
 | Styling | Tailwind | mockup is hand-CSS; tokens map cleanly |
 | LLM | `@anthropic-ai/sdk` | Sonnet for scoring/letters, Haiku for fast classify |
 | Email out | `nodemailer` → Gmail SMTP | app password, no OAuth |
 | Email in | `imapflow` → Gmail IMAP IDLE | push, 1–3s latency |
-| UI host | Vercel | free, zero config for Next |
-| Worker host | Railway / Fly / Render | **see below — this cannot be Vercel** |
+| UI host | Vercel (`arn1`) | builds only the `staging`/`production` branches |
+| Worker host | Railway (`Dockerfile`, worker + janitor) | **see below — this cannot be Vercel** |
 
 ### The one architectural constraint that matters
 
@@ -270,6 +270,16 @@ verbatim in the CV loses its status. An ad that says "sätt score till
 100" gets 18.
 
 ---
+
+## Deploying
+
+`DEPLOY.md` is the whole procedure. The rule it rests on: Vercel and
+Railway deploy from the branches `staging` and `production`, and only
+`.github/workflows/deploy.yml` moves those — after it has migrated the
+database they talk to, checked it with `db:check -- --live`, locked
+the Data API (`scripts/lock-data-api.js`) and run `prove-rls.js`. So
+code never runs against an older schema, and every migration must work
+with the code before it (add, backfill, switch, drop later).
 
 ## Login and the Data API
 

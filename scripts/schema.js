@@ -26,6 +26,7 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { anslutning } from '../src/dbConfig.js';
 import { migrate, baselineVersion, migrationFiles } from './migrate.js';
 
 const SCHEMA = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'schema.sql');
@@ -33,7 +34,7 @@ const SCHEMA = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'schema
 const medDatabas = (url, db) => { const u = new URL(url); u.pathname = `/${db}`; return u.toString(); };
 
 async function admin(url, sql) {
-  const c = new pg.Client({ connectionString: medDatabas(url, 'postgres') });
+  const c = new pg.Client(anslutning(medDatabas(url, 'postgres')));
   await c.connect();
   try { await c.query(sql); } finally { await c.end(); }
 }
@@ -54,8 +55,17 @@ async function tillfällig(url, namn, fn) {
 // sorted — so column order and creation order do not count, and
 // anything else does. Extension-owned functions are left out: they
 // belong to pgvector and pgcrypto, not to us.
+//
+// Supabase installs its own extensions in every project — measured on a
+// local Supabase stack: pg_stat_statements, supabase_vault and uuid-ossp
+// (pg_graphql and pgsodium on hosted projects). They are the platform's,
+// not ours, and counting them failed the first deploy's live check with
+// "the database was changed by hand".
+const PLATTFORMENS = ['plpgsql', 'pg_stat_statements', 'supabase_vault', 'uuid-ossp',
+  'pg_graphql', 'pgsodium', 'pgjwt'];
 const AVTRYCK = `
-SELECT 'extension ' || extname FROM pg_extension WHERE extname <> 'plpgsql'
+SELECT 'extension ' || extname FROM pg_extension
+WHERE extname NOT IN (${PLATTFORMENS.map((e) => `'${e}'`).join(', ')})
 UNION ALL
 SELECT 'column ' || c.relname || '.' || a.attname || ' ' || format_type(a.atttypid, a.atttypmod)
   || CASE WHEN a.attnotnull THEN ' not null' ELSE '' END
@@ -104,7 +114,7 @@ WHERE n.nspname = 'public'
 ORDER BY 1`;
 
 async function avtryck(url) {
-  const c = new pg.Client({ connectionString: url });
+  const c = new pg.Client(anslutning(url));
   await c.connect();
   try {
     const { rows } = await c.query(AVTRYCK);
@@ -113,7 +123,7 @@ async function avtryck(url) {
 }
 
 async function körFil(url, sql) {
-  const c = new pg.Client({ connectionString: url });
+  const c = new pg.Client(anslutning(url));
   await c.connect();
   try {
     await c.query('SET client_min_messages = warning');

@@ -190,6 +190,12 @@ jobs:
       - name: Migrations on Supabase's Postgres
         run: time (npm run db:init && npm run db:seed)
 
+      # What the deploy workflow checks on the real databases. Supabase
+      # adds its own extensions to every project; this is where a check
+      # that counts them as hand edits fails, before a deploy does.
+      - name: The live check accepts a Supabase database
+        run: time npm run db:check -- --live
+
       # With a seeded profile in place, so an open table would have a row
       # to leak rather than answering an innocent empty list.
       - name: Proof — the Data API returns nothing with the public key

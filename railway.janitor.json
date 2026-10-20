@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": ["src/**", "janitor.js", "package.json", "package-lock.json", "Dockerfile"]
+  },
+  "deploy": {
+    "startCommand": "node janitor.js",
+    "numReplicas": 1,
+    "restartPolicyType": "ALWAYS"
+  }
+}

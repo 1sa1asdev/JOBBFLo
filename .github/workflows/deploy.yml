@@ -1,0 +1,131 @@
+# ------------------------------------------------------------
+# From a green main to staging, and from a release to production.
+#
+# The rule this exists for: code never runs against a schema older than
+# it. Vercel (the app) and Railway (worker, janitor) do not deploy from
+# main — they deploy from the branches `staging` and `production`, and
+# only this workflow moves those, AFTER it has migrated and checked the
+# database they will talk to.
+#
+#   main is green (CI passed)  →  migrate the STAGING database
+#                              →  check it matches the migrations, and
+#                                 that the Data API is shut
+#                              →  move `staging` → Vercel + Railway
+#                                 deploy staging
+#
+#   a release is published     →  the same against PRODUCTION, after a
+#                                 person approves it (the `production`
+#                                 environment's required reviewers),
+#                                 and only for a commit staging has run
+#
+# Migrations therefore run while the previous code is still serving:
+# every migration must work with the code before it (add, backfill,
+# switch over, and drop in a LATER release — never rename in place).
+#
+# Secrets live in GitHub → Settings → Environments, per environment:
+#   DATABASE_URL       Supabase session pooler (port 5432)
+#   SUPABASE_URL       for the Data API check
+#   SUPABASE_ANON_KEY  ditto — the public key, used to prove it reads nothing
+# ------------------------------------------------------------
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      miljö:
+        description: 'staging eller production'
+        required: true
+        default: staging
+
+permissions:
+  contents: write
+
+jobs:
+  staging:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push')
+      || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'staging')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    concurrency: { group: deploy-staging, cancel-in-progress: false }
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.SHA }}', fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+
+      - name: Migrate the staging database
+        run: node scripts/migrate.js
+
+      - name: The database matches the migrations
+        run: npm run db:check -- --live
+
+      # Idempotent; matters after a restore, which brings tables back with
+      # the project's default grants (scripts/lock-data-api.js).
+      - name: Lock the Data API
+        run: node scripts/lock-data-api.js
+
+      - name: The Data API reads nothing
+        run: node scripts/prove-rls.js
+
+      - name: Deploy — move the staging branch
+        run: git push --force origin "$SHA:refs/heads/staging"
+
+  production:
+    if: >-
+      github.event_name == 'release'
+      || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required reviewers on this environment make a person approve
+    # before anything below runs.
+    environment: production
+    concurrency: { group: deploy-production, cancel-in-progress: false }
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+
+      # Production only gets what staging has already run.
+      - name: This commit has been on staging
+        run: |
+          git fetch origin staging
+          git merge-base --is-ancestor HEAD origin/staging \
+            || { echo "::error::$(git rev-parse --short HEAD) har inte körts i staging — släpp en commit som finns där"; exit 1; }
+
+      - name: Migrate the production database
+        run: node scripts/migrate.js
+
+      - name: The database matches the migrations
+        run: npm run db:check -- --live
+
+      # Idempotent; matters after a restore, which brings tables back with
+      # the project's default grants (scripts/lock-data-api.js).
+      - name: Lock the Data API
+        run: node scripts/lock-data-api.js
+
+      - name: The Data API reads nothing
+        run: node scripts/prove-rls.js
+
+      - name: Deploy — move the production branch
+        run: git push --force origin "HEAD:refs/heads/production"

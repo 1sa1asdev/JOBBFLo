@@ -16,9 +16,13 @@ import { inloggningsläge, utanInloggningTillåtet, supabaseUrl, supabaseAnonKey
 //   av        no gate — but only off production (authMode.js).
 // ------------------------------------------------------------
 
-// Reachable without a session: signing in, and the documents anyone may
-// read before deciding to.
-const PUBLIC = [/^\/login$/, /^\/auth\/callback$/, /^\/api\/auth\//, /^\/integritet$/, /^\/villkor$/];
+// Reachable without a session: signing in, the documents anyone may
+// read before deciding to, and the uptime monitor's health check (which
+// says nothing but up or down).
+const PUBLIC = [
+  /^\/login$/, /^\/auth\/callback$/, /^\/api\/auth\//, /^\/integritet$/, /^\/villkor$/,
+  /^\/api\/health$/,
+];
 
 async function verify(token, secret) {
   if (!token) return false;
