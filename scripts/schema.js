@@ -61,6 +61,11 @@ async function tillfällig(url, namn, fn) {
 // (pg_graphql and pgsodium on hosted projects). They are the platform's,
 // not ours, and counting them failed the first deploy's live check with
 // "the database was changed by hand".
+// The same for a function Supabase writes into public: the "Automatic
+// RLS" option at project creation installs rls_auto_enable() behind an
+// event trigger (ensure_rls) — it does what migration 053 does, and
+// counting it failed the first live check on the hosted project.
+const PLATTFORMENS_FUNKTIONER = ['rls_auto_enable'];
 const PLATTFORMENS = ['plpgsql', 'pg_stat_statements', 'supabase_vault', 'uuid-ossp',
   'pg_graphql', 'pgsodium', 'pgjwt'];
 const AVTRYCK = `
@@ -104,6 +109,7 @@ SELECT 'function ' || p.proname || '(' || pg_get_function_identity_arguments(p.o
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.objid = p.oid AND dep.deptype = 'e')
+  AND p.proname NOT IN (${PLATTFORMENS_FUNKTIONER.map((f) => `'${f}'`).join(', ')})
 UNION ALL
 SELECT 'comment ' || c.relname || COALESCE('.' || a.attname, '') || ' ' || md5(d.description)
 FROM pg_description d
