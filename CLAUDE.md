@@ -206,7 +206,7 @@ Now port the mockup.
 
 ## The proofs
 
-Six scripts, each one a rule that protects money, reputation or the
+Seven scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -218,6 +218,7 @@ node scripts/prove-send-transaction.js   # a letter can never be sent twice
 node scripts/prove-injection.js          # ad text cannot give the models orders
 node scripts/prove-profile-scope.js      # no code picks a profile by guessing
 node scripts/prove-owner-checks.js       # one user cannot reach another's rows
+node scripts/prove-imap-scope.js         # one user's mail stays that user's
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
@@ -232,6 +233,14 @@ row it is acting on (`applications.profile_id`, `searches.profile_id`);
 a route asks `aktivProfilId()` in `src/auth.js`; code with neither asks
 `endaProfilId()` in `src/owner.js`, which refuses when there is more
 than one. `prove-profile-scope.js` catches either pattern coming back.
+
+Mail is the same rule. The worker keeps one mailbox per user
+(`src/imapManager.js` → `brevlåda()` in `src/imap.js`), opened only once
+that user has sent a letter through the app, and reading starts at that
+first letter — nothing older is fetched. Every function in `src/imap.js`
+is handed the mailbox owner, and reply matching looks only among that
+owner's applications on every rung of the resolution order below.
+`prove-imap-scope.js` runs it all against a fake IMAP client.
 
 `prove-injection.js` is the one worth reading if you change a prompt.
 Ad text is the only input a stranger writes, and it reaches three

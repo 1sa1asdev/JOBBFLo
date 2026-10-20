@@ -1,7 +1,6 @@
 import { simpleParser } from 'mailparser';
 import { pool } from './db.js';
-import { gmailFör, imapKlient } from './credentials.js';
-import { endaProfilId } from './owner.js';
+import { gmailFör, imapKlient, GmailSaknasError } from './credentials.js';
 import { glömAdress } from './addresses.js';
 import { classifyReply, draftReply, generateInterviewPrep } from './classify.js';
 
@@ -18,38 +17,57 @@ import { classifyReply, draftReply, generateInterviewPrep } from './classify.js'
 const MAILBOX = 'INBOX';
 
 // ------------------------------------------------------------
-// Whose mailbox. The credentials used to come from .env; they now come
-// from a profile (src/credentials.js), and the owner travels with the
-// connection into everything that reads from it — so the same code can
-// later run one loop per user without a shared "current user" anywhere.
+// Whose mailbox. Every function below works for exactly one user — the
+// owner of the mailbox it is reading — and is handed that owner rather
+// than finding one. There is no "current user" anywhere in this file:
+// the worker runs one mailbox per user (src/imapManager.js), and a
+// message read from A's mailbox can only ever touch A's rows.
 //
-// The worker still runs ONE loop, for the one profile there is
-// (endaProfilId refuses to guess when there are several). One loop per
-// user is its own change.
+// Only what the user started through the app is read. A mailbox's
+// first pass begins at the user's first letter sent from here, and
+// nothing older is fetched at all.
 // ------------------------------------------------------------
 async function ägareFör(profileId) {
-  const id = profileId || await endaProfilId();
-  const { user, pass } = await gmailFör(id);
-  return { profileId: id, user, pass };
+  if (!profileId) throw new Error('brevlådan saknar ägare');
+  const { user, pass } = await gmailFör(profileId);
+  return { profileId, user, pass };
 }
 
-async function getState() {
+const kräverÄgare = (profileId, vad) => {
+  if (!profileId) throw new Error(`${vad}: brevlådans ägare krävs`);
+};
+
+export async function läsposition(profileId, mailbox = MAILBOX) {
   const { rows: [s] } = await pool.query(
-    `SELECT * FROM imap_state WHERE mailbox = $1`, [MAILBOX]
+    `SELECT * FROM imap_state WHERE profile_id = $1 AND mailbox = $2`, [profileId, mailbox]
   );
   return s || null;
 }
 
-async function setState(uidValidity, lastSeenUid) {
+export async function sparaLäsposition(profileId, mailbox, uidValidity, lastSeenUid) {
   await pool.query(
-    `INSERT INTO imap_state (mailbox, uid_validity, last_seen_uid, updated_at)
-     VALUES ($1, $2, $3, now())
-     ON CONFLICT (mailbox) DO UPDATE SET
+    `INSERT INTO imap_state (profile_id, mailbox, uid_validity, last_seen_uid, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (profile_id, mailbox) DO UPDATE SET
        uid_validity = EXCLUDED.uid_validity,
-       last_seen_uid = GREATEST(imap_state.last_seen_uid, EXCLUDED.last_seen_uid),
+       -- a new uidValidity renumbers the mailbox, so the old position
+       -- means nothing; otherwise it only ever moves forward
+       last_seen_uid = CASE WHEN imap_state.uid_validity IS DISTINCT FROM EXCLUDED.uid_validity
+                            THEN EXCLUDED.last_seen_uid
+                            ELSE GREATEST(imap_state.last_seen_uid, EXCLUDED.last_seen_uid) END,
        updated_at = now()`,
-    [MAILBOX, uidValidity, lastSeenUid]
+    [profileId, mailbox, uidValidity, lastSeenUid]
   );
+}
+
+// When this user's mail starts being the app's business: their first
+// letter sent from here (or handed to Gmail and not yet recorded). Null
+// means they have sent nothing, and then there is nothing to read.
+export async function förstaBrevet(profileId) {
+  const { rows: [r] } = await pool.query(
+    `SELECT LEAST(min(sent_at), min(sending_since)) AS första
+     FROM applications WHERE profile_id = $1`, [profileId]);
+  return r?.första || null;
 }
 
 // ------------------------------------------------------------
@@ -60,10 +78,17 @@ async function setState(uidValidity, lastSeenUid) {
 //    one open application                        → probable (inferred)
 // 4. Domain matches multiple open applications   → don't guess
 // 5. No match                                    → leave in inbox
+//
+// Every rung looks only among the mailbox owner's applications. Two
+// users writing to the same employer is ordinary — and unscoped, the
+// domain rung handed A's reply to B's thread when only B had written
+// there, and refused to place it at all when both had. A message id is
+// no different: one that belongs to B's thread arriving in A's mailbox
+// is not a reason to touch B's thread.
 // ------------------------------------------------------------
 const OPEN_STATUSES = `('sent','replied','interview')`;
 
-async function findByMessageId(msgId) {
+async function findByMessageId(msgId, profileId) {
   if (!msgId) return null;
   const { rows } = await pool.query(
     // Any message id in a thread identifies the thread, whichever way
@@ -74,22 +99,25 @@ async function findByMessageId(msgId) {
     // and fell through to the domain guess, which then refused:
     // "devendra.s.singh@hitachienergy.com: domain matches 7 open
     // applications — not guessing". Correct refusal, wrong question.
-    `SELECT id FROM applications WHERE message_id = $1
+    `SELECT id FROM applications WHERE message_id = $1 AND profile_id = $2
      UNION
-     SELECT application_id AS id FROM email_messages WHERE message_id = $1`,
-    [msgId]
+     SELECT m.application_id AS id FROM email_messages m
+     JOIN applications a ON a.id = m.application_id
+     WHERE m.message_id = $1 AND a.profile_id = $2`,
+    [msgId, profileId]
   );
   return rows[0]?.id || null;
 }
 
-export async function matchReply({ inReplyTo, references, fromAddr }) {
+export async function matchReply({ inReplyTo, references, fromAddr, profileId }) {
+  kräverÄgare(profileId, 'matchReply');
   // 1. In-Reply-To
-  let appId = await findByMessageId(inReplyTo);
+  let appId = await findByMessageId(inReplyTo, profileId);
   if (appId) return { applicationId: appId, inferred: false };
 
   // 2. last References entry
   const lastRef = references?.length ? references[references.length - 1] : null;
-  appId = await findByMessageId(lastRef);
+  appId = await findByMessageId(lastRef, profileId);
   if (appId) return { applicationId: appId, inferred: false };
 
   // 3/4. domain match — anna.lindqvist@ replying when we wrote to jobb@
@@ -99,10 +127,11 @@ export async function matchReply({ inReplyTo, references, fromAddr }) {
   }
   const { rows } = await pool.query(
     `SELECT id FROM applications
-     WHERE status IN ${OPEN_STATUSES}
+     WHERE profile_id = $2
+       AND status IN ${OPEN_STATUSES}
        AND sent_at > now() - interval '90 days'
        AND lower(split_part(sent_to, '@', 2)) = $1`,
-    [domain]
+    [domain, profileId]
   );
   if (rows.length === 1) return { applicationId: rows[0].id, inferred: true };
   if (rows.length > 1) {
@@ -169,6 +198,17 @@ async function hanteraStuds(applicationId, studs, subject) {
     + `${rensad ? ' — adressen borttagen från annonsen' : ''}`);
 }
 
+// Dedupe on message id, within the owner's threads. The same message can
+// legitimately reach two users — an employer writing to both in one
+// mail — and each of them gets their copy.
+async function redanLagrat(messageId, profileId) {
+  if (!messageId) return false;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM email_messages m JOIN applications a ON a.id = m.application_id
+     WHERE m.message_id = $1 AND a.profile_id = $2 LIMIT 1`, [messageId, profileId]);
+  return rows.length > 0;
+}
+
 async function handleMessage(parsed, uid, ägare) {
   const fromAddr = parsed.from?.value?.[0]?.address || '';
   const fromName = parsed.from?.value?.[0]?.name || null;
@@ -183,6 +223,7 @@ async function handleMessage(parsed, uid, ägare) {
     inReplyTo: parsed.inReplyTo,
     references,
     fromAddr,
+    profileId: ägare.profileId,
   });
 
   if (!applicationId) {
@@ -190,13 +231,7 @@ async function handleMessage(parsed, uid, ägare) {
     return;
   }
 
-  // dedupe on message-id
-  if (parsed.messageId) {
-    const { rows } = await pool.query(
-      `SELECT 1 FROM email_messages WHERE message_id = $1`, [parsed.messageId]
-    );
-    if (rows.length) return;
-  }
+  if (await redanLagrat(parsed.messageId, ägare.profileId)) return;
 
   const body = (parsed.text || '').trim() || parsed.html || '';
 
@@ -256,14 +291,14 @@ async function handleMessage(parsed, uid, ägare) {
 // the domain fallback keys on the RECIPIENT, since the sender is
 // always us.
 // ------------------------------------------------------------
-async function handleSent(parsed, uid) {
+async function handleSent(parsed, uid, profileId) {
   const toAddr = parsed.to?.value?.[0]?.address || '';
   const references = Array.isArray(parsed.references)
     ? parsed.references
     : parsed.references ? [parsed.references] : [];
 
   // Our own letter, recovered — not a reply the user wrote.
-  if (await repareraSending(parsed, toAddr, uid)) return;
+  if (await repareraSending(parsed, toAddr, uid, profileId)) return;
 
   // Only mail that belongs to a thread this app knows about. Everything
   // else in Sent is the user's own life and none of the app's business.
@@ -271,17 +306,14 @@ async function handleSent(parsed, uid) {
     inReplyTo: parsed.inReplyTo,
     references,
     fromAddr: toAddr,
+    profileId,
   });
   if (!applicationId) return;
 
   // The letters this app sent are already stored, with their own
   // message ids — so the copy Gmail keeps in Sent must not become a
   // second row for the same message.
-  if (parsed.messageId) {
-    const { rows } = await pool.query(
-      `SELECT 1 FROM email_messages WHERE message_id = $1`, [parsed.messageId]);
-    if (rows.length) return;
-  }
+  if (await redanLagrat(parsed.messageId, profileId)) return;
 
   const body = (parsed.text || '').trim() || parsed.html || '';
   await pool.query(
@@ -321,20 +353,23 @@ async function handleSent(parsed, uid) {
 // 90-day domain path in matchReply skip it. Hence the explicit lookup,
 // and hence it runs before them.
 // ------------------------------------------------------------
-export async function repareraSending(parsed, toAddr, uid) {
+export async function repareraSending(parsed, toAddr, uid, profileId) {
+  kräverÄgare(profileId, 'repareraSending');
   if (!toAddr) return null;
   const när = parsed.date || new Date();
   const { rows: [ap] } = await pool.query(
     // Written after the claim (a minute of clock skew allowed) and
     // within the week — older than that is a row for the reconciler,
-    // not a guess made from any message to the same address.
+    // not a guess made from any message to the same address. And only
+    // the mailbox owner's: B's stuck letter is in B's Sent, not A's.
     `SELECT id, subject, letter_text, sent_from FROM applications
      WHERE status = 'sending'
+       AND profile_id = $3
        AND lower(sent_to) = lower($1)
        AND sending_since > now() - interval '7 days'
        AND sending_since < $2::timestamptz + interval '1 minute'
      ORDER BY sending_since DESC LIMIT 1`,
-    [toAddr, när]
+    [toAddr, när, profileId]
   );
   if (!ap) return null;
 
@@ -374,14 +409,11 @@ async function findSentMailbox(imap) {
   return hit?.path || null;
 }
 
-export async function catchUpSent(imap) {
-  const path = await findSentMailbox(imap);
-  if (!path) return;
-
-  // A lock rather than a bare open: this runs while the connection is
-  // sitting in IDLE on INBOX, and imapflow needs to serialise the
-  // mailbox switch and put IDLE back afterwards. Opening directly here
-  // races with the idling read.
+// What the owner's Sent folder is worth searching for: their open threads
+// with an employer's answer and none of theirs yet, and their letters
+// stuck in 'sending'. Never another user's.
+export async function attLetaIskickat(profileId) {
+  kräverÄgare(profileId, 'attLetaIskickat');
   // The threads this app is actually in. Sent holds years of the
   // user's own correspondence, and none of it is the app's business —
   // so the server is asked for the specific messages that answer a
@@ -403,7 +435,8 @@ export async function catchUpSent(imap) {
   const { rows: trådar } = await pool.query(
     `SELECT a.id, a.message_id, a.sent_to, a.sent_at
      FROM applications a
-     WHERE a.message_id IS NOT NULL AND a.sent_to IS NOT NULL
+     WHERE a.profile_id = $1
+       AND a.message_id IS NOT NULL AND a.sent_to IS NOT NULL
        AND a.status IN ${OPEN_STATUSES}
        AND a.sent_at > now() - interval '90 days'
        AND EXISTS (SELECT 1 FROM email_messages m
@@ -414,7 +447,8 @@ export async function catchUpSent(imap) {
                        WHERE m.application_id = a.id AND m.direction = 'outbound'
                          AND m.message_id IS DISTINCT FROM a.message_id)
      ORDER BY a.sent_at DESC
-     LIMIT 50`
+     LIMIT 50`,
+    [profileId]
   );
   // Plus the letters this app handed to Gmail and never finished
   // recording. They have a recipient and a claim time and nothing else,
@@ -423,12 +457,22 @@ export async function catchUpSent(imap) {
   const { rows: fastnade } = await pool.query(
     `SELECT id, sent_to, sending_since AS sent_at
      FROM applications
-     WHERE status = 'sending' AND sent_to IS NOT NULL
+     WHERE profile_id = $1
+       AND status = 'sending' AND sent_to IS NOT NULL
        AND sending_since > now() - interval '7 days'
      ORDER BY sending_since DESC
-     LIMIT 20`
+     LIMIT 20`,
+    [profileId]
   );
+  return { trådar, fastnade };
+}
+
+export async function catchUpSent(imap, profileId) {
+  const { trådar, fastnade } = await attLetaIskickat(profileId);
   if (!trådar.length && !fastnade.length) return;
+
+  const path = await findSentMailbox(imap);
+  if (!path) return;
 
   // One pass over Sent, not one search per thread.
   //
@@ -453,6 +497,10 @@ export async function catchUpSent(imap) {
     äldst = Math.min(äldst, new Date(t.sent_at).getTime());
   }
 
+  // A lock rather than a bare open: this runs while the connection is
+  // sitting in IDLE on INBOX, and imapflow needs to serialise the
+  // mailbox switch and put IDLE back afterwards. Opening directly here
+  // races with the idling read.
   const lock = await imap.getMailboxLock(path, { readOnly: true });
   try {
     let kandidater = [];
@@ -479,7 +527,7 @@ export async function catchUpSent(imap) {
 
     for await (const msg of imap.fetch(värda, { uid: true, source: true }, { uid: true })) {
       const parsed = await simpleParser(msg.source);
-      await handleSent(parsed, msg.uid).catch((e) => console.error('sent:', e.message));
+      await handleSent(parsed, msg.uid, profileId).catch((e) => console.error('sent:', e.message));
     }
   } finally {
     lock.release();
@@ -490,70 +538,117 @@ export async function catchUpSent(imap) {
 // unanswered thread and takes 35 seconds where INBOX takes two. Nobody
 // waits 35 seconds for a button, and the thing they pressed it for is
 // new mail — what they sent themselves, they already know about.
-async function catchUp(imap, ägare, { medSkickat = true } = {}) {
+//
+// iTur serialises the INBOX part per mailbox: IDLE, the poll and the
+// button can all ask at once, and two passes over the same UIDs would
+// race each other past the message-id check and classify a reply twice.
+async function catchUp(imap, ägare, { medSkickat = true, iTur = (fn) => fn() } = {}) {
   // Sent first, so a thread the user already answered is up to date
   // before anything decides it needs a draft.
   if (medSkickat) {
-    await catchUpSent(imap).catch((e) => console.error('sent-catchup:', e.message));
+    await catchUpSent(imap, ägare.profileId).catch((e) => console.error('sent-catchup:', e.message));
   }
+  await iTur(() => läsInkorgen(imap, ägare));
+}
 
-  const box = await imap.mailboxOpen(MAILBOX);
-  const state = await getState();
+// A mailbox lock, not mailboxOpen. The Sent pass holds a lock on Sent,
+// and a bare open issued while it runs switches the selected mailbox
+// out from under its fetch — both then wait forever. That is exactly
+// what a "Hämta post" pressed during a mailbox's first catch-up did.
+// The lock makes imapflow queue the switch behind the Sent pass, and
+// leaves INBOX selected afterwards, which is where IDLE should sit.
+async function läsInkorgen(imap, ägare) {
+  const state = await läsposition(ägare.profileId, MAILBOX);
+  const lock = await imap.getMailboxLock(MAILBOX);
+  try {
+    await läsInkorgenLåst(imap, ägare, state, imap.mailbox);
+  } finally {
+    lock.release();
+  }
+}
 
+async function läsInkorgenLåst(imap, ägare, state, box) {
+  const sammaNumrering = state && Number(state.uid_validity) === Number(box.uidValidity);
+
+  let urval;
   let sinceUid = 0;
-  if (state && Number(state.uid_validity) === Number(box.uidValidity)) {
+  let från = null;
+  if (sammaNumrering) {
     sinceUid = Number(state.last_seen_uid);
-  } // uidValidity changed → UIDs reset, refetch recent window only
-
-  const range = sinceUid > 0 ? `${sinceUid + 1}:*` : `${Math.max(1, box.exists - 20)}:*`;
-  let maxUid = sinceUid;
-
-  for await (const msg of imap.fetch(range, { uid: true, source: true }, { uid: sinceUid > 0 })) {
-    if (msg.uid <= sinceUid) continue;
-    const parsed = await simpleParser(msg.source);
-    await handleMessage(parsed, msg.uid, ägare).catch((e) => console.error('handle:', e.message));
-    maxUid = Math.max(maxUid, msg.uid);
+    urval = `${sinceUid + 1}:*`;
+  } else {
+    // No position yet, or Gmail renumbered the mailbox. Either way the
+    // read starts at the user's first letter sent from here — the rest
+    // of the inbox is their own life and is never fetched.
+    const första = await förstaBrevet(ägare.profileId);
+    if (!första) return;
+    // A few minutes of slack for clocks that disagree; SINCE itself is
+    // a whole day, and internalDate narrows it to the minute below.
+    från = new Date(new Date(första).getTime() - 5 * 60 * 1000);
+    urval = await imap.search({ since: från }, { uid: true }) || [];
   }
 
-  await setState(box.uidValidity, maxUid);
+  // Everything below uidNext that the search did not return is older
+  // than the first letter, so the position moves past it as well.
+  let maxUid = sammaNumrering ? sinceUid : Math.max(0, Number(box.uidNext || 1) - 1);
+  if (urval.length) {
+    const fält = { uid: true, source: true, internalDate: true };
+    for await (const msg of imap.fetch(urval, fält, { uid: true })) {
+      if (msg.uid <= sinceUid) continue;
+      maxUid = Math.max(maxUid, msg.uid);
+      if (från && msg.internalDate && new Date(msg.internalDate) < från) continue;
+      const parsed = await simpleParser(msg.source);
+      await handleMessage(parsed, msg.uid, ägare).catch((e) => console.error('handle:', e.message));
+    }
+  }
+
+  await sparaLäsposition(ägare.profileId, MAILBOX, box.uidValidity, maxUid);
+}
+
+// The owner's stored messages — what "Hämta post" reports as new. Every
+// user's mail used to be counted, so one user's button reported another
+// user's replies arriving.
+export async function antalMeddelanden(profileId) {
+  kräverÄgare(profileId, 'antalMeddelanden');
+  const { rows: [r] } = await pool.query(
+    `SELECT count(*)::int AS n FROM email_messages m
+     JOIN applications a ON a.id = m.application_id
+     WHERE a.profile_id = $1`, [profileId]);
+  return r.n;
 }
 
 // ------------------------------------------------------------
-// The loop: connect → catch up → IDLE. Any error tears the
-// connection down and we come back with exponential backoff.
-// 'exists' fires when new mail arrives during IDLE.
-// ------------------------------------------------------------
-// ------------------------------------------------------------
-// One catch-up, on demand, from the UI.
+// One catch-up, on demand, from the UI — when the worker has no open
+// mailbox for this user to answer it with.
 //
-// The worker's IDLE loop is the normal path and this is not a
+// The worker's mailbox is the normal path and this is not a
 // replacement for it — it exists because the loop went silent for seven
 // hours once, and the only way to find out was to ask someone to look.
 // A button that fetches is a thing the user can press instead of
 // wondering.
 //
-// Opens its own short-lived connection. Gmail allows several at once,
-// and sharing the worker's would mean reaching across two processes
-// that only share Postgres. Idempotent: every insert is guarded on
-// message_id, so pressing it twice stores nothing twice.
+// Opens its own short-lived connection to the presser's own mailbox.
+// Idempotent: every insert is guarded on message_id, so pressing it
+// twice stores nothing twice.
 //
 // INBOX only. The Sent pass costs 35 seconds against two for this, and
 // the user pressing "hämta post" is asking about replies, not about
-// mail they wrote themselves — the worker picks that up on its own
-// timer.
+// mail they wrote themselves — syncSentNow does that afterwards.
 // ------------------------------------------------------------
 export async function syncNow(profileId) {
   const ägare = await ägareFör(profileId);
+  const före = await antalMeddelanden(profileId);
+  // Nothing sent through the app means nothing of the app's to read.
+  if (!(await förstaBrevet(profileId))) return { nya: 0, totalt: före };
   const imap = imapKlient(ägare);
-  const före = await pool.query(`SELECT count(*)::int AS n FROM email_messages`);
   try {
     await imap.connect();
     await catchUp(imap, ägare, { medSkickat: false });
   } finally {
     await imap.logout().catch(() => { /* closing is best-effort */ });
   }
-  const efter = await pool.query(`SELECT count(*)::int AS n FROM email_messages`);
-  return { nya: efter.rows[0].n - före.rows[0].n, totalt: efter.rows[0].n };
+  const efter = await antalMeddelanden(profileId);
+  return { nya: efter - före, totalt: efter };
 }
 
 // The Sent pass, on its own connection.
@@ -565,52 +660,135 @@ export async function syncNow(profileId) {
 // inbox's own three-second poll then shows without anyone doing
 // anything.
 export async function syncSentNow(profileId) {
+  if (!(await attLetaIskickat(profileId).then((l) => l.trådar.length + l.fastnade.length))) return;
   const imap = imapKlient(await ägareFör(profileId));
   try {
     await imap.connect();
-    await catchUpSent(imap);
+    await catchUpSent(imap, profileId);
   } finally {
     await imap.logout().catch(() => { /* closing is best-effort */ });
   }
 }
 
-export async function runImapLoop({ signal } = {}) {
+// ------------------------------------------------------------
+// A password Gmail no longer accepts.
+//
+// The app password was revoked, or the user changed their Google
+// password, which revokes them all. Retrying that forever is how an
+// account gets locked for suspicious sign-ins — so after a few refusals
+// in a row the mailbox stops, the profile stops counting as connected,
+// and the settings page says why. Saving a new password clears it, and
+// the manager starts the mailbox again within a minute.
+//
+// Only a refusal counts. A network error, a timeout or Gmail being
+// briefly unwell says nothing about the password and is retried for as
+// long as it takes.
+// ------------------------------------------------------------
+export function ärLösenordsfel(err) {
+  if (err?.authenticationFailed) return true;
+  const text = `${err?.serverResponseCode || ''} ${err?.response || ''} ${err?.message || ''}`;
+  return /AUTHENTICATIONFAILED|Invalid credentials|Username and Password not accepted|Application-specific password required/i
+    .test(text);
+}
+
+const LÖSENORDET_NEKAS = 'Gmail godtar inte längre applösenordet. Skapa ett nytt och lägg in det här.';
+// The stored value could not be decrypted — the platform's key changed.
+const LÖSENORDET_OLÄSBART = 'Det sparade applösenordet kunde inte läsas. Lägg in det igen.';
+
+async function markeraLösenordsfel(profileId, text) {
+  await pool.query(
+    `UPDATE profile SET gmail_verified_at = NULL, gmail_error = $2, gmail_error_at = now(),
+       updated_at = now()
+     WHERE id = $1`,
+    [profileId, text]);
+}
+
+// ------------------------------------------------------------
+// One user's mailbox: connect → catch up → IDLE, and back again with
+// exponential backoff whenever the connection dies.
+//
+// An instance per user, and everything it knows lives inside it — the
+// connection, the owner, the backoff, the failure count — or in that
+// user's rows (imap_state). Nothing here is shared with any other
+// user's mailbox, so one user's broken connection or wrong password
+// touches nobody else. The worker's manager (src/imapManager.js) makes
+// these, one per user, and stops them again.
+//
+// kör() runs until the mailbox is stopped ('stoppad'), Gmail keeps
+// refusing the password ('lösenord'), or the user has no password at
+// all ('saknas'). klient and paus are there so the proof can run it
+// against a fake server without waiting out real backoff.
+// ------------------------------------------------------------
+export function brevlåda(profileId, { klient = imapKlient, paus = null, lösenordsgräns = 3 } = {}) {
+  kräverÄgare(profileId, 'brevlåda');
+  const avbryt = new AbortController();
+  const vänta = paus || ((ms) => new Promise((klar) => {
+    const t = setTimeout(klar, ms);
+    avbryt.signal.addEventListener('abort', () => { clearTimeout(t); klar(); }, { once: true });
+  }));
+
+  let imap = null;
+  let ägare = null;
   let backoff = 2000;
-  // A missing app password is retried every minute, and saying so every
-  // minute would bury the rest of the log. Said once, and again only
+  let lösenordsfel = 0;
+  // A failure that repeats every minute is said once, and again only
   // when the reason changes.
   let senasteFel = null;
-  while (!signal?.aborted) {
-    let imap = null;
-    // Declared out here so the error path clears it too — a leaked
-    // timer would go on polling a dead connection every two minutes for
-    // as long as the worker lives.
-    let sentPoll = null;
-    let inboxPoll = null;
-    let begäranPoll = null;
+
+  let kö = Promise.resolve();
+  const iTur = (fn) => {
+    const p = kö.then(fn);
+    kö = p.catch(() => {});
+    return p;
+  };
+
+  // The Sent pass leaves Sent selected, and IDLE would then watch Sent
+  // instead of INBOX until something reopened it. So every Sent pass on
+  // the long-lived connection ends with INBOX selected again — which
+  // also reads anything that arrived meanwhile.
+  async function skickatSedanInkorgen(c) {
     try {
-      const ägare = await ägareFör();
-      imap = imapKlient(ägare);
-      await imap.connect();
-      console.log(`imap: connected (${ägare.user})`);
+      await catchUpSent(c, profileId);
+    } finally {
+      await iTur(() => läsInkorgen(c, ägare));
+    }
+  }
+
+  async function enAnslutning() {
+    // Read again on every connect: a password saved since the last one
+    // takes effect without restarting anything.
+    ägare = await ägareFör(profileId);
+    const c = klient(ägare);
+    imap = c;
+    // Listened for before connecting, so a connection that dies during
+    // the first catch-up is not waited on forever.
+    const stängd = new Promise((resolve, reject) => {
+      c.on('close', resolve);
+      c.on('error', reject);
+    });
+    stängd.catch(() => {});
+    const timrar = [];
+    try {
+      await c.connect();
+      if (avbryt.signal.aborted) return;
+      console.log(`imap: ansluten (${ägare.user})`);
       backoff = 2000;
+      lösenordsfel = 0;
       senasteFel = null;
 
-      await catchUp(imap, ägare);
+      await catchUp(c, ägare, { iTur });
 
-      imap.on('exists', async () => {
-        try { await catchUp(imap, ägare); } catch (e) { console.error('imap catchup:', e.message); }
+      c.on('exists', () => {
+        catchUp(c, ägare, { iTur }).catch((e) => console.error('imap catchup:', e.message));
       });
 
       // IDLE fires for INBOX, so a reply the user sends from Gmail is
       // not an event this connection ever hears about. Polled instead,
       // and slowly: the user knows what they just sent — this is about
-      // the app agreeing with them within a few minutes. Each pass is
-      // one search per unanswered thread — ~17s for twelve — and the
-      // count falls as replies get stored.
-      sentPoll = setInterval(() => {
-        catchUpSent(imap).catch((e) => console.error('sent-poll:', e.message));
-      }, 5 * 60 * 1000);
+      // the app agreeing with them within a few minutes.
+      timrar.push(setInterval(() => {
+        skickatSedanInkorgen(c).catch((e) => console.error('sent-poll:', e.message));
+      }, 5 * 60 * 1000));
 
       // ------------------------------------------------------------
       // Do not trust IDLE to be the only way mail arrives.
@@ -628,79 +806,71 @@ export async function runImapLoop({ signal } = {}) {
       // other half: a socket that has quietly died answers it with an
       // error, which tears the connection down and lets the loop
       // reconnect rather than waiting on a 'close' that never comes.
-      inboxPoll = setInterval(async () => {
+      timrar.push(setInterval(async () => {
         try {
-          await imap.noop();
-          await catchUp(imap, ägare);
+          await c.noop();
+          await catchUp(c, ägare, { iTur });
         } catch (e) {
           console.error('imap-poll:', e.message);
-          imap.close();
+          c.close();
         }
-      }, 2 * 60 * 1000);
-
-      // The UI's "Hämta post" button, answered on this connection.
-      //
-      // Opening a fresh one costs 17 seconds against Gmail — 10.5 to
-      // connect, 6.7 to open a 28,377-message INBOX — before a single
-      // message is read. This one is already open, so the same work is
-      // about two seconds. Postgres is the only channel between the two
-      // processes, so the request arrives as a row and this checks for
-      // it every three seconds; the heartbeat beside it is how the
-      // route knows whether anyone is listening.
-      begäranPoll = setInterval(async () => {
-        try {
-          await pool.query(
-            `INSERT INTO poll_state (key, last_run_at) VALUES ('imap_worker_alive', now())
-             ON CONFLICT (key) DO UPDATE SET last_run_at = now()`);
-          // cursor_ts is when the UI asked; last_run_at is when this
-          // finished. Claiming with a marker and stamping completion
-          // afterwards lets the route wait for "done" rather than for
-          // the message count to move — which never moves when there is
-          // no new mail, so the wait always ran to its full timeout in
-          // the ordinary case.
-          const { rows: [b] } = await pool.query(
-            `UPDATE poll_state SET note = 'pågår'
-             WHERE key = 'imap_sync_request'
-               AND note IS DISTINCT FROM 'pågår'
-               AND (last_run_at IS NULL OR cursor_ts > last_run_at)
-             RETURNING cursor_ts`);
-          if (!b) return;
-          try {
-            // INBOX first, and the button is answered the moment it is
-            // done. Sent takes several seconds more on the same
-            // connection, and the press was about what came IN — a
-            // reply the user wrote themselves lands a few seconds later
-            // and the inbox's own poll shows it without another press.
-            await catchUp(imap, ägare, { medSkickat: false });
-          } finally {
-            await pool.query(
-              `UPDATE poll_state SET last_run_at = now(), note = 'klar'
-               WHERE key = 'imap_sync_request'`);
-          }
-          await catchUpSent(imap).catch((e) => console.error('sent-sync:', e.message));
-        } catch (e) {
-          console.error('sync-begäran:', e.message);
-        }
-      }, 3000);
+      }, 2 * 60 * 1000));
 
       // imapflow keeps IDLE alive internally; block until the connection dies
-      await new Promise((resolve, reject) => {
-        imap.on('close', resolve);
-        imap.on('error', reject);
-        signal?.addEventListener('abort', () => imap.logout().catch(() => {}), { once: true });
-      });
-      clearInterval(sentPoll); clearInterval(inboxPoll); clearInterval(begäranPoll);
-      console.log('imap: connection closed');
-    } catch (err) {
-      if (err.message !== senasteFel) console.error('imap:', err.message);
-      senasteFel = err.message;
-      try { await imap?.logout(); } catch { /* already gone */ }
+      await stängd;
+      console.log(`imap: anslutningen stängd (${ägare.user})`);
+    } finally {
+      for (const t of timrar) clearInterval(t);
+      await c.logout().catch(() => { /* already gone */ });
+      if (imap === c) imap = null;
     }
-    if (sentPoll) clearInterval(sentPoll);
-    if (inboxPoll) clearInterval(inboxPoll);
-    if (begäranPoll) clearInterval(begäranPoll);
-    if (signal?.aborted) break;
-    await new Promise((r) => setTimeout(r, backoff));
-    backoff = Math.min(backoff * 2, 60_000);
   }
+
+  async function kör() {
+    while (!avbryt.signal.aborted) {
+      try {
+        await enAnslutning();
+      } catch (err) {
+        if (avbryt.signal.aborted) break;
+        if (err instanceof GmailSaknasError) {
+          // Otherwise the manager would start it again every minute.
+          await markeraLösenordsfel(profileId, LÖSENORDET_OLÄSBART);
+          console.log(`imap: ${profileId} har inget läsbart applösenord — brevlådan stängs`);
+          return 'saknas';
+        }
+        lösenordsfel = ärLösenordsfel(err) ? lösenordsfel + 1 : 0;
+        if (lösenordsfel >= lösenordsgräns) {
+          await markeraLösenordsfel(profileId, LÖSENORDET_NEKAS);
+          console.error(`imap: Gmail vägrar lösenordet för ${ägare?.user || profileId} `
+            + `${lösenordsfel} gånger i rad — brevlådan stängs tills ett nytt sparas`);
+          return 'lösenord';
+        }
+        if (err.message !== senasteFel) console.error(`imap (${ägare?.user || profileId}):`, err.message);
+        senasteFel = err.message;
+      }
+      if (avbryt.signal.aborted) break;
+      await vänta(backoff);
+      backoff = Math.min(backoff * 2, 60_000);
+    }
+    return 'stoppad';
+  }
+
+  // "Hämta post", on the connection that is already open — about two
+  // seconds, where a fresh connection costs seventeen before a single
+  // message is read (10.5 to connect, 6.7 to open a 28,377-message
+  // INBOX). INBOX first, and the caller is answered the moment it is
+  // done; the Sent pass follows on its own.
+  async function synka() {
+    const c = imap;
+    if (!c?.usable) throw new Error('brevlådan är inte ansluten just nu');
+    await catchUp(c, ägare, { medSkickat: false, iTur });
+    skickatSedanInkorgen(c).catch((e) => console.error('sent-sync:', e.message));
+  }
+
+  function stoppa() {
+    avbryt.abort();
+    imap?.logout().catch(() => { /* closing is best-effort */ });
+  }
+
+  return { profileId, kör, synka, stoppa, ansluten: () => Boolean(imap?.usable) };
 }

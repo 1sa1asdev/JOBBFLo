@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 050.
+-- Baseline covers migrations up to 043; latest migration 051.
 -- ============================================================
 
 --
@@ -393,8 +393,38 @@ CREATE TABLE public.imap_state (
     mailbox text NOT NULL,
     uid_validity bigint,
     last_seen_uid bigint DEFAULT 0 NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    profile_id uuid NOT NULL
 );
+
+--
+-- Name: TABLE imap_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.imap_state IS 'Where one user''s mail loop has read up to, per mailbox. Starts at the user''s first letter sent through the app — nothing older is read.';
+
+--
+-- Name: imap_sync_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.imap_sync_requests (
+    profile_id uuid NOT NULL,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    done_at timestamp with time zone,
+    outcome text
+);
+
+--
+-- Name: TABLE imap_sync_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.imap_sync_requests IS 'A user pressed "Hämta post". The worker''s mailbox for that user answers it on its open connection and stamps done_at; no other user''s mailbox is touched.';
+
+--
+-- Name: COLUMN imap_sync_requests.outcome; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.imap_sync_requests.outcome IS 'klar, ingen brevlåda (the worker has none for this user — the route then reads directly) or the error. Lets the route stop waiting at once instead of timing out.';
 
 --
 -- Name: interview_prep; Type: TABLE; Schema: public; Owner: -
@@ -640,6 +670,8 @@ CREATE TABLE public.profile (
     monthly_budget_usd numeric(10,2),
     gmail_app_password_enc text,
     gmail_verified_at timestamp with time zone,
+    gmail_error text,
+    gmail_error_at timestamp with time zone,
     CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
 );
 
@@ -720,6 +752,12 @@ COMMENT ON COLUMN public.profile.gmail_app_password_enc IS 'The user''s Gmail ap
 --
 
 COMMENT ON COLUMN public.profile.gmail_verified_at IS 'When a login to Gmail with the stored app password last succeeded. NULL = not connected, or never verified.';
+
+--
+-- Name: COLUMN profile.gmail_error; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.gmail_error IS 'Last reason Gmail refused this user''s app password, after which their mail loop stopped. Cleared when a new password is saved.';
 
 --
 -- Name: projects; Type: TABLE; Schema: public; Owner: -
@@ -1111,7 +1149,14 @@ ALTER TABLE ONLY public.email_messages
 --
 
 ALTER TABLE ONLY public.imap_state
-    ADD CONSTRAINT imap_state_pkey PRIMARY KEY (mailbox);
+    ADD CONSTRAINT imap_state_pkey PRIMARY KEY (profile_id, mailbox);
+
+--
+-- Name: imap_sync_requests imap_sync_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.imap_sync_requests
+    ADD CONSTRAINT imap_sync_requests_pkey PRIMARY KEY (profile_id);
 
 --
 -- Name: interview_prep interview_prep_application_id_key; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1598,6 +1643,20 @@ ALTER TABLE ONLY public.campaign_messages
 
 ALTER TABLE ONLY public.email_messages
     ADD CONSTRAINT email_messages_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
+
+--
+-- Name: imap_state imap_state_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.imap_state
+    ADD CONSTRAINT imap_state_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
+-- Name: imap_sync_requests imap_sync_requests_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.imap_sync_requests
+    ADD CONSTRAINT imap_sync_requests_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
 -- Name: interview_prep interview_prep_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

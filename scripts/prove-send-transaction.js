@@ -88,7 +88,7 @@ try {
     text: 'Skrivet innan.', date: new Date(Date.now() - 3600_000),
   };
   kolla('mejl före anspråket lagar ingenting',
-    await repareraSending(gammalt, MOTTAGARE, 900) === null, true);
+    await repareraSending(gammalt, MOTTAGARE, 900, p.id) === null, true);
   kolla('raden är orörd', (await status(a1)).status, 'sending');
 
   // 4. The copy Gmail kept: same recipient, written after the claim.
@@ -96,7 +96,7 @@ try {
     messageId: '<repaired@mail.gmail.com>', subject: 'Ansökan: Testtjänst',
     text: 'Hej, ...', date: new Date(Date.now() + 1000),
   };
-  kolla('Skickat-kopian lagar raden', await repareraSending(kopia, MOTTAGARE, 901) === a1, true);
+  kolla('Skickat-kopian lagar raden', await repareraSending(kopia, MOTTAGARE, 901, p.id) === a1, true);
   const efter = await status(a1);
   kolla('status', efter.status, 'sent');
   kolla('message_id sparat — svar kan trådas', efter.message_id, '<repaired@mail.gmail.com>');
@@ -106,7 +106,7 @@ try {
 
   // 5. The Sent pass runs every poll; it must not repair twice.
   kolla('andra passet lagar inte om',
-    await repareraSending(kopia, MOTTAGARE, 901) === null, true);
+    await repareraSending(kopia, MOTTAGARE, 901, p.id) === null, true);
   kolla('fortfarande ett utgående meddelande', (await status(a1)).utgående, 1);
 } finally {
   await pool.query(`DELETE FROM ads WHERE id = ANY($1)`, [annonser]);

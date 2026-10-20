@@ -19,12 +19,16 @@ export const maxDuration = 60;
 
 async function status(profileId) {
   const { rows: [p] } = await pool.query(
-    `SELECT email, gmail_app_password_enc IS NOT NULL AS sparat, gmail_verified_at
+    `SELECT email, gmail_app_password_enc IS NOT NULL AS sparat, gmail_verified_at,
+            gmail_error, gmail_error_at
      FROM profile WHERE id = $1`, [profileId]);
   return {
     address: p?.email || null,
     connected: Boolean(p?.sparat),
     verified_at: p?.gmail_verified_at || null,
+    // Why the worker stopped reading this user's mail, if it did.
+    error: p?.gmail_error || null,
+    error_at: p?.gmail_error_at || null,
   };
 }
 
@@ -52,7 +56,10 @@ export async function PUT(req) {
   }
 
   await pool.query(
-    `UPDATE profile SET gmail_app_password_enc = $2, gmail_verified_at = now(), updated_at = now()
+    // A password that works clears the reason the last one stopped, and
+    // the worker starts reading again within a minute.
+    `UPDATE profile SET gmail_app_password_enc = $2, gmail_verified_at = now(),
+       gmail_error = NULL, gmail_error_at = NULL, updated_at = now()
      WHERE id = $1`, [profileId, encryptSecret(pass)]);
   return NextResponse.json({ ...(await status(profileId)), smtp: test.smtp, imap: test.imap });
 }
@@ -60,7 +67,8 @@ export async function PUT(req) {
 export async function DELETE() {
   const profileId = await aktivProfilId();
   await pool.query(
-    `UPDATE profile SET gmail_app_password_enc = NULL, gmail_verified_at = NULL, updated_at = now()
+    `UPDATE profile SET gmail_app_password_enc = NULL, gmail_verified_at = NULL,
+       gmail_error = NULL, gmail_error_at = NULL, updated_at = now()
      WHERE id = $1`, [profileId]);
   return NextResponse.json(await status(profileId));
 }

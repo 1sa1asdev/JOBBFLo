@@ -1,20 +1,14 @@
-// One pass of the Sent-folder sync the IMAP loop now runs on a timer.
-// Useful after adding the feature, or when the worker has been down.
+// One pass of the Sent-folder sync each user's mailbox runs on a timer.
+// Useful when the worker has been down.
+//
+//   node scripts/sync-sent.js [profil-id]
+//
+// Without a profile id it uses the only profile, and refuses when there
+// are more.
 import 'dotenv/config';
-import { ImapFlow } from 'imapflow';
 import { pool } from '../src/db.js';
-import { catchUpSent } from '../src/imap.js';
+import { syncSentNow } from '../src/imap.js';
+import { endaProfilId } from '../src/owner.js';
 
-const c = new ImapFlow({
-  host: 'imap.gmail.com', port: 993, secure: true,
-  auth: {
-    user: process.env.GMAIL_USER?.trim(),
-    pass: process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''),
-  },
-  logger: false,
-});
-
-await c.connect();
-await catchUpSent(c);
-await c.logout();
+await syncSentNow(process.argv[2] || await endaProfilId());
 await pool.end();
