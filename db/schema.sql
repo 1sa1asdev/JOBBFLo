@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 057.
+-- Baseline covers migrations up to 043; latest migration 058.
 -- ============================================================
 
 --
@@ -1888,7 +1888,7 @@ ALTER TABLE ONLY public.match_results
 --
 
 ALTER TABLE ONLY public.match_results
-    ADD CONSTRAINT match_results_lead_project_id_fkey FOREIGN KEY (lead_project_id) REFERENCES public.projects(id);
+    ADD CONSTRAINT match_results_lead_project_id_fkey FOREIGN KEY (lead_project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
 
 --
 -- Name: match_results match_results_score_reused_from_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

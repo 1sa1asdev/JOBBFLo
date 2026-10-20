@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Fourteen scripts, each one a rule that protects money, reputation or the
+Fifteen scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -235,6 +235,7 @@ node scripts/prove-admin.js              # admin pages answer only the operator;
 node scripts/prove-onboarding.js         # new accounts are guided in; the cost estimate is arithmetic
 node scripts/prove-account.js            # export holds all of a user's rows; erasure leaves none, in any table
 node scripts/prove-rate-limits.js        # password guessing, Gmail connections and exports stop at a limit
+node scripts/prove-history-move.js       # a user's local history moves into their cloud account whole, and into nobody else's
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)

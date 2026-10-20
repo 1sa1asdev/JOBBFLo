@@ -81,58 +81,71 @@ Googles granskning av begränsade scopes. Se roadmapen.
 
 ## 3. Databaserna
 
-### Staging: tom, byggd från migrationerna
+Nycklarna från steg 1 skriver du in i `.env.supabase` i repots rot. Filen är
+gitignorerad, och kommentarerna i den säger var varje värde finns.
+Certifikaten sparar du som `supabase/staging-ca.crt` och
+`supabase/prod-ca.crt`. Skripten nedan läser filen och skriver aldrig ut
+lösenord eller nycklar.
+
+### Båda: byggda från migrationerna
 
 ```bash
-DATABASE_URL="<staging session pooler>" npm run db:init
+node scripts/setup-supabase.js staging
 ```
 
-### Production: din data, flyttad från datorn
+```bash
+node scripts/setup-supabase.js production
+```
 
-1. En färsk dump, när workern är stoppad så att inget skrivs under tiden:
+Varje körning slutar med samma kontroller som leveranskedjan gör: databasen
+stämmer med migrationerna, Data API:t är låst, och den publika nyckeln läser
+ingenting. Annonspoolen fylls sedan av janitorn (steg 5), och den första
+ögonblicksbilden tar några minuter.
+
+### Din historik: flyttad in i ditt konto
+
+Det här görs när appen är uppe (steg 7), inte före:
+
+1. Logga in i molnappen med Google en gång. Då finns ditt konto.
+2. Flytta din lokala historik in i det:
+
+```bash
+node scripts/flytta-historik.js production
+```
+
+Bara det som är ditt flyttas: sökningar, bedömningar, checklistor, ansökningar,
+brev, mejltrådar, kampanjer och CV. Annonserna matchas mot molnets pool, och de
+som saknas där läggs till. Alla rader får nya id:n. Flytten görs bara till ett
+konto som ännu inte har sökningar eller ansökningar, och bara mellan databaser
+på samma migration. Nycklar flyttar inte: lägg in applösenordet och AI-nyckeln
+igen under Profil. Produktionen har en egen `ENCRYPTION_KEY`, och det är med
+flit.
+
+Kampanjerna kommer fram **pausade**. Stäng av den lokala workern innan du
+startar dem i molnet:
 
 ```bash
 docker compose stop worker janitor
 ```
 
-```bash
-docker exec jobbjakt-pg pg_dump -U jobbjakt -d jobbjakt -Fc --no-owner --no-privileges > C:\Users\isaia\jobbflo-backups\jobbflo-till-supabase.dump
-```
+Annars kör kampanjerna från två databaser, och arbetsgivare får dubbla brev.
 
-2. Återställ i produktionsprojektet (Postgres 17-klienten, via Docker):
+Generalrepetitionen gjordes 20 okt mot en lokal Supabase med din riktiga
+historik: 21 sökningar, 538 ansökningar, 761 mejl och 1 586 checklistor på 4
+sekunder. Inloggningen visade sedan allt. Att radera kontot efteråt hittade en
+bugg (migration 058), som är rättad.
 
-```bash
-docker run --rm -v C:\Users\isaia\jobbflo-backups:/b postgres:17 pg_restore --no-owner --no-privileges -d "<production session pooler>" /b/jobbflo-till-supabase.dump
-```
+Vill du hellre flytta hela den lokala databasen, med annonspool och allt, in i
+ett tomt projekt finns `node scripts/setup-supabase.js production --flytta`.
+Det passar bara innan någon annan har ett konto.
 
-3. Lås Data API:t igen. En återställning skapar tabellerna på nytt, och
-   Supabase ger dem då standardrättigheter. Kontrollera sedan:
+### Admin
 
-```bash
-DATABASE_URL="<production session pooler>" node scripts/lock-data-api.js
-```
-
-```bash
-DATABASE_URL="<production session pooler>" npm run db:check -- --live
-```
-
-```bash
-DATABASE_URL="<production session pooler>" SUPABASE_URL="<url>" SUPABASE_ANON_KEY="<anon>" node scripts/prove-rls.js
-```
-
-Generalrepetitionen gjordes 20 okt mot en lokal Supabase: 43 886 annonser och
-538 ansökningar återställdes på drygt en minut, och alla tre kontroller höll.
-
-4. Efter första inloggningen (steg 7) gör du dig till admin:
+Efter din första inloggning:
 
 ```bash
 DATABASE_URL="<production session pooler>" node scripts/make-admin.js <din-gmail>
 ```
-
-**Krypteringsnyckeln:** produktion får en egen, ny `ENCRYPTION_KEY`. Ditt
-applösenord och din AI-nyckel är krypterade med utvecklingsnyckeln och går
-inte att läsa där, så du lägger in dem igen under Profil efter flytten. Det är
-med flit. Utvecklingsnyckeln hör inte hemma i produktion.
 
 ---
 
@@ -209,10 +222,11 @@ ingenting mer än att köra CI.
 3. **Releases → Draft a new release**, tagg `v1.0.0` från `main` → Publish.
    Godkänn i Actions. Produktionsdatabasen migreras och kontrolleras, och
    först därefter flyttas `production`.
-4. Logga in på `https://<din-domän>` med samma Gmail som din profil har. Den
-   återställda profilen kopplas till Google-kontot via den verifierade
-   adressen. Kör sedan `make-admin` (steg 3.4) och lägg in applösenord och
-   AI-nyckel igen.
+4. Logga in på `https://<din-domän>` med Google. Kör sedan `make-admin` och
+   `flytta-historik.js production` (steg 3), stäng av den lokala workern,
+   lägg in applösenord och AI-nyckel under Profil, och starta kampanjerna.
+   Vill du prova flytten först går samma kommando mot staging:
+   `node scripts/flytta-historik.js staging`.
 
 ---
 
