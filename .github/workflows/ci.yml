@@ -57,6 +57,12 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci --no-audit --no-fund
 
+      # The workflow files themselves. GitHub rejects an invalid one
+      # silently — deploy.yml once used "inputs.miljö", and the ö made the
+      # whole file invalid, so the deploy would never have run.
+      - name: Workflow files are valid
+        run: docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 -no-color
+
       # A migration merged without `npm run db:schema` fails here.
       - name: Schema snapshot matches the migrations
         run: time npm run db:check
@@ -150,7 +156,7 @@ jobs:
           AUTH_SECRET: ci-only-not-a-real-secret
         run: |
           npx next start -p 3100 > next.log 2>&1 &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             curl -s -o /dev/null http://localhost:3100/api/profile && break
             sleep 1
           done
@@ -227,7 +233,7 @@ jobs:
           SUPABASE_EPOSTLANK: '1'
         run: |
           npx next start -p 3100 > next.log 2>&1 &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             curl -s -o /dev/null http://localhost:3100/login && break
             sleep 1
           done
