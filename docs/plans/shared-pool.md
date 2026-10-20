@@ -80,3 +80,33 @@ Alla 24 kontroller är gröna med den nya koden.
 ### Upptäckt på vägen
 - **Sökresultaten svarade 500 för varje användare utan hemort,** alltså varje ny användare. Radfrågan skickade alltid med latitud och longitud, men använde dem bara när en hemort fanns. Det är fjärde gången samma felklass dyker upp i den filen, så parameterindexen härleds nu i stället för att hårdkodas. Du har en hemort och såg det därför aldrig. Beviset med två användare hittade det, eftersom testanvändaren saknar hemort.
 - **Sökresultaten kopplade allas ansökningar** på en annons, så B:s lista kunde visa att A hade ett brev eller hade sökt. Den kopplingen är nu avgränsad till sökningens ägare.
+
+---
+
+## Del 4b-2: inskrivna adresser per användare (genomförd 20 okt)
+
+**Problemet:** "Hitta adresser" sparade varje adress på den gemensamma annonsen, alltså den rad som alla användares kampanjer läser. En adress som en användare skrev in, felaktigt eller med flit, blev mottagare för andra användares brev och CV. Klienten kunde dessutom själv märka en inskriven adress som "skannad".
+
+**Två sorters adresser nu:**
+- **Arbetsgivarens** (`ads.apply_email`): publicerad av Arbetsförmedlingen, eller läst av servern själv från arbetsgivarens ansökningssida (`lead_scans`). Delas.
+- **Användarens egen** (`ad_contacts`, migration 050): inskriven för hand. Används bara av den användarens kampanjer, före den delade.
+
+**Hur:**
+- `src/addresses.js` har ett enda uttryck, `adressFör()`, för "vart den här användarens brev går". Det används av allt som avgör, räknar eller skyddar mottagare: kampanjens kandidater, "varför skickas inget", företagsspärren, kontrollen i sista sekunden, köandet av bedömningar, förhandsvisningen, kampanjkortet, det manuella utskicket och vyerna.
+- En inskriven adress blir delad **bara** om servern själv har läst den på annonsens sida. Klientens "skannad" används inte längre.
+- Vid studs eller avvisning glöms adressen där den kom ifrån (`glömAdress()`): den egna kopian, och den delade bara om det var den som inte fungerade.
+
+**Bevis** (samma två inloggade användare, mot kampanjens riktiga kandidatfråga):
+
+| | Gammal kod | Ny kod |
+|---|---|---|
+| B ser adressen A skrev in (och påstod var skannad) | **ja** | nej |
+| B:s kampanj skulle skicka till A:s inskrivna adress | **ja** | nej |
+| A:s kampanj använder A:s inskrivna adress | – | ja |
+| En adress servern läst från arbetsgivaren delas, och B:s kampanj får använda den | ja | ja |
+
+Alla 30 kontroller är gröna med den nya koden.
+
+**Mot din databas:** av 9 284 delade adresser på poolannonser lästes 8 671 av servern eller publicerades av Arbetsförmedlingen, och de ligger kvar som delade. 613 flyttades till din profil: en inskriven för hand, och 612 märkta "skannad" utan att finnas i serverns skanning. 610 av dem låg på stängda annonser och tre på annonser du redan sökt, så kampanjens kandidater påverkas inte. Ingen adress försvann.
+
+**Upptäckt i testet:** min första version av adressfallet använde samma arbetsgivare som ett tidigare fall, och företagsspärren stoppade då korrekt kampanjen. Spärren fungerade. Testet fick egna arbetsgivare per fall.

@@ -216,12 +216,15 @@ try {
   // Every test ad carries a word no real ad has, so a search can be
   // aimed at exactly them.
   const ORD = `bevisord${KÖRNING}`;
-  const poolAnnons = async (fingeravtryck) => (await pool.query(
+  // Each case gets its own employer unless it says otherwise: the 30-day
+  // company cooldown rightly stops a campaign writing to an employer the
+  // user wrote to earlier in this run.
+  const poolAnnons = async (fingeravtryck, arbetsgivare = 'Poolbolaget AB') => (await pool.query(
     `INSERT INTO ads (source, external_id, fingerprint, title, employer, description, apply_url, published_at)
-     VALUES ('platsbanken', $1, $2, $3, 'Poolbolaget AB', $4, 'https://example.invalid/jobb', now())
+     VALUES ('platsbanken', $1, $2, $3, $5, $4, 'https://example.invalid/jobb', now())
      RETURNING id`,
     [`prove-owner-${KÖRNING}-${Math.random().toString(36).slice(2, 8)}`, fingeravtryck,
-     `Pooltjänst ${ORD}`, `Gemensam annons ${ORD}.`])).rows[0].id;
+     `Pooltjänst ${ORD}`, `Gemensam annons ${ORD}.`, arbetsgivare])).rows[0].id;
   const kampanj = async (ägare, namn) => (await pool.query(
     `INSERT INTO searches (profile_id, name, criteria_text, api_filters, campaign_created_at)
      VALUES ($1, $2, $3, $4::jsonb, now()) RETURNING id`,
@@ -273,6 +276,49 @@ try {
   await anrop(A.cookie, 'POST', `/api/searches/${sökA}/scan`);
   kolla('A:s egen sökning hittar A:s egna annons', await hittar(sökA, privat));
   kolla('… och inte den A dolt', !(await hittar(sökA, dold)));
+
+  // ---- 7. Addresses: whose word an address is ----
+  // The campaign's own candidate query decides where letters go, so it
+  // is asked directly — the same function the worker calls before a send.
+  const { candidatesFor } = await import('../src/autoapply.js');
+  const kandidatAdress = async (sök, annonsId) =>
+    (await candidatesFor(sök, { limit: 500 })).find((c) => c.ad_id === annonsId)?.apply_email || null;
+  // Campaigns that may write to unjudged ads, so the address is the only
+  // thing deciding whether an ad is a candidate.
+  await pool.query(
+    `UPDATE searches SET auto_apply_require_score = false WHERE id = ANY($1)`, [[sökA, sökB]]);
+  const iBådas = async (annonsId) => {
+    for (const sök of [sökA, sökB]) {
+      await pool.query(`INSERT INTO match_results (search_id, ad_id) VALUES ($1, $2)
+                        ON CONFLICT DO NOTHING`, [sök, annonsId]);
+    }
+  };
+
+  // A types an address in — and claims the server scanned it.
+  const utanAdress = await poolAnnons(`fp-utanadress-${KÖRNING}`, `Adressbolaget ${KÖRNING} AB`);
+  await iBådas(utanAdress);
+  const inskriven = `a-inskriven-${KÖRNING}@example.invalid`;
+  const svarInskriven = await anrop(A.cookie, 'PATCH', '/api/autoapply/leads',
+    { adId: utanAdress, email: inskriven, source: 'scanned' });
+  kolla('A kan skriva in en adress', svarInskriven.status === 200, `HTTP ${svarInskriven.status}`);
+  const somB = await anrop(B.cookie, 'GET', `/api/ads/${utanAdress}`);
+  kolla('B ser inte adressen A skrev in', somB.data?.ad?.apply_email !== inskriven,
+    `B ser ${somB.data?.ad?.apply_email ?? 'ingen adress'}`);
+  kolla('B:s kampanj skickar inte till A:s inskrivna adress', (await kandidatAdress(sökB, utanAdress)) !== inskriven);
+  kolla('A:s kampanj skickar till A:s inskrivna adress', (await kandidatAdress(sökA, utanAdress)) === inskriven);
+
+  // An address the server itself read off the employer's page is the
+  // employer's, and every user's campaign may use it.
+  const skannad = await poolAnnons(`fp-skannad-${KÖRNING}`, `Skanningsbolaget ${KÖRNING} AB`);
+  await iBådas(skannad);
+  const lästAvServern = `jobb-${KÖRNING}@arbetsgivaren.example`;
+  await pool.query(
+    `INSERT INTO lead_scans (ad_id, ok, contacts) VALUES ($1, true, $2::jsonb)`,
+    [skannad, JSON.stringify([{ email: lästAvServern, via: 'bevis' }])]);
+  await anrop(A.cookie, 'PATCH', '/api/autoapply/leads', { adId: skannad, email: lästAvServern });
+  const skannadSomB = await anrop(B.cookie, 'GET', `/api/ads/${skannad}`);
+  kolla('en adress servern läst från arbetsgivaren delas', skannadSomB.data?.ad?.apply_email === lästAvServern);
+  kolla('… och B:s kampanj får använda den', (await kandidatAdress(sökB, skannad)) === lästAvServern);
 } catch (err) {
   fel += 1;
   console.error(`✗ beviset avbröts: ${err.message}`);

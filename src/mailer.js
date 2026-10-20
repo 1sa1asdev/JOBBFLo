@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { adressFör } from './addresses.js';
 import { gmailFör, smtpTransport } from './credentials.js';
 
 // ------------------------------------------------------------
@@ -81,7 +82,7 @@ export async function attachmentsFor(applicationId) {
 // ------------------------------------------------------------
 export async function sendApplication(applicationId, { to } = {}) {
   const { rows: [app] } = await pool.query(
-    `SELECT a.*, ads.title, ads.employer, ads.apply_email, s.email_alias
+    `SELECT a.*, ads.title, ads.employer, ${adressFör('ads', 'a.profile_id')} AS apply_email, s.email_alias
      FROM applications a
      JOIN ads ON ads.id = a.ad_id
      LEFT JOIN searches s ON s.id = a.origin_search_id

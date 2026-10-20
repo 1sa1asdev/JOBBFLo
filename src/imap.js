@@ -2,6 +2,7 @@ import { simpleParser } from 'mailparser';
 import { pool } from './db.js';
 import { gmailFör, imapKlient } from './credentials.js';
 import { endaProfilId } from './owner.js';
+import { glömAdress } from './addresses.js';
 import { classifyReply, draftReply, generateInterviewPrep } from './classify.js';
 
 // ------------------------------------------------------------
@@ -155,14 +156,15 @@ async function hanteraStuds(applicationId, studs, subject) {
   const { rows: [ap] } = await pool.query(
     `UPDATE applications SET status = 'undeliverable', bounced_at = now(), updated_at = now()
      WHERE id = $1 AND status IN ${OPEN_STATUSES}
-     RETURNING ad_id, sent_to`, [applicationId]);
+     RETURNING ad_id, sent_to, profile_id`, [applicationId]);
   if (!ap) {
     console.log('    studs på en ansökan som redan är avslutad — ingen ändring');
     return;
   }
-  const { rowCount: rensad } = await pool.query(
-    `UPDATE ads SET apply_email = NULL, apply_email_source = NULL, apply_email_found_at = NULL
-     WHERE id = $1 AND lower(apply_email) = lower($2)`, [ap.ad_id, ap.sent_to]);
+  // The user's own typed-in copy, and the shared one only if that is
+  // what bounced.
+  const glömd = await glömAdress(ap.ad_id, ap.profile_id, ap.sent_to);
+  const rensad = glömd.egen || glömd.delad;
   console.log(`    studs: ${ap.sent_to} kom inte fram`
     + `${rensad ? ' — adressen borttagen från annonsen' : ''}`);
 }

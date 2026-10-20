@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { adressFör } from './addresses.js';
 import { scanForEmails, blockedBy, normaliseUrl, ärMalladress } from './leadscan.js';
 import { extractFromText } from './textcontacts.js';
 
@@ -125,11 +126,13 @@ export async function scanCampaignLeads({ pages = PAGES_PER_TICK } = {}) {
 // scan has got. The card says "1144 utan mejladress" — this is what
 // turns that from a dead end into progress the user can watch.
 export async function leadProgress(searchId) {
+  // "without an address" for this user: their own typed-in one counts
+  const UTAN = `${adressFör('a', '(SELECT profile_id FROM searches WHERE id = $1)')} IS NULL`;
   const { rows: [r] } = await pool.query(
     `SELECT
-       count(*) FILTER (WHERE a.apply_email IS NULL) AS utan_adress,
-       count(*) FILTER (WHERE a.apply_email IS NULL AND ls.ad_id IS NOT NULL) AS lasta,
-       count(*) FILTER (WHERE a.apply_email IS NULL AND ls.ok) AS att_bekrafta
+       count(*) FILTER (WHERE ${UTAN}) AS utan_adress,
+       count(*) FILTER (WHERE ${UTAN} AND ls.ad_id IS NOT NULL) AS lasta,
+       count(*) FILTER (WHERE ${UTAN} AND ls.ok) AS att_bekrafta
      FROM match_results m
      JOIN ads a ON a.id = m.ad_id
      LEFT JOIN lead_scans ls ON ls.ad_id = a.id

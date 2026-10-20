@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 049.
+-- Baseline covers migrations up to 043; latest migration 050.
 -- ============================================================
 
 --
@@ -51,6 +51,23 @@ CREATE TABLE public.ad_checks (
     model text,
     checked_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+--
+-- Name: ad_contacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ad_contacts (
+    profile_id uuid NOT NULL,
+    ad_id uuid NOT NULL,
+    email text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
+-- Name: TABLE ad_contacts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.ad_contacts IS 'An application address a user typed in for an ad. Used by that user''s campaigns ahead of ads.apply_email, and by nobody else''s — an address only becomes shared (ads.apply_email) when the employer published it or the server read it off the employer''s own page.';
 
 --
 -- Name: ad_opens; Type: TABLE; Schema: public; Owner: -
@@ -1020,6 +1037,13 @@ ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, cv_key);
 
 --
+-- Name: ad_contacts ad_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_contacts
+    ADD CONSTRAINT ad_contacts_pkey PRIMARY KEY (profile_id, ad_id);
+
+--
 -- Name: ad_opens ad_opens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1469,6 +1493,20 @@ CREATE INDEX taxonomy_vectors_hnsw ON public.taxonomy_vectors USING hnsw (embedd
 
 ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_contacts ad_contacts_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_contacts
+    ADD CONSTRAINT ad_contacts_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_contacts ad_contacts_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_contacts
+    ADD CONSTRAINT ad_contacts_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
 -- Name: ad_opens ad_opens_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
