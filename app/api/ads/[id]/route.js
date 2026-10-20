@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { findDuplicates } from '../../../../src/fetchJobs.js';
-import { aktivProfilId } from '../../../../src/auth.js';
+import { ägareAvAnnons, inteHittad } from '../../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +11,8 @@ export async function GET(req, { params }) {
   // The ad is shared; everything below it is someone's. Which searches
   // found it, whether it was applied to and what the checklist said are
   // the caller's own — another user's checklist quotes their CV.
-  const profileId = await aktivProfilId();
+  const profileId = await ägareAvAnnons(id);
+  if (!profileId) return inteHittad('annonsen finns inte');
 
   const { rows: [ad] } = await pool.query(`SELECT * FROM ads WHERE id = $1`, [id]);
   if (!ad) return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -36,7 +37,7 @@ export async function GET(req, { params }) {
   );
 
   // soft-dedupe: same fingerprint elsewhere → flag for the user, never merge
-  const duplicates = await findDuplicates(id);
+  const duplicates = await findDuplicates(id, profileId);
 
   const { rows: [application] } = await pool.query(
     `SELECT * FROM applications WHERE ad_id = $1 AND profile_id = $2`, [id, profileId]

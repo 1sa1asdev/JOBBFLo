@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ägareAvSökning, inteHittad, aktivProfilId } from '../../../../src/auth.js';
+import { ägareAvSökning, ägareAvAnnons, inteHittad, aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { scanForEmails, blockedBy } from '../../../../src/leadscan.js';
 
@@ -93,6 +93,7 @@ export async function GET(req) {
 // suggestion for the user to confirm, never something to mail on.
 export async function POST(req) {
   const { adId } = await req.json();
+  if (!(await ägareAvAnnons(adId))) return inteHittad('annonsen finns inte');
   const { rows: [ad] } = await pool.query(
     `SELECT apply_url FROM ads WHERE id = $1`, [adId]);
   if (!ad) return NextResponse.json({ error: 'annonsen finns inte' }, { status: 404 });
@@ -126,6 +127,8 @@ export async function POST(req) {
 export async function DELETE(req) {
   const { adId, reason = 'bortvald i Hitta adresser' } = await req.json();
   if (!adId) return NextResponse.json({ error: 'adId krävs' }, { status: 400 });
+  const profileId = await ägareAvAnnons(adId);
+  if (!profileId) return inteHittad('annonsen finns inte');
 
   const { rows: [ad] } = await pool.query(
     `SELECT fingerprint FROM ads WHERE id = $1`, [adId]);
@@ -134,15 +137,16 @@ export async function DELETE(req) {
   }
 
   await pool.query(
-    `INSERT INTO never_apply (fingerprint, reason) VALUES ($1, $2)
-     ON CONFLICT (fingerprint) DO UPDATE SET reason = EXCLUDED.reason`,
-    [ad.fingerprint, String(reason).slice(0, 200)]
+    `INSERT INTO never_apply (profile_id, fingerprint, reason) VALUES ($3, $1, $2)
+     ON CONFLICT (profile_id, fingerprint) DO UPDATE SET reason = EXCLUDED.reason`,
+    [ad.fingerprint, String(reason).slice(0, 200), profileId]
   );
   return NextResponse.json({ ok: true, adId });
 }
 
 export async function PATCH(req) {
   const { adId, email, source = 'scanned' } = await req.json();
+  if (!(await ägareAvAnnons(adId))) return inteHittad('annonsen finns inte');
   const addr = String(email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) {
     return NextResponse.json({ error: 'ogiltig mejladress' }, { status: 400 });

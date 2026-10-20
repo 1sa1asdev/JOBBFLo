@@ -137,8 +137,8 @@ export async function occupationCandidates(rå, { k = 3 } = {}) {
 // what it holds — a count from the API would promise ads that are not
 // here. It is also the difference between a dozen round trips and a
 // dozen indexed queries: 2.1s became milliseconds.
-export async function hitCount(filters) {
-  return countLocal(filters || {});
+export async function hitCount(filters, { profileId } = {}) {
+  return countLocal(filters || {}, { profileId });
 }
 
 // ------------------------------------------------------------
@@ -192,7 +192,7 @@ export async function suggestFilters(searchId) {
 
 async function beräknaFörslag(searchId) {
   const { rows: [s] } = await pool.query(
-    `SELECT id, criteria_text, api_filters, location FROM searches
+    `SELECT id, profile_id, criteria_text, api_filters, location FROM searches
      WHERE id = $1 AND deleted_at IS NULL`, [searchId]);
   if (!s) throw new Error('sökningen finns inte');
 
@@ -245,7 +245,9 @@ async function beräknaFörslag(searchId) {
   // One statement for every count, including the current one. A dozen
   // separate queries cost 0.9-1.2s per load of the search view, nearly
   // all of it waiting between round trips rather than counting.
-  const antal = await countLocalMany([aktiva, ...kandidater.map((k) => k.filter)])
+  // counted in the pool as THIS user sees it: their own manual ads in,
+  // the ads they hid out
+  const antal = await countLocalMany([aktiva, ...kandidater.map((k) => k.filter)], { profileId: s.profile_id })
     .catch(() => []);
   const nu = antal[0] ?? null;
   const räknade = kandidater.map((k, i) => ({ ...k, träffar: antal[i + 1] ?? null }));

@@ -58,6 +58,8 @@ async function skapaAnvändare(namn) {
 const städa = async () => {
   await pool.query(`DELETE FROM users WHERE email LIKE 'proof+%-${KÖRNING}@example.invalid'`);
   await pool.query(`DELETE FROM ads WHERE external_id LIKE 'prove-owner-${KÖRNING}%'`);
+  // a manual ad made through the API has no external_id to find it by
+  await pool.query(`DELETE FROM ads WHERE title LIKE '%bevisord${KÖRNING}%'`);
 };
 
 try {
@@ -209,6 +211,68 @@ try {
   kolla('B:s inkorg innehåller B:s tråd', JSON.stringify(inkorgB.data).includes(AP));
   const annonsB = await anrop(B.cookie, 'GET', `/api/ads/${ad.id}?search=${S}`);
   kolla('B ser sin egen checklista på annonsen', annonsB.data?.check?.summary === 'B:s checklista');
+
+  // ---- 6. The shared pool: what a user does with an ad stays theirs ----
+  // Every test ad carries a word no real ad has, so a search can be
+  // aimed at exactly them.
+  const ORD = `bevisord${KÖRNING}`;
+  const poolAnnons = async (fingeravtryck) => (await pool.query(
+    `INSERT INTO ads (source, external_id, fingerprint, title, employer, description, apply_url, published_at)
+     VALUES ('platsbanken', $1, $2, $3, 'Poolbolaget AB', $4, 'https://example.invalid/jobb', now())
+     RETURNING id`,
+    [`prove-owner-${KÖRNING}-${Math.random().toString(36).slice(2, 8)}`, fingeravtryck,
+     `Pooltjänst ${ORD}`, `Gemensam annons ${ORD}.`])).rows[0].id;
+  const kampanj = async (ägare, namn) => (await pool.query(
+    `INSERT INTO searches (profile_id, name, criteria_text, api_filters, campaign_created_at)
+     VALUES ($1, $2, $3, $4::jsonb, now()) RETURNING id`,
+    [ägare, namn, ORD, JSON.stringify({ q: ORD })])).rows[0].id;
+  const hittar = async (sök, annonsId) => (await pool.query(
+    `SELECT 1 FROM match_results WHERE search_id = $1 AND ad_id = $2`, [sök, annonsId])).rowCount > 0;
+
+  const sökA = await kampanj(A.profileId, 'A:s kampanj');
+  const sökB = await kampanj(B.profileId, 'B:s kampanj');
+
+  // A adds a lead by hand, with an address A chose.
+  const lead = await anrop(A.cookie, 'POST', '/api/autoapply/lead',
+    { searchId: sökA, employer: 'Privatbolaget AB', email: `a-adress-${KÖRNING}@example.invalid`, title: `Privat tjänst ${ORD}` });
+  kolla('A kan lägga till en egen annons', lead.status === 201, `HTTP ${lead.status}`);
+  const privat = lead.data?.id;
+
+  // A hides one pool ad and opens the link of another.
+  const dold = await poolAnnons(`fp-dold-${KÖRNING}`);
+  const öppnad = await poolAnnons(`fp-oppnad-${KÖRNING}`);
+  await anrop(A.cookie, 'DELETE', '/api/autoapply/leads', { adId: dold, reason: 'bevis' });
+  await anrop(A.cookie, 'POST', `/api/ads/${öppnad}/opened`);
+
+  // B's campaign searches for exactly that word.
+  await anrop(B.cookie, 'POST', `/api/searches/${sökB}/scan`);
+  kolla('B:s sökning hittar inte A:s egna annons', !(await hittar(sökB, privat)),
+    'B:s CV kunde annars skickas till A:s adress');
+  kolla('A:s "visa aldrig" döljer inget för B', await hittar(sökB, dold));
+  const annonsenSomB = await anrop(B.cookie, 'GET', `/api/ads/${privat}`);
+  kolla('B får 404 på A:s egna annons', annonsenSomB.status === 404, `HTTP ${annonsenSomB.status}`);
+
+  const resultatB = await anrop(B.cookie, 'GET', `/api/searches/${sökB}/results?view=alla&apply=any&limit=200`);
+  const radB = (resultatB.data?.rows || resultatB.data || []).find?.((r) => r.ad_id === öppnad);
+  kolla('A:s "länken öppnad" syns inte för B', radB && !radB.link_opened,
+    radB ? `link_opened=${radB.link_opened}`
+      : `annonsen saknas i B:s resultat (HTTP ${resultatB.status}, `
+        + `${(resultatB.data?.rows || []).length} rader, i sökningen: ${await hittar(sökB, öppnad)}, `
+        + `${JSON.stringify(resultatB.data?.error || resultatB.data?.counts || '').slice(0, 120)})`);
+
+  // Two postings of one job: A applied to one; B looks at the other.
+  const tvilling1 = await poolAnnons(`fp-tvilling-${KÖRNING}`);
+  const tvilling2 = await poolAnnons(`fp-tvilling-${KÖRNING}`);
+  await anrop(A.cookie, 'POST', `/api/ads/${tvilling1}/applied`, {});
+  const dubbletter = await anrop(B.cookie, 'GET', `/api/ads/${tvilling2}`);
+  const tvillingRad = (dubbletter.data?.duplicates || []).find((d) => d.id === tvilling1);
+  kolla('B ser inte A:s ansökan på en dubblett', tvillingRad && !tvillingRad.status,
+    tvillingRad ? `status=${tvillingRad.status}` : 'dubbletten saknas');
+
+  // And A still sees all of it as A's own.
+  await anrop(A.cookie, 'POST', `/api/searches/${sökA}/scan`);
+  kolla('A:s egen sökning hittar A:s egna annons', await hittar(sökA, privat));
+  kolla('… och inte den A dolt', !(await hittar(sökA, dold)));
 } catch (err) {
   fel += 1;
   console.error(`✗ beviset avbröts: ${err.message}`);

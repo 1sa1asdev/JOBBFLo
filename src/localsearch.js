@@ -107,10 +107,22 @@ export function filterSql(resolved = {}, params = []) {
   return { villkor, params };
 }
 
-// Open, applicable, not blacklisted — the rules the old scan used.
-const ÖPPEN = `a.removed_at IS NULL
+// Open, applicable, not hidden — and visible to whoever is searching.
+//
+// The pool is shared, but two things in it are one user's: ads they
+// added by hand (owner_profile_id) and ads they chose never to apply to.
+// Without the owner in this condition, a manual ad with an address one
+// user typed in was matched by every user's campaigns — their CVs sent
+// to that address — and one user's "never apply" hid the ad from all.
+function öppen(params, profileId) {
+  if (!profileId) throw new Error('localsearch: profileId krävs — poolen ser olika ut för olika användare');
+  params.push(profileId);
+  const p = `$${params.length}`;
+  return `a.removed_at IS NULL
   AND (a.deadline IS NULL OR a.deadline >= current_date)
-  AND NOT EXISTS (SELECT 1 FROM never_apply na WHERE na.fingerprint = a.fingerprint)`;
+  AND (a.owner_profile_id IS NULL OR a.owner_profile_id = ${p})
+  AND NOT EXISTS (SELECT 1 FROM never_apply na WHERE na.fingerprint = a.fingerprint AND na.profile_id = ${p})`;
+}
 
 // Many counts, one round trip.
 //
@@ -119,26 +131,29 @@ const ÖPPEN = `a.removed_at IS NULL
 // 0.9-1.2s on every load of the search view, most of it waiting
 // between queries rather than counting. As scalar subqueries in one
 // statement the same answers come back in one trip.
-export async function countLocalMany(filterSets = []) {
+export async function countLocalMany(filterSets = [], { profileId } = {}) {
   if (!filterSets.length) return [];
   const params = [];
   const delar = [];
+  const synlig = öppen(params, profileId);
   for (const f of filterSets) {
     const { villkor } = filterSql(await resolveFilters(f || {}), params);
     delar.push(`(SELECT count(*)::int FROM ads a
-       WHERE ${ÖPPEN}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''})`);
+       WHERE ${synlig}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''})`);
   }
   const { rows: [r] } = await pool.query(
     `SELECT ${delar.map((d, i) => `${d} AS c${i}`).join(', ')}`, params);
   return filterSets.map((_, i) => r[`c${i}`]);
 }
 
-export async function countLocal(filters = {}, { resolved = false } = {}) {
+export async function countLocal(filters = {}, { resolved = false, profileId } = {}) {
   const f = resolved ? filters : await resolveFilters(filters || {});
-  const { villkor, params } = filterSql(f, []);
+  const params = [];
+  const synlig = öppen(params, profileId);
+  const { villkor } = filterSql(f, params);
   const { rows: [r] } = await pool.query(
     `SELECT count(*)::int AS n FROM ads a
-     WHERE ${ÖPPEN}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''}`, params);
+     WHERE ${synlig}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''}`, params);
   return r.n;
 }
 
@@ -168,12 +183,12 @@ const BREDDNINGSSTEGE = [
 // ------------------------------------------------------------
 export async function matchSearch(searchId, { limit = 1500 } = {}) {
   const { rows: [s] } = await pool.query(
-    `SELECT id, api_filters, query_embedding FROM searches
+    `SELECT id, profile_id, api_filters, query_embedding FROM searches
      WHERE id = $1 AND deleted_at IS NULL`, [searchId]);
   if (!s) throw new Error(`no search ${searchId}`);
 
   let filter = await resolveFilters(s.api_filters || {});
-  let träffar = await countLocal(filter, { resolved: true });
+  let träffar = await countLocal(filter, { resolved: true, profileId: s.profile_id });
   const släppta = [];
   for (const steg of BREDDNINGSSTEGE) {
     if (träffar > 0) break;
@@ -182,12 +197,13 @@ export async function matchSearch(searchId, { limit = 1500 } = {}) {
     filter = { ...filter };
     for (const k of finns) delete filter[k];
     släppta.push(...finns);
-    träffar = await countLocal(filter, { resolved: true });
+    träffar = await countLocal(filter, { resolved: true, profileId: s.profile_id });
   }
 
   const params = [searchId];
   if (s.query_embedding) params.push(s.query_embedding);
   const vektor = s.query_embedding ? '$2::vector' : null;
+  const synlig = öppen(params, s.profile_id);
   const { villkor } = filterSql(filter, params);
   params.push(limit);
 
@@ -202,7 +218,7 @@ export async function matchSearch(searchId, { limit = 1500 } = {}) {
     `INSERT INTO match_results (search_id, ad_id, queue_rank)
      SELECT $1, a.id, ${poäng}
      FROM ads a
-     WHERE ${ÖPPEN}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''}
+     WHERE ${synlig}${villkor.length ? ` AND ${villkor.join(' AND ')}` : ''}
        AND NOT EXISTS (SELECT 1 FROM match_results m
                        WHERE m.search_id = $1 AND m.ad_id = a.id)
      ORDER BY ${rang}

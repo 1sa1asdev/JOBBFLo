@@ -90,15 +90,17 @@ export async function POST(req) {
     const headline = String(k.title || '').trim() || `Spontanansökan — ${k.employer}`;
     const { rows: [ad] } = await pool.query(
       `INSERT INTO ads (source, external_id, fingerprint, title, employer, employer_type,
-         description, apply_email, apply_email_source, municipality, published_at)
-       VALUES ('manual', NULL, $1, $2, $3, 'private', $4, $5, 'manual', $6, now())
+         description, apply_email, apply_email_source, municipality, published_at, owner_profile_id)
+       VALUES ('manual', NULL, $1, $2, $3, 'private', $4, $5, 'manual', $6, now(), $7)
        RETURNING id, employer, apply_email`,
       [fingerprint({ employer: k.employer, title: headline, municipality: k.municipality || null }),
        headline, k.employer,
        k.person
          ? `Lead tillagd för hand. Kontaktperson: ${k.person}. Ingen annonstext finns — kampanjbrevet skickas som det är.`
          : 'Lead tillagd för hand. Ingen annonstext finns — kampanjbrevet skickas som det är.',
-       k.email, String(k.municipality || '').trim() || null]
+       k.email, String(k.municipality || '').trim() || null,
+       // private: only the maker's searches see it
+       search.profile_id]
     );
     await pool.query(
       `INSERT INTO match_results (search_id, ad_id, queued_at)

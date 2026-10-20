@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { aktivProfilId } from '../../../../../src/auth.js';
+import { aktivProfilId, ägareAvAnnons, ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +23,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(req, { params }) {
   const { id } = await params;
   const { searchId = null } = await req.json().catch(() => ({}));
+  if (!(await ägareAvAnnons(id))) return inteHittad('annonsen finns inte');
+  if (searchId && !(await ägareAvSökning(searchId))) return inteHittad('sökningen finns inte');
 
   const { rows: [ad] } = await pool.query(
     `SELECT id, apply_url, apply_email FROM ads WHERE id = $1`, [id]);
