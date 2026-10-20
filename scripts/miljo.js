@@ -16,7 +16,8 @@ export function läsMiljö(miljö, fil = join(ROT, '.env.supabase')) {
   const url = env[`${P}_DATABASE_URL`]?.trim();
   const supabaseUrl = env[`${P}_SUPABASE_URL`]?.trim();
   const anon = env[`${P}_SUPABASE_ANON_KEY`]?.trim();
-  const caNamn = env[`${P}_CA_FIL`]?.trim();
+  // The certificate's path, or where setup expects it when the line is left out.
+  const caNamn = env[`${P}_CA_FIL`]?.trim() || `supabase/${miljö === 'staging' ? 'staging' : 'prod'}-ca.crt`;
   const caFil = caNamn ? resolve(ROT, caNamn) : null;
   const saknas = [!url && `${P}_DATABASE_URL`, !supabaseUrl && `${P}_SUPABASE_URL`, !anon && `${P}_SUPABASE_ANON_KEY`]
     .filter(Boolean);
