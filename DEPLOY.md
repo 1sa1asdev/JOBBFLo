@@ -200,7 +200,9 @@ ge den minst 1 GB minne.
 
 **Settings → Environments**:
 - `staging` och `production`, var och en med hemligheterna `DATABASE_URL`,
-  `SUPABASE_URL` och `SUPABASE_ANON_KEY`, plus `DATABASE_CA_CERT` om du satt den
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY` och `DATABASE_CA_CERT` (certifikatets
+  text). Utan certifikatet krypteras migrationerna ändå, men servern
+  verifieras inte
 - `production`: **Required reviewers** = du. Ingen release migrerar
   produktion utan ditt godkännande.
 
