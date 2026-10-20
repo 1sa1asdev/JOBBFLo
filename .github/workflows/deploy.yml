@@ -43,7 +43,9 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      miljö:
+      # ASCII only: a non-ASCII input name ("miljö") made GitHub reject
+      # this whole file, so it never ran.
+      miljo:
         description: 'staging eller production'
         required: true
         default: staging
@@ -57,7 +59,7 @@ jobs:
       vars.DEPLOY_ENABLED == 'true' && (
         (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
           && github.event.workflow_run.event == 'push')
-        || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'staging'))
+        || (github.event_name == 'workflow_dispatch' && inputs.miljo == 'staging'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
@@ -95,7 +97,7 @@ jobs:
     if: >-
       vars.DEPLOY_ENABLED == 'true' && (
         github.event_name == 'release'
-        || (github.event_name == 'workflow_dispatch' && inputs.miljö == 'production'))
+        || (github.event_name == 'workflow_dispatch' && inputs.miljo == 'production'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Required reviewers on this environment make a person approve
