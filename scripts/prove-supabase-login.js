@@ -207,6 +207,14 @@ try {
   const ut = await anrop(A, 'POST', '/api/auth/logout');
   const efter = await anrop(A, 'GET', '/api/profile');
   kolla('7. utloggad: 401', ut.status === 200 && efter.status === 401, `${ut.status} → ${efter.status}`);
+
+  // ---- 8: erasure takes the Supabase login with it ----
+  const { rows: [bKonto] } = await pool.query(`SELECT auth_id FROM users WHERE email = $1`, [adress('b')]);
+  const raderad = await anrop(B, 'DELETE', '/api/account', { bekräfta: adress('b') });
+  const { data: kvar } = await admin.auth.admin.getUserById(bKonto.auth_id);
+  kolla('8. radera kontot tar bort inloggningen hos Supabase',
+    raderad.status === 200 && raderad.data?.inloggningBorta === true && !kvar?.user,
+    `${raderad.status} ${JSON.stringify(raderad.data)}`);
 } catch (err) {
   fel += 1;
   console.error('✗ beviset kraschade:', err.stack || err.message);

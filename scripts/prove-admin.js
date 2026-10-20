@@ -139,6 +139,17 @@ try {
   kolla('4. upplåst: A kommer in, kampanjen väntar på A', upp.status === 200 && igenA.status === 200 && k2.auto_apply_enabled === false,
     `${upp.status} → ${igenA.status}`);
 
+  // ---- 6: an error nobody caught reaches the admin page ----
+  const trasig = await fetch(`${BAS}/api/searches`, {
+    method: 'POST', headers: { 'content-type': 'application/json', cookie: A.cookie }, body: '{"trasig',
+  });
+  await trasig.arrayBuffer();
+  await new Promise((ok) => setTimeout(ok, 800));
+  const medFel = await anrop(B.cookie, 'GET', '/api/admin/oversikt');
+  kolla('6. ett ofångat fel syns på adminsidan', trasig.status === 500
+    && (medFel.data?.fel || []).some((f) => f.väg === '/api/searches' && f.källa === 'app'),
+    `${trasig.status} → ${(medFel.data?.fel || []).length} fel i listan`);
+
   // ---- 5 ----
   const själv = await anrop(B.cookie, 'PATCH', `/api/admin/anvandare/${B.userId}`, { spärrad: true });
   const bIgen = await anrop(B.cookie, 'GET', '/api/admin/oversikt');

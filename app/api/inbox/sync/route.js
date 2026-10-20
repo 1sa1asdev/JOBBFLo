@@ -3,6 +3,7 @@ import { unstable_rethrow } from 'next/navigation';
 import { pool } from '../../../../src/db.js';
 import { syncNow, syncSentNow, antalMeddelanden } from '../../../../src/imap.js';
 import { harBrevlåda } from '../../../../src/imapManager.js';
+import { inomTakt, klientAdress, förMånga } from '../../../../src/takt.js';
 import { aktivProfilId } from '../../../../src/auth.js';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,8 @@ export const maxDuration = 60;
 export async function POST() {
   try {
     const profileId = await aktivProfilId();
+    // Each press is a Gmail connection on the user's own account.
+    if (!(await inomTakt('hämtaPost', profileId))) return förMånga();
 
     // Ask the worker first. It holds an open IMAP connection to this
     // user's mailbox, and the expensive part of this is not the reading

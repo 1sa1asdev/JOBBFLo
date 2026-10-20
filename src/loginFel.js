@@ -7,6 +7,7 @@ export const LOGIN_FEL = {
   'lank-gammal': 'Länken har gått ut eller redan använts. Försök igen.',
   'konto-finns': 'Det finns redan ett konto med den adressen.',
   'inte-paslagen': 'Google-inloggning är inte påslagen här.',
+  'for-manga': 'För många inloggningsförsök. Vänta tio minuter och försök igen.',
   okant: 'Inloggningen gick inte igenom. Försök igen.',
 };
 

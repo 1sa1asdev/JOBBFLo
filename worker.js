@@ -19,6 +19,9 @@ import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
 import { embeddingsPåslagna } from './src/platform.js';
+import { fångaProcessfel } from './src/fellogg.js';
+
+fångaProcessfel('worker');
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,

@@ -40,6 +40,10 @@ export async function översikt() {
       `SELECT coalesce(sum(usd), 0)::float AS usd, count(DISTINCT profile_id)::int AS profiler
        FROM llm_usage WHERE at > now() - interval '30 days'`),
   ]);
+  const { rows: fel } = await pool.query(
+    `SELECT källa, väg, metod, meddelande, count(*)::int AS antal, max(at) AS senast
+     FROM error_log WHERE at > now() - interval '7 days'
+     GROUP BY källa, väg, metod, meddelande ORDER BY max(at) DESC LIMIT 25`);
   const st = Object.fromEntries(tillstånd.rows.map((r) => [r.key, r]));
   const kvar = Math.max(0, täckning.total - täckning.embedded);
   const sedan = (k) => (st[k]?.last_run_at ? Math.round((Date.now() - new Date(st[k].last_run_at)) / 1000) : null);
@@ -66,6 +70,8 @@ export async function översikt() {
     },
     användare: användare.rows[0],
     användarnasKostnad30d: spend.rows[0],
+    // Uncaught errors, grouped, last 7 days (error_log).
+    fel,
   };
 }
 

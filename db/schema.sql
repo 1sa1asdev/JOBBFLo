@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 055.
+-- Baseline covers migrations up to 043; latest migration 057.
 -- ============================================================
 
 --
@@ -413,6 +413,43 @@ COMMENT ON TABLE public.email_messages IS 'The thread, both directions.';
 --
 
 COMMENT ON COLUMN public.email_messages.imap_uid IS 'For catch-up since the last seen UID after a dropped IDLE connection.';
+
+--
+-- Name: error_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.error_log (
+    id bigint NOT NULL,
+    at timestamp with time zone DEFAULT now() NOT NULL,
+    "källa" text NOT NULL,
+    "väg" text,
+    metod text,
+    meddelande text NOT NULL,
+    digest text
+);
+
+--
+-- Name: TABLE error_log; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.error_log IS 'Uncaught errors: app requests (instrumentation.js onRequestError) and the worker/janitor (process handlers). Shown on /admin, deleted after 30 days. No bodies, no user ids — the path and the message only.';
+
+--
+-- Name: error_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.error_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+--
+-- Name: error_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.error_log_id_seq OWNED BY public.error_log.id;
 
 --
 -- Name: imap_state; Type: TABLE; Schema: public; Owner: -
@@ -839,6 +876,22 @@ COMMENT ON TABLE public.projects IS 'The user''s projects, matched against ads. 
 COMMENT ON COLUMN public.projects.summary IS 'One paragraph, used in letters.';
 
 --
+-- Name: rate_limits; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rate_limits (
+    nyckel text NOT NULL,
+    "fönster" timestamp with time zone NOT NULL,
+    antal integer DEFAULT 1 NOT NULL
+);
+
+--
+-- Name: TABLE rate_limits; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rate_limits IS 'Fixed-window request counts per key — "login:<ip>", "sync:<profile>". A key holds no more than an IP address or a profile id, and a window older than a day is deleted.';
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1149,6 +1202,12 @@ COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages,
 COMMENT ON COLUMN public.users.disabled_at IS 'Blocked by the operator. Sign-in is refused (403), campaigns are paused with the reason, the mailbox closes. Cleared to let them back in; campaigns stay paused for the user to restart.';
 
 --
+-- Name: error_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.error_log ALTER COLUMN id SET DEFAULT nextval('public.error_log_id_seq'::regclass);
+
+--
 -- Name: ad_checks ad_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1231,6 +1290,13 @@ ALTER TABLE ONLY public.campaign_messages
 
 ALTER TABLE ONLY public.email_messages
     ADD CONSTRAINT email_messages_pkey PRIMARY KEY (id);
+
+--
+-- Name: error_log error_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.error_log
+    ADD CONSTRAINT error_log_pkey PRIMARY KEY (id);
 
 --
 -- Name: imap_state imap_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1343,6 +1409,13 @@ ALTER TABLE ONLY public.profile
 
 ALTER TABLE ONLY public.projects
     ADD CONSTRAINT projects_pkey PRIMARY KEY (id);
+
+--
+-- Name: rate_limits rate_limits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rate_limits
+    ADD CONSTRAINT rate_limits_pkey PRIMARY KEY (nyckel, "fönster");
 
 --
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1567,6 +1640,12 @@ CREATE INDEX email_messages_inreplyto ON public.email_messages USING btree (in_r
 --
 
 CREATE INDEX email_messages_msgid ON public.email_messages USING btree (message_id);
+
+--
+-- Name: error_log_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX error_log_at ON public.error_log USING btree (at DESC);
 
 --
 -- Name: lead_scans_ok; Type: INDEX; Schema: public; Owner: -
@@ -1942,6 +2021,12 @@ ALTER TABLE public.campaign_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_messages ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: error_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.error_log ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: imap_state; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2012,6 +2097,12 @@ ALTER TABLE public.profile ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rate_limits; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: schema_migrations; Type: ROW SECURITY; Schema: public; Owner: -

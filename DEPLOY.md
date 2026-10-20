@@ -157,6 +157,7 @@ staging-värden för *Preview*, avgränsade till grenen `staging`:
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | från steg 1 |
 | `ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`, en per miljö |
 | `PLATFORM_OPENROUTER_API_KEY` | plattformens nyckel (sökningarnas frågevektorer) |
+| `JOBBFLO_OPERATOR`, `JOBBFLO_KONTAKT` | ditt namn eller företag och en kontaktadress. De visas i integritetspolicyn och villkoren och hålls utanför repot |
 
 Sätt **inte** `AUTH_SECRET` eller `JOBBFLO_UTAN_INLOGGNING` här.
 
@@ -228,8 +229,9 @@ det gamla först i en senare release. Byt aldrig namn på något direkt.
 - **Upptid**: `https://<din-domän>/api/health` svarar `{"ok":true,…}` när
   databasen svarar, och berättar om workern lever. Lägg in den i en gratis
   övervakare (UptimeRobot, Better Stack) med 5 minuters intervall.
-- **Adminsidan** `/admin`: plattformsnyckelns kredit, poolen och workerns
-  senaste körningar.
+- **Adminsidan** `/admin`: plattformsnyckelns kredit, poolen, workerns
+  senaste körningar och de senaste 7 dygnens fel som ingen fångade (appen,
+  workern, janitorn).
 - **Loggar**: Railway (worker, janitor) och Vercel (Functions).
 - **Backa**: Vercel → Deployments → *Instant Rollback*. Railway → tidigare
   deploy → *Redeploy*. Databasen går bara framåt: rätta med en ny migration.

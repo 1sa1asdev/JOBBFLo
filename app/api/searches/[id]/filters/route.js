@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ägareAvSökning, inteHittad } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { suggestFilters } from '../../../../../src/filterSuggest.js';
+import { inomTakt, klientAdress, förMånga } from '../../../../../src/takt.js';
 import { scanSearch } from '../../../../../src/score.js';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,8 @@ export async function GET(_req, { params }) {
   const { id } = await params;
   const profileId = await ägareAvSökning(id);
   if (!profileId) return inteHittad('sökningen finns inte');
+  // Suggestions embed text with the platform's key.
+  if (!(await inomTakt('filterförslag', profileId))) return förMånga();
   try {
     return NextResponse.json(await suggestFilters(id));
   } catch (err) {

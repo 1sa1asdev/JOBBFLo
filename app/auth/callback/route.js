@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer, kontoFörSupabase } from '../../../src/supabase.js';
 import { inloggningsläge } from '../../../src/authMode.js';
+import { inomTakt, klientAdress, förMånga } from '../../../src/takt.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,7 @@ export async function GET(req) {
     return NextResponse.redirect(mål);
   };
   if (inloggningsläge() !== 'supabase') return tillbaka('inte-paslagen');
+  if (!(await inomTakt('callback', await klientAdress()))) return tillbaka('for-manga');
 
   // Google says it refused — the user pressed Avbryt, say.
   if (url.searchParams.get('error')) return tillbaka('avbruten');

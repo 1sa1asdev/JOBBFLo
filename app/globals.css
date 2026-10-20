@@ -2109,3 +2109,9 @@
   .chk-quote{font-size:10.5px;line-height:var(--lh-body);color:var(--mute);overflow-wrap:anywhere;}
   .chk-quote.cv{color:var(--ok);}
   .chk-why{font-size:10.5px;line-height:var(--lh-body);color:var(--mute);}
+
+/* The public documents (/integritet, /villkor): prose, not a dashboard. */
+.dokument{font-size:14px;line-height:1.6;}
+.dokument h3{margin:26px 0 6px;font-size:15px;}
+.dokument p,.dokument li{margin:0 0 8px;}
+.dokument ul{padding-left:20px;margin:0 0 10px;}

@@ -159,6 +159,13 @@ jobs:
           # arithmetic over measured tokens and listed prices.
           time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-onboarding.js \
             || { cat next.log; exit 1; }
+          # GDPR: the export holds everything and nothing of anyone else;
+          # erasure leaves no row pointing at the user in any table.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-account.js \
+            || { cat next.log; exit 1; }
+          # The routes someone could hammer stop at their limit.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-rate-limits.js \
+            || { cat next.log; exit 1; }
 
   supabase:
     runs-on: ubuntu-latest

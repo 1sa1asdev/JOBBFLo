@@ -115,6 +115,25 @@ export default function AdminView() {
       </section>
 
       <section className="dash-block">
+        <div className="dash-stat-label">Fel som ingen fångade, senaste 7 dygnen</div>
+        {ö.fel.length === 0 ? <p className="hint">Inga.</p> : (
+          <table className="dash-table">
+            <thead><tr><th>Var</th><th>Fel</th><th>Antal</th><th>Senast</th></tr></thead>
+            <tbody>
+              {ö.fel.map((f) => (
+                <tr key={`${f.källa}${f.väg}${f.meddelande}`}>
+                  <td>{f.källa}{f.väg ? ` ${f.metod || ''} ${f.väg}` : ''}</td>
+                  <td className="dim">{f.meddelande}</td>
+                  <td>{f.antal}</td>
+                  <td className="dim">{fmtDate(f.senast)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="dash-block">
         <div className="dash-stat-label">Användare</div>
         <table className="dash-table">
           <thead>

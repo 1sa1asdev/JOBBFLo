@@ -2,6 +2,9 @@ import 'dotenv/config';
 import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
+import { fångaProcessfel } from './src/fellogg.js';
+
+fångaProcessfel('janitor');
 
 // ------------------------------------------------------------
 // The janitor: one small process whose whole job is keeping the ad

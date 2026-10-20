@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { verifyPassword, signSession, sessionCookieOptions, SESSION_COOKIE } from '../../../../src/auth.js';
 import { inloggningsläge } from '../../../../src/authMode.js';
+import { inomTakt, klientAdress, förMånga } from '../../../../src/takt.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,8 @@ export async function POST(req) {
   if (inloggningsläge() !== 'lösenord') {
     return NextResponse.json({ error: 'finns inte' }, { status: 404 });
   }
+  // Guessing passwords from one address stops here.
+  if (!(await inomTakt('inloggning', await klientAdress()))) return förMånga();
   const { email, password } = await req.json();
   const mail = email?.trim().toLowerCase();
 
