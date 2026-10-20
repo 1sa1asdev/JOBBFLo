@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 052.
+-- Baseline covers migrations up to 043; latest migration 053.
 -- ============================================================
 
 --
@@ -648,7 +648,7 @@ COMMENT ON TABLE public.poll_state IS 'One global JobStream cursor: all searches
 -- Name: postcode_coords; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.postcode_coords AS
+CREATE VIEW public.postcode_coords WITH (security_invoker='true') AS
  SELECT replace(((raw -> 'workplace_address'::text) ->> 'postcode'::text), ' '::text, ''::text) AS postcode,
     avg(lat) AS lat,
     avg(lon) AS lon,
@@ -701,6 +701,7 @@ CREATE TABLE public.profile (
     gmail_verified_at timestamp with time zone,
     gmail_error text,
     gmail_error_at timestamp with time zone,
+    google_refresh_token_enc text,
     CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
 );
 
@@ -787,6 +788,12 @@ COMMENT ON COLUMN public.profile.gmail_verified_at IS 'When a login to Gmail wit
 --
 
 COMMENT ON COLUMN public.profile.gmail_error IS 'Last reason Gmail refused this user''s app password, after which their mail loop stopped. Cleared when a new password is saved.';
+
+--
+-- Name: COLUMN profile.google_refresh_token_enc; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.google_refresh_token_enc IS 'Google OAuth refresh token from sign-in, encrypted (src/secrets.js). Unused until Gmail access over OAuth is approved.';
 
 --
 -- Name: projects; Type: TABLE; Schema: public; Owner: -
@@ -1010,7 +1017,7 @@ COMMENT ON COLUMN public.searches.send_from IS 'Start of the daily sending windo
 -- Name: search_results; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.search_results AS
+CREATE VIEW public.search_results WITH (security_invoker='true') AS
  SELECT m.search_id,
     a.id AS ad_id,
     a.title,
@@ -1086,8 +1093,11 @@ CREATE TABLE public.taxonomy_vectors (
 CREATE TABLE public.users (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     email text NOT NULL,
-    password_hash text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    password_hash text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    auth_id uuid,
+    role text DEFAULT 'user'::text NOT NULL,
+    CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))
 );
 
 --
@@ -1095,6 +1105,24 @@ CREATE TABLE public.users (
 --
 
 COMMENT ON TABLE public.users IS 'Login identity. One account = one profile.';
+
+--
+-- Name: COLUMN users.password_hash; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.password_hash IS 'scrypt hash, local password mode only (CI and development). NULL for Google accounts.';
+
+--
+-- Name: COLUMN users.auth_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.auth_id IS 'The Supabase Auth user (auth.users.id) this account signs in as. NULL for local password accounts.';
+
+--
+-- Name: COLUMN users.role; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages, platform settings and every user''s usage. Set by hand: node scripts/make-admin.js <email>.';
 
 --
 -- Name: ad_checks ad_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1319,6 +1347,13 @@ ALTER TABLE ONLY public.suggested_replies
 
 ALTER TABLE ONLY public.taxonomy_vectors
     ADD CONSTRAINT taxonomy_vectors_pkey PRIMARY KEY (type, concept_id);
+
+--
+-- Name: users users_auth_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_auth_id_key UNIQUE (auth_id);
 
 --
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1807,6 +1842,168 @@ ALTER TABLE ONLY public.suggested_replies
 
 ALTER TABLE ONLY public.suggested_replies
     ADD CONSTRAINT suggested_replies_reply_to_id_fkey FOREIGN KEY (reply_to_id) REFERENCES public.email_messages(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_checks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_checks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_contacts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_opens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_opens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_reads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_reads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: applications; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: attachments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.attachments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: auto_apply_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auto_apply_log ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: campaign_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.campaign_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: email_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.email_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: imap_state; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.imap_state ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: imap_sync_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.imap_sync_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: interview_prep; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.interview_prep ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: lead_scans; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.lead_scans ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: letter_versions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.letter_versions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: llm_usage; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.llm_usage ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: match_results; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.match_results ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: never_apply; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.never_apply ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: poll_state; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.poll_state ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: profile; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.profile ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: projects; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: schema_migrations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: search_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.search_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: searches; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.searches ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: suggested_replies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.suggested_replies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: taxonomy_vectors; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.taxonomy_vectors ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: users; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
 --
 -- PostgreSQL database dump complete

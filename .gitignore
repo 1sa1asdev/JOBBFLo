@@ -21,3 +21,6 @@ db/seed.local.sql
 
 # Local machine config: paths and per-project permissions.
 .claude/settings.local.json
+
+# Supabase local stack secrets (OAuth client ids etc.)
+supabase/.env

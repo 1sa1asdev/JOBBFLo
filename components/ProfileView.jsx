@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import LlmSettings from './LlmSettings.jsx';
 import GmailSettings from './GmailSettings.jsx';
+import AccountSettings from './AccountSettings.jsx';
 import CvUpload from './CvUpload.jsx';
 import CvProfilePanel, { HomePanel, EmbeddingPanel, BudgetPanel } from './CvProfilePanel.jsx';
 import Dots from './Dots';
@@ -61,6 +62,8 @@ export default function ProfileView({ onClose }) {
 
         {/* The account letters go out from and replies come back to. */}
         <GmailSettings />
+
+        <AccountSettings />
 
         <div className="field-group">
           <span className="label">Bas-CV</span>

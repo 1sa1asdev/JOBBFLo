@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
     "dotenv": "^16.4.5",
     "imapflow": "^1.0.164",
     "mailparser": "^3.7.1",
@@ -34,5 +36,8 @@
     "react-dom": "^19.1.0",
     "stream-chain": "^4.2.5",
     "stream-json": "^3.6.0"
+  },
+  "devDependencies": {
+    "supabase": "^2.121.0"
   }
 }

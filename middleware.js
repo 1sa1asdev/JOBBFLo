@@ -1,13 +1,24 @@
 import { NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { inloggningsläge, utanInloggningTillåtet, supabaseUrl, supabaseAnonKey } from './src/authMode.js';
 
 // ------------------------------------------------------------
-// Session gate. Runs on the edge runtime, so the cookie is
-// verified with Web Crypto here (no Postgres, no node:crypto) —
-// the token format "uid.exp.hmac" is produced by src/auth.js.
-// Pages redirect to /login; API calls get a 401.
+// Session gate, in the three modes of src/authMode.js. Pages without a
+// session redirect to /login; API calls get a 401.
+//
+//   supabase  the session lives in Supabase's cookies. Checked here
+//             with getClaims (the JWT verified against the project's
+//             keys), and refreshed into the response when it is close
+//             to expiry — the one place a refreshed cookie can be
+//             written for a page request.
+//   lösenord  our signed cookie "uid.exp.hmac", verified with Web
+//             Crypto (this runs on the edge; no Postgres, no node:crypto).
+//   av        no gate — but only off production (authMode.js).
 // ------------------------------------------------------------
 
-const PUBLIC = [/^\/login$/, /^\/api\/auth\//];
+// Reachable without a session: signing in, and the documents anyone may
+// read before deciding to.
+const PUBLIC = [/^\/login$/, /^\/auth\/callback$/, /^\/api\/auth\//, /^\/integritet$/, /^\/villkor$/];
 
 async function verify(token, secret) {
   if (!token) return false;
@@ -27,25 +38,49 @@ async function verify(token, secret) {
   return diff === 0;
 }
 
-export async function middleware(req) {
-  // LOCAL-ONLY MODE: accounts are opt-in. Without AUTH_SECRET the
-  // whole gate is off — set it (deployment) and login is required.
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) return NextResponse.next();
-
-  const { pathname } = req.nextUrl;
-  if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next();
-
-  const token = req.cookies.get('jj_session')?.value;
-  if (await verify(token, secret)) return NextResponse.next();
-
-  if (pathname.startsWith('/api/')) {
+function utestängd(req) {
+  if (req.nextUrl.pathname.startsWith('/api/')) {
     return NextResponse.json({ error: 'inte inloggad' }, { status: 401 });
   }
   const url = req.nextUrl.clone();
   url.pathname = '/login';
   url.search = '';
   return NextResponse.redirect(url);
+}
+
+export async function middleware(req) {
+  const läge = inloggningsläge();
+  if (läge === 'av') {
+    if (utanInloggningTillåtet()) return NextResponse.next();
+    return NextResponse.json({ error: 'inloggningen är inte konfigurerad på servern' }, { status: 503 });
+  }
+
+  const { pathname } = req.nextUrl;
+  const öppen = PUBLIC.some((re) => re.test(pathname));
+
+  if (läge === 'lösenord') {
+    if (öppen) return NextResponse.next();
+    const token = req.cookies.get('jj_session')?.value;
+    if (await verify(token, process.env.AUTH_SECRET)) return NextResponse.next();
+    return utestängd(req);
+  }
+
+  // supabase: the response carries any refreshed session cookies, so it
+  // is built first and handed to the client to write into.
+  let svar = NextResponse.next({ request: req });
+  const supabase = createServerClient(supabaseUrl(), supabaseAnonKey(), {
+    cookies: {
+      getAll: () => req.cookies.getAll(),
+      setAll: (lista) => {
+        for (const { name, value } of lista) req.cookies.set(name, value);
+        svar = NextResponse.next({ request: req });
+        for (const { name, value, options } of lista) svar.cookies.set(name, value, options);
+      },
+    },
+  });
+  const { data } = await supabase.auth.getClaims();
+  if (öppen || data?.claims?.sub) return svar;
+  return utestängd(req);
 }
 
 export const config = {

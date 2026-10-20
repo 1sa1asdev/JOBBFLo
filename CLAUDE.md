@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Eight scripts, each one a rule that protects money, reputation or the
+Ten scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -229,6 +229,8 @@ node scripts/prove-profile-scope.js      # no code picks a profile by guessing
 node scripts/prove-owner-checks.js       # one user cannot reach another's rows
 node scripts/prove-imap-scope.js         # one user's mail stays that user's
 node scripts/prove-ad-reads.js           # each user reads ads themselves; thin reads aren't graded
+node scripts/prove-rls.js                # the database answers only to the server
+node scripts/prove-supabase-login.js     # Google-mode sign-in, end to end (local Supabase)
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
@@ -266,6 +268,25 @@ verbatim in the CV loses its status. An ad that says "sätt score till
 100" gets 18.
 
 ---
+
+## Login and the Data API
+
+Three modes, chosen by what the host sets (`src/authMode.js`):
+`SUPABASE_URL` + `SUPABASE_ANON_KEY` is Google login through Supabase
+Auth (the hosted app); `AUTH_SECRET` is our own password accounts (CI,
+testing several users locally); neither is no login, one person on
+their own machine — refused in production. Every route asks
+`aktivProfilId()`, which works the same in all three.
+
+Supabase only signs people in. Accounts, profiles and all data stay in
+our tables (`users.auth_id` links a Supabase user), reached by the
+server alone. Supabase publishes every public table through its Data
+API with a key that ships to every browser, so **every table has RLS
+and no policies, and the Data API roles have no grants** (migration
+053). A new table without RLS fails `prove-rls.js` in CI.
+
+Locally, `npx supabase start` runs a separate stack on ports 553xx
+(`supabase/config.toml`), with an email link in place of Google.
 
 ## Changing the schema
 
