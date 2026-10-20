@@ -374,7 +374,7 @@ async function drainQueue(searchId, { limit }) {
       // The checklist, not a number the model picked: the ad's
       // requirements answered one by one against the CV, and the score
       // computed from those rows (src/checklist.js). Stored per
-      // (ad, CV), so a second search that finds the same ad pays
+      // (ad, user, CV), so a second search that finds the same ad pays
       // nothing — the question "does this CV meet these requirements"
       // never depended on which search found the job.
       const rad = await checkAd(ad, {
@@ -426,10 +426,14 @@ async function drainQueue(searchId, { limit }) {
       const transient = err.transient
         || /429|rate|quota|timeout|ETIMEDOUT|ECONNRESET|användbart svar/i.test(err.message || '')
         || /\b(401|402|403)\b|nyckeln avvisades|key limit|insufficient|credit/i.test(err.message || '');
+      // An ad that could not be read reliably is parked at once. Trying
+      // again here would pay for two reads per attempt to learn the
+      // same thing; the card says why, and "Försök igen" reads it anew.
+      const oläsbar = err.kod === 'OLÄSBAR';
       await pool.query(
         `UPDATE match_results SET attempts = attempts + $4, last_error = $3
          WHERE search_id = $1 AND ad_id = $2`,
-        [searchId, ad.id, err.message, transient ? 0 : 1]
+        [searchId, ad.id, err.message, oläsbar ? MAX_SCORE_ATTEMPTS : transient ? 0 : 1]
       );
       console.error(`  !! ${ad.title}: ${err.message}${transient ? ' (försöker igen)' : ''}`);
       // A provider that just rate-limited will do it again straight

@@ -82,9 +82,10 @@ const cvFakta = [
 if (cvFakta.length < 5) { console.log('för få fakta i CV-profilen'); process.exit(0); }
 
 const { rows } = await pool.query(
-  `SELECT a.title, a.ad_profile, c.score FROM ad_checks c JOIN ads a ON a.id = c.ad_id
-   WHERE c.score IS NOT NULL AND a.ad_profile IS NOT NULL
-     AND jsonb_array_length(a.ad_profile->'requires') > 1`);
+  `SELECT a.title, r.profile AS ad_profile, c.score FROM ad_checks c JOIN ads a ON a.id = c.ad_id
+   JOIN ad_reads r ON r.ad_id = c.ad_id AND r.profile_id = c.profile_id AND r.status = 'ok'
+   WHERE c.score IS NOT NULL
+     AND jsonb_array_length(r.profile->'requires') > 1`);
 if (rows.length < 8) { console.log(`bara ${rows.length} annonser — för få`); process.exit(0); }
 
 console.log(`${rows.length} annonser, ${cvFakta.length} fakta ur CV:t\n`);

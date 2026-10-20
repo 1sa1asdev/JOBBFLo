@@ -1,0 +1,14 @@
+# Only package.json, src/ and the two entry files go into the image.
+# Never .env: secrets come from the host's settings, not the build.
+.env
+.env.*
+!.env.example
+node_modules
+.next
+.next-check
+.git
+db/seed.local.sql
+supabase
+design
+docs
+experience_required

@@ -21,7 +21,7 @@
 # makes a second one harmless, but it will not do useful work either.
 services:
   worker:
-    image: node:20-alpine
+    image: node:22-alpine
     container_name: jobbflo-worker
     restart: unless-stopped
     working_dir: /app
@@ -61,7 +61,7 @@ services:
   #   docker compose up -d janitor     start it
   #   docker compose logs -f janitor   watch it
   janitor:
-    image: node:20-alpine
+    image: node:22-alpine
     container_name: jobbflo-janitor
     restart: unless-stopped
     working_dir: /app

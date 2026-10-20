@@ -1,12 +1,13 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "npm install --omit=dev"
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": ["src/**", "worker.js", "package.json", "package-lock.json", "Dockerfile"]
   },
   "deploy": {
-    "startCommand": "npm run worker",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "startCommand": "node worker.js",
+    "numReplicas": 1,
+    "restartPolicyType": "ALWAYS"
   }
 }

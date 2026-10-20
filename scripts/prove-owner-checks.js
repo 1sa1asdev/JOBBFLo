@@ -86,9 +86,14 @@ try {
   await pool.query(
     `INSERT INTO match_results (search_id, ad_id, check_cv_key) VALUES ($1, $2, 'bevis-nyckel')`, [sök.id, ad.id]);
   await pool.query(
-    `INSERT INTO ad_checks (ad_id, cv_key, items, score, summary)
-     VALUES ($1, 'bevis-nyckel', '[{"name":"krav","cv_belagg":"B:s hemliga CV-rad"}]'::jsonb, 42, 'B:s checklista')`,
-    [ad.id]);
+    `INSERT INTO ad_checks (ad_id, profile_id, cv_key, items, score, summary)
+     VALUES ($1, $2, 'bevis-nyckel', '[{"name":"krav","cv_belagg":"B:s hemliga CV-rad"}]'::jsonb, 42, 'B:s checklista')`,
+    [ad.id, B.profileId]);
+  // B's own read of the shared ad, made with B's model on B's key.
+  await pool.query(
+    `INSERT INTO ad_reads (ad_id, profile_id, status, model, profile)
+     VALUES ($1, $2, 'ok', 'bevis', '{"headline":"B:s egen kravläsning"}'::jsonb)`,
+    [ad.id, B.profileId]);
   const { rows: [ans] } = await pool.query(
     `INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text, sent_to, sent_at)
      VALUES ($1, $2, $3, 'drafted', 'B:s ämne', 'B:s brev', NULL, NULL) RETURNING id`,
@@ -173,6 +178,8 @@ try {
   const annonsUtanSök = await anrop(A.cookie, 'GET', `/api/ads/${ad.id}`);
   kolla('… inte heller via reserven utan sökning',
     !annonsUtanSök.data?.check && !JSON.stringify(annonsUtanSök.data || {}).includes('hemliga'));
+  kolla('… och inte B:s läsning av annonsens krav',
+    ![annons, annonsUtanSök].some((r) => JSON.stringify(r.data || {}).includes('B:s egen kravläsning')));
 
   // ---- 4. A's lists and sums contain nothing of B's ----
   const listor = [

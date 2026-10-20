@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../../src/db.js';
 import { hashPassword, signSession, sessionCookieOptions, SESSION_COOKIE } from '../../../../src/auth.js';
+import { inloggningsläge } from '../../../../src/authMode.js';
+import { inomTakt, klientAdress, förMånga } from '../../../../src/takt.js';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req) {
+  // Password accounts exist only in the local password mode (CI and
+  // testing). In the hosted app, Google is the only way in — a working
+  // signup route here would be a way around it.
+  if (inloggningsläge() !== 'lösenord') {
+    return NextResponse.json({ error: 'finns inte' }, { status: 404 });
+  }
+  // Guessing passwords from one address stops here.
+  if (!(await inomTakt('inloggning', await klientAdress()))) return förMånga();
   const { name, email, password } = await req.json();
   const mail = email?.trim().toLowerCase();
   if (!mail || !/^\S+@\S+\.\S+$/.test(mail)) {

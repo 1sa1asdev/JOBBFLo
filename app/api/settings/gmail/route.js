@@ -3,6 +3,7 @@ import { pool } from '../../../../src/db.js';
 import { aktivProfilId } from '../../../../src/auth.js';
 import { encryptSecret } from '../../../../src/secrets.js';
 import { testaGmail, städaLösenord } from '../../../../src/credentials.js';
+import { inomTakt, klientAdress, förMånga } from '../../../../src/takt.js';
 
 export const dynamic = 'force-dynamic';
 // Two logins against Google, each with its own timeout.
@@ -41,6 +42,11 @@ export async function GET() {
 // next morning, one failed letter at a time.
 export async function PUT(req) {
   const profileId = await aktivProfilId();
+  // Two logins against Google each time; Google locks accounts that
+  // fail often, so a run of wrong passwords stops here first.
+  if (!(await inomTakt('gmailTest', profileId))) {
+    return förMånga('För många försök på en timme. Kontrollera applösenordet och försök igen senare.');
+  }
   const { password } = await req.json().catch(() => ({}));
   const pass = städaLösenord(password);
   if (!pass) return NextResponse.json({ error: 'Klistra in applösenordet.' }, { status: 400 });

@@ -30,10 +30,13 @@ import { brevlåda } from './imap.js';
 const STÄM_VAR = 60 * 1000;
 const KNAPP_VAR = 3000;
 
-// Who should have a mailbox. A stored password that Gmail accepted, and
-// a letter sent (or handed to Gmail) through the app.
+// Who should have a mailbox. A stored password that Gmail accepted, a
+// letter sent (or handed to Gmail) through the app, and an account the
+// operator has not blocked.
 const SKA_BEVAKAS = `
   p.gmail_verified_at IS NOT NULL
+  -- a blocked account's mailbox closes at the next comparison
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NOT NULL)
   AND p.gmail_app_password_enc IS NOT NULL
   AND EXISTS (SELECT 1 FROM applications a
               WHERE a.profile_id = p.id

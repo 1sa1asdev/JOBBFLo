@@ -94,8 +94,8 @@ export async function GET(req, { params }) {
   // Ranked by the criteria vector alone, and that is a measurement, not
   // an oversight.
   //
-  // ads.profile_embedding exists — the ad read into requirements,
-  // against the CV in the same shape — and blending it in looked like a
+  // A second vector existed — the ad read into requirements, against
+  // the CV in the same shape — and blending it in looked like a
   // clear win when both sides were embedded from raw text in a script
   // (0.26 against 0.45, correlating with the checklist's own scores).
   // On the vectors this app actually stores it is the other way round,
@@ -106,9 +106,9 @@ export async function GET(req, { params }) {
   //   criteria only     0.58      75/25 blend   0.56
   //   50/50 blend       0.54      profile only  0.48
   //
-  // So the profile vector is kept and written, and ranking does not use
-  // it yet. It is the raw material for per-requirement matching, where
-  // similarity has an actual job to do.
+  // So ranking never used it, and it was removed (migration 052): the
+  // platform paid to embed one user's read for nothing. Per-requirement
+  // matching, if it comes, starts from each user's own read.
   const { rows: [sv] } = await pool.query(
     `SELECT query_embedding FROM searches WHERE id = $1`, [id]);
   // The rows query binds $1 id, $2 limit, $3 offset, then lat/lon ONLY

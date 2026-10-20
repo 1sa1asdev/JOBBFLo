@@ -13,7 +13,8 @@ import Dots from './Dots';
 // The password is tested against both sending and reading before it is
 // saved, and never shown again afterwards — not even masked.
 // ------------------------------------------------------------
-export default function GmailSettings() {
+// onSaved: the onboarding guide moves on once a password passes.
+export default function GmailSettings({ onSaved } = {}) {
   const [data, setData] = useState(null);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(null);
@@ -30,6 +31,7 @@ export default function GmailSettings() {
       setData(await api('/api/settings/gmail', { method: 'PUT', body: { password } }));
       setPassword('');
       setSaved(true);
+      onSaved?.();
     } catch (e) { setError(e.message); }
     setBusy(null);
   }

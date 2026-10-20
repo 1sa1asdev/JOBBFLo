@@ -1,4 +1,3 @@
-import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
 
@@ -103,8 +102,35 @@ Svara ENDAST med JSON, inga kodstaket:
 // the app silently trusting it.
 const CITERADE = ['requires', 'tasks', 'domains', 'languages'];
 
+// ------------------------------------------------------------
+// Too thin to grade on.
+//
+// The cheap model's failure is completeness, not fidelity (measured
+// below), and paraphrase counts as thin: a requirement the user cannot
+// find in the ad is the row this step exists to avoid. Only for ads long
+// enough to hold more — a four-line ad with two requirements is not a
+// failed read, it is a short ad.
+//
+// Returns the reason in the words the card shows, or null.
+// ------------------------------------------------------------
+export function tunnLäsning(p, text) {
+  const antal = p?.requires?.length || 0;
+  // Counted AFTER the quote check, not before. The cheap model fills the
+  // evidence field almost every time — it just does not always quote:
+  // asked for the ad's words it writes its own, and 89 of 268 rows lost
+  // their quote at verification.
+  const belagda = (p?.requires || []).filter((r) => r.verbatim).length;
+  if (text.length <= 1200 || (antal >= 4 && belagda >= antal * 0.6)) return null;
+  return `${antal} krav, varav ${belagda} med ordagrant citat, i en annons på ${text.length} tecken`;
+}
+
 // profileId: whose key pays for the read — the user grading the ad.
-export async function buildAdProfile(ad, { profileId } = {}) {
+// läsare is the model call, injectable so the proof can run without one.
+//
+// The result carries how it went: __tom when there was nothing to read,
+// __otillförlitlig (the reason) when even the better model's read was
+// too thin to trust. The caller stores both and grades neither.
+export async function buildAdProfile(ad, { profileId, läsare = llmJson } = {}) {
   const text = [
     ad.title,
     ad.raw?.occupation?.label,
@@ -129,7 +155,7 @@ export async function buildAdProfile(ad, { profileId } = {}) {
       employment: { form: 'okänt', extent: 'okänt', start: null },
       location: { where: ad.municipality || null, remote: 'okänt' },
       dealbreakers: [],
-      __thin: true,
+      __tom: true,
     };
   }
 
@@ -163,7 +189,7 @@ export async function buildAdProfile(ad, { profileId } = {}) {
     return p;
   };
 
-  const läs = async (tier) => kontrollera(await llmJson({
+  const läs = async (tier) => kontrollera(await läsare({
     profileId,
     onModel: (m) => { usedModel = m; },
     tier,
@@ -174,17 +200,16 @@ export async function buildAdProfile(ad, { profileId } = {}) {
   }));
 
   let p = await läs('fast');
-  const antal = p?.requires?.length || 0;
-  // Counted AFTER the check, not before. The cheap model fills the
-  // evidence field almost every time — it just does not always quote:
-  // asked for the ad's words it writes its own, and 89 of 268 rows lost
-  // their quote at verification. A row the user cannot check is exactly
-  // what this step exists to avoid, so paraphrase counts as thin.
-  const belagda = (p?.requires || []).filter((r) => r.verbatim).length;
-  const tunt = text.length > 1200 && (antal < 4 || belagda < antal * 0.6);
+  const tunt = tunnLäsning(p, text);
   if (tunt) {
-    console.log(`  annonsprofil: ${antal} krav varav ${belagda} med ordagrant citat — läser om`);
+    console.log(`  annonsprofil: ${tunt} — läser om`);
     p = await läs('bulk');
+    // The better model's read was never checked: a still-thin read was
+    // stored and graded anyway, and the grade then judged the CV against
+    // a list that was missing most of what the ad asked for. Now it
+    // stops here, before anything is spent on grading it.
+    const fortfarandeTunt = tunnLäsning(p, text);
+    if (fortfarandeTunt) p.__otillförlitlig = fortfarandeTunt;
   }
   p.__model = usedModel;
   return p;
@@ -249,73 +274,4 @@ ${p.location.where}${p.location.remote && p.location.remote !== 'okänt' ? ` (di
     p.dealbreakers?.length && `## UTESLUTER UTAN
 ${p.dealbreakers.join('; ')}`,
   ].filter(Boolean).join('\n\n');
-}
-
-// ------------------------------------------------------------
-// Fill profiles in, newest and most-wanted first.
-//
-// Not all at once: the bulk tier is a free Groq model with a request
-// ceiling, so 36,000 ads is weeks of calls rather than an afternoon.
-// Ads that are candidates in a search come first, because those are the
-// ones anything actually reads; the rest fill in behind them and the
-// embedding improves as they do.
-// ------------------------------------------------------------
-export async function buildPendingAdProfiles({ limit = 20 } = {}) {
-  const { rows: ads } = await pool.query(
-    `SELECT a.id, a.title, a.employer, a.municipality, a.description, a.raw,
-            (SELECT count(*) FROM match_results m WHERE m.ad_id = a.id) AS i_sokningar
-     FROM ads a
-     WHERE a.ad_profile IS NULL
-       AND a.removed_at IS NULL
-       AND (a.deadline IS NULL OR a.deadline >= current_date)
-       -- Only ads a search actually holds. Reading all 43k into
-       -- profiles would cost about $30 and nothing would look at most
-       -- of them; the 1861 inside a search are what ranking and the
-       -- checklist both read, and the profile is paid for once either
-       -- way — here, or at the moment the ad is checked.
-       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)
-     ORDER BY (SELECT count(*) FROM match_results m WHERE m.ad_id = a.id) DESC,
-              a.published_at DESC NULLS LAST
-     LIMIT $1`,
-    [limit]
-  );
-  if (!ads.length) return { done: 0, thin: 0 };
-
-  let done = 0; let thin = 0;
-  for (const ad of ads) {
-    try {
-      const p = await buildAdProfile(ad);
-      await pool.query(
-        `UPDATE ads SET ad_profile = $2::jsonb, ad_profile_at = now(),
-           ad_profile_model = $3,
-           -- Only when the profile is what gets embedded. Clearing it
-           -- unconditionally would throw away a good vector and buy the
-           -- same one back, 37,000 times, for nothing.
-           embedding = CASE WHEN $4 THEN NULL ELSE embedding END
-         WHERE id = $1`,
-        [ad.id, JSON.stringify(p), p.__model || (p.__thin ? 'tunn' : null),
-         process.env.EMBED_FROM_PROFILE === '1']
-      );
-      if (p.__thin) thin += 1; else done += 1;
-    } catch (err) {
-      // Left NULL and retried later. A profile that cannot be built
-      // must not block the ad from being found, scored or sent to —
-      // everything downstream already handles its absence.
-      console.error(`ad-profil ${ad.id}: ${String(err.message).slice(0, 90)}`);
-    }
-  }
-  return { done, thin, kvar: await antalUtanProfil() };
-}
-
-// What is left to read, counted the way the builder selects: ads a
-// search holds. Counting the whole pool reported 42,000 outstanding
-// against a queue that will only ever touch 1,861 of them.
-export async function antalUtanProfil() {
-  const { rows: [r] } = await pool.query(
-    `SELECT count(*)::int AS n FROM ads a
-     WHERE a.ad_profile IS NULL AND a.removed_at IS NULL
-       AND (a.deadline IS NULL OR a.deadline >= current_date)
-       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)`
-  );
-  return r.n;
 }

@@ -422,10 +422,10 @@ if (!search.auto_apply_require_score) return 0;
   // read" than nothing at all. Ads with no embedding sort last rather
   // than dropping out — unranked is not disqualified.
   //
-  // The second vector (ads.profile_embedding, the ad's requirements
-  // against the CV in the same shape) is deliberately NOT blended in
-  // here. It looked like a large win in a script and measured worse on
-  // the vectors this app stores — the numbers are in the results route.
+  // A second vector (the ad's requirements against the CV in the same
+  // shape) was tried and is gone: it looked like a large win in a script
+  // and measured worse on the vectors this app stores — the numbers are
+  // in the results route.
   const ranked = search.query_embedding
     ? `ORDER BY (a.embedding IS NULL),
                 a.embedding <=> $3::vector,

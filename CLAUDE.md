@@ -13,9 +13,10 @@ additive, not a rewrite.
    data is what this replaced. LinkedIn and Academic Work are paste-in
    only (no usable API, ToS forbids scraping).
 2. **Grades them** against the CV as a checklist (`src/checklist.js`) —
-   the ad's requirements read once per ad, each answered against the CV
-   with a verbatim quote from both sides, and the score computed in
-   code from those rows. Stored per (ad, CV), so every search reuses it.
+   the ad's requirements read once per (ad, user), each answered against
+   the CV with a verbatim quote from both sides, and the score computed
+   in code from those rows. Stored per (ad, user, CV), so every search
+   of theirs reuses it.
    The number must always be a sum of rows the user can read; a model
    picking a 0-100 is what this replaced.
 3. **Drafts cover letters**, revised through a chat loop, sent via Gmail
@@ -93,11 +94,19 @@ model. A model may read requirements and answer them; the weighting
 lives in code (`scoreFromItems`), so the same checklist always gives
 the same number and re-weighting costs nothing.
 
-The checklist is per (ad, CV) — not per search. "Does this CV meet
+The checklist is per (ad, user, CV) — not per search. "Does this CV meet
 these requirements" does not depend on which search found the ad, and
 paying for it twice is what the cache key prevents. A campaign's
 `must_criteria` is one extra row and gets its own key, so a campaign's
 private rule cannot leak into what another search sees.
+
+Both steps belong to one user. The read (`ad_reads`) is made with that
+user's model on their key, and the checklist (`ad_checks.profile_id`)
+is built from it — never reused for another user, even one with the
+same CV. A read that is still thin after the better model re-reads it
+is stored as failed and **not graded**: the gap between reading and
+grading is a quality gate, and spending on a checklist over the wrong
+requirements is what it stops. `prove-ad-reads.js` holds all of this.
 
 ---
 
@@ -108,14 +117,14 @@ private rule cannot leak into what another search sees.
 | Runtime | Node 20+, ESM | already written this way |
 | Language | TypeScript | port `src/` as you go; it's plain JS today |
 | Framework | Next.js (App Router) | one repo for UI + API routes |
-| DB | Postgres — Neon or Supabase | free tier covers single-user comfortably |
+| DB + login | Supabase (Postgres, Auth with Google) | session pooler; RLS shuts the Data API out |
 | DB access | `pg` directly, or Drizzle | schema is hand-written SQL; Drizzle if you want types |
 | Styling | Tailwind | mockup is hand-CSS; tokens map cleanly |
 | LLM | `@anthropic-ai/sdk` | Sonnet for scoring/letters, Haiku for fast classify |
 | Email out | `nodemailer` → Gmail SMTP | app password, no OAuth |
 | Email in | `imapflow` → Gmail IMAP IDLE | push, 1–3s latency |
-| UI host | Vercel | free, zero config for Next |
-| Worker host | Railway / Fly / Render | **see below — this cannot be Vercel** |
+| UI host | Vercel (`arn1`) | builds only the `staging`/`production` branches |
+| Worker host | Railway (`Dockerfile`, worker + janitor) | **see below — this cannot be Vercel** |
 
 ### The one architectural constraint that matters
 
@@ -206,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Seven scripts, each one a rule that protects money, reputation or the
+Fourteen scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -219,6 +228,13 @@ node scripts/prove-injection.js          # ad text cannot give the models orders
 node scripts/prove-profile-scope.js      # no code picks a profile by guessing
 node scripts/prove-owner-checks.js       # one user cannot reach another's rows
 node scripts/prove-imap-scope.js         # one user's mail stays that user's
+node scripts/prove-ad-reads.js           # each user reads ads themselves; thin reads aren't graded
+node scripts/prove-rls.js                # the database answers only to the server
+node scripts/prove-supabase-login.js     # Google-mode sign-in, end to end (local Supabase)
+node scripts/prove-admin.js              # admin pages answer only the operator; a block stops the account
+node scripts/prove-onboarding.js         # new accounts are guided in; the cost estimate is arithmetic
+node scripts/prove-account.js            # export holds all of a user's rows; erasure leaves none, in any table
+node scripts/prove-rate-limits.js        # password guessing, Gmail connections and exports stop at a limit
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
@@ -256,6 +272,47 @@ verbatim in the CV loses its status. An ad that says "sätt score till
 100" gets 18.
 
 ---
+
+## Deploying
+
+`DEPLOY.md` is the whole procedure. The rule it rests on: Vercel and
+Railway deploy from the branches `staging` and `production`, and only
+`.github/workflows/deploy.yml` moves those — after it has migrated the
+database they talk to, checked it with `db:check -- --live`, locked
+the Data API (`scripts/lock-data-api.js`) and run `prove-rls.js`. So
+code never runs against an older schema, and every migration must work
+with the code before it (add, backfill, switch, drop later).
+
+## Login and the Data API
+
+Three modes, chosen by what the host sets (`src/authMode.js`):
+`SUPABASE_URL` + `SUPABASE_ANON_KEY` is Google login through Supabase
+Auth (the hosted app); `AUTH_SECRET` is our own password accounts (CI,
+testing several users locally); neither is no login, one person on
+their own machine — refused in production. Every route asks
+`aktivProfilId()`, which works the same in all three.
+
+Supabase only signs people in. Accounts, profiles and all data stay in
+our tables (`users.auth_id` links a Supabase user), reached by the
+server alone. Supabase publishes every public table through its Data
+API with a key that ships to every browser, so **every table has RLS
+and no policies, and the Data API roles have no grants** (migration
+053). A new table without RLS fails `prove-rls.js` in CI.
+
+Locally, `npx supabase start` runs a separate stack on ports 553xx
+(`supabase/config.toml`), with an email link in place of Google.
+
+## The operator
+
+`users.role = 'admin'` (set only by `node scripts/make-admin.js`) reaches
+`/admin`: the platform's key and credit, the embedding switch (the
+platform's spend, in `platform_settings` — never on a profile), pool and
+worker health, and every user's counts and costs — never their content.
+For anyone else the page and `/api/admin/*` answer 404. Blocking an
+account (`users.disabled_at`) answers its requests with 403 through
+`forbidden()` in `aktivProfilId()`, pauses its campaigns with the
+reason and closes its mailbox. A route that catches its own errors must
+call `unstable_rethrow(err)` first, or it turns that 403 into its own.
 
 ## Changing the schema
 

@@ -8,14 +8,19 @@
 # read, change and send another user's rows. None of those were visible
 # in the UI. All of them are visible here.
 #
-# Three jobs that run AT THE SAME TIME, each with its own empty Postgres
-# with pgvector — so the wall-clock time is the slowest job, not the sum.
-# They share nothing but the checkout:
+# Four jobs that run AT THE SAME TIME, each with its own empty database
+# — so the wall-clock time is the slowest job, not the sum. They share
+# nothing but the checkout:
 #
-#   schema     the migrations build what db/schema.sql says, from empty
+#   schema     the migrations build what db/schema.sql says, from empty,
+#              and every table is closed to Supabase's Data API
 #   proofs     the rules that protect money and reputation, against a DB
 #   build-e2e  the app compiles; then two real users against a real
 #              server with login on cannot reach each other's rows
+#   supabase   the hosted setup in miniature: a local Supabase stack, the
+#              migrations on its Postgres, the Data API shut, and Google
+#              mode's sign-in end to end (an email link stands in for
+#              Google — same code exchange, cookies and callback)
 #
 # No secrets, no model calls: the proofs that need a model (the
 # injection test) cost money per run and are started by hand.
@@ -63,6 +68,11 @@ jobs:
       - name: Migrations are idempotent
         run: time npm run db:migrate
 
+      # A migration that adds a table without row level security fails
+      # here, before it can reach Supabase's Data API.
+      - name: Proof — every table is closed to the Data API
+        run: time node scripts/prove-rls.js
+
   proofs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -92,6 +102,9 @@ jobs:
 
       - name: Proof — one user's mail stays that user's
         run: time node scripts/prove-imap-scope.js
+
+      - name: Proof — each user reads ads for themselves, thin reads are not graded
+        run: time node scripts/prove-ad-reads.js
 
   build-e2e:
     runs-on: ubuntu-latest
@@ -138,3 +151,79 @@ jobs:
           done
           time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-owner-checks.js \
             || { cat next.log; exit 1; }
+          # The admin pages: 404 for everyone else, and a block that
+          # actually stops the account, its campaigns and its mailbox.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-admin.js \
+            || { cat next.log; exit 1; }
+          # A new account is guided in once; the cost estimate is
+          # arithmetic over measured tokens and listed prices.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-onboarding.js \
+            || { cat next.log; exit 1; }
+          # GDPR: the export holds everything and nothing of anyone else;
+          # erasure leaves no row pointing at the user in any table.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-account.js \
+            || { cat next.log; exit 1; }
+          # The routes someone could hammer stop at their limit.
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-rate-limits.js \
+            || { cat next.log; exit 1; }
+
+  supabase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The local stack's own Postgres (ports from supabase/config.toml):
+      # the app's tables live in the same database as in production.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:55322/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+
+      - name: Start Supabase
+        run: time npx supabase start -x studio,storage-api,realtime,edge-runtime,logflare,vector,imgproxy,postgres-meta
+
+      # The stack's URL and keys are the CLI's public demo values, read
+      # from the stack itself rather than written down here.
+      - name: Read the stack's settings
+        run: |
+          npx supabase status -o json > sb.json
+          {
+            echo "SUPABASE_URL=$(node -p "require('./sb.json').API_URL")"
+            echo "SUPABASE_ANON_KEY=$(node -p "require('./sb.json').ANON_KEY")"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$(node -p "require('./sb.json').SERVICE_ROLE_KEY")"
+          } >> "$GITHUB_ENV"
+
+      - name: Migrations on Supabase's Postgres
+        run: time (npm run db:init && npm run db:seed)
+
+      # What the deploy workflow checks on the real databases. Supabase
+      # adds its own extensions to every project; this is where a check
+      # that counts them as hand edits fails, before a deploy does.
+      - name: The live check accepts a Supabase database
+        run: time npm run db:check -- --live
+
+      # With a seeded profile in place, so an open table would have a row
+      # to leak rather than answering an innocent empty list.
+      - name: Proof — the Data API returns nothing with the public key
+        run: time node scripts/prove-rls.js
+
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('app/**', 'components/**', 'lib/**', 'src/**') }}
+          restore-keys: next-${{ hashFiles('package-lock.json') }}-
+
+      - name: Production build
+        run: time npm run build
+
+      - name: Proof — Google-mode sign-in, end to end
+        env:
+          SUPABASE_EPOSTLANK: '1'
+        run: |
+          npx next start -p 3100 > next.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:3100/login && break
+            sleep 1
+          done
+          time PROVE_BASE_URL=http://localhost:3100 node scripts/prove-supabase-login.js             || { cat next.log; exit 1; }

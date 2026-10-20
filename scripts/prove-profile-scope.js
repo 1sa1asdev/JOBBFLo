@@ -113,17 +113,27 @@ kolla('no user AI keys or models read from the environment', !aiUrMiljön.length
 // does any route handed an adId in the request. A new route that forgets
 // fails here, not in production; scripts/prove-owner-checks.js then
 // proves the checks hold at runtime.
+//
+// The admin routes act on any user's account by design, so their check
+// is a different one: every route under api/admin asks adminProfilId()
+// (src/auth.js) — the operator — and one that forgets fails here.
 const utanÄgarkontroll = [];
+const adminUtanKontroll = [];
 for (const f of filer('app/api')) {
   if (!/route\.js$/.test(f)) continue;
   const väg = f.replace(/^app[\\/]api[\\/]/, '').replace(/[\\/]route\.js$/, '');
   const kod = readFileSync(f, 'utf8');
+  if (/^admin([\\/]|$)/.test(väg)) {
+    if (!/adminProfilId\(\)/.test(kod)) adminUtanKontroll.push(väg);
+    continue;
+  }
   const tarId = /\[id\]/.test(väg) || /\bsearchId\b/.test(kod) || /\badId\b/.test(kod);
   // No \b before "ä": JavaScript's word boundary only knows ASCII, so it
   // never matches there and every route looked unchecked.
   if (tarId && !/ägareAv(Sökning|Ansökan|Förslag|Bilaga|Annons)\(/.test(kod)) utanÄgarkontroll.push(väg);
 }
 kolla('every route taking someone\'s id checks the owner', !utanÄgarkontroll.length, utanÄgarkontroll.join(', '));
+kolla('every admin route checks for the operator', !adminUtanKontroll.length, adminUtanKontroll.join(', '));
 kolla('every model call says whose it is', !anropUtanÄgare.length, anropUtanÄgare.join(', '));
 
 // ------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId, ägareAvSökning, inteHittad } from '../../../src/auth.js';
 import { pool } from '../../../src/db.js';
 import { extractCvText, looksLikeCv } from '../../../src/cv.js';
@@ -79,6 +80,7 @@ export async function POST(req) {
       warning: check.ok ? null : check.why,
     });
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 }

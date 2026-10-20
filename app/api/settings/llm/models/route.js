@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId } from '../../../../../src/auth.js';
 import { pool } from '../../../../../src/db.js';
 import { PROVIDERS } from '../../../../../src/providers.js';
@@ -87,6 +88,7 @@ export async function GET(req) {
       blocked: await blockedModels(await aktivProfilId()),
     });
   } catch (err) {
+    unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json(
       { error: `kunde inte nå ${baseUrl} (${err.message.slice(0, 60)})`, models: [] },
       { status: 200 }

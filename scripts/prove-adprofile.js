@@ -15,6 +15,10 @@ import 'dotenv/config';
 import { pool } from '../src/db.js';
 import { embedTexts, adEmbedText } from '../src/embed.js';
 import { buildAdProfile, renderAdProfile } from '../src/adprofile.js';
+import { endaProfilId } from '../src/owner.js';
+
+// Reads are paid for by a user; this one is the only profile's.
+const profileId = process.argv[2] || await endaProfilId();
 
 const JOBB = {
   'fullstack-utvecklare': {
@@ -102,11 +106,11 @@ const rader = [];
 for (const [jobb, varianter] of Object.entries(JOBB)) {
   for (const f of format) {
     const ad = { title: jobb, employer: 'Mockbolaget AB', municipality: 'Stockholm', description: varianter[f], raw: {} };
-    const profil = await buildAdProfile(ad);
+    const profil = await buildAdProfile(ad, { profileId });
     rader.push({
       jobb,
       f,
-      ratext: adEmbedText({ ...ad, ad_profile: null }),
+      ratext: adEmbedText(ad),
       profiltext: renderAdProfile(profil),
       // Third variant: the structure AND the ad's own distinctive
       // words. The shared section headers are what compress the space

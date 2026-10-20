@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 051.
+-- Baseline covers migrations up to 043; latest migration 057.
 -- ============================================================
 
 --
@@ -49,8 +49,15 @@ CREATE TABLE public.ad_checks (
     summary text,
     must_missing text[],
     model text,
-    checked_at timestamp with time zone DEFAULT now() NOT NULL
+    checked_at timestamp with time zone DEFAULT now() NOT NULL,
+    profile_id uuid NOT NULL
 );
+
+--
+-- Name: COLUMN ad_checks.profile_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_checks.profile_id IS 'Whose checklist. Built from that user''s own read of the ad (ad_reads) and their CV; never reused for another user, even one with the same CV text.';
 
 --
 -- Name: ad_contacts; Type: TABLE; Schema: public; Owner: -
@@ -86,6 +93,39 @@ CREATE TABLE public.ad_opens (
 COMMENT ON TABLE public.ad_opens IS 'When a user last opened an ad''s application link from inside the app. Per user: it used to sit on the shared ad, where one user''s click showed for everyone.';
 
 --
+-- Name: ad_reads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ad_reads (
+    ad_id uuid NOT NULL,
+    profile_id uuid NOT NULL,
+    status text NOT NULL,
+    model text,
+    profile jsonb,
+    reason text,
+    read_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ad_reads_status_check CHECK ((status = ANY (ARRAY['ok'::text, 'misslyckad'::text, 'tom'::text])))
+);
+
+--
+-- Name: TABLE ad_reads; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.ad_reads IS 'One user''s read of one ad''s requirements (src/adprofile.js), made on that user''s key with their model and never shown to anyone else. Keyed without the model on purpose: a read that passed the thin-read gate stays good when the user changes model, and "Försök igen" reads again with the current one.';
+
+--
+-- Name: COLUMN ad_reads.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_reads.status IS 'ok: graded on. misslyckad: even the better model''s read was too thin to trust, so nothing was graded and the queue does not pay to read it again — "Försök igen" does. tom: the ad has no text to read; nothing was paid.';
+
+--
+-- Name: COLUMN ad_reads.reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ad_reads.reason IS 'Why a read failed, in words the user reads on the card.';
+
+--
 -- Name: ads; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -115,12 +155,7 @@ CREATE TABLE public.ads (
     embedded_at timestamp with time zone,
     apply_email_source text,
     apply_email_found_at timestamp with time zone,
-    ad_profile jsonb,
-    ad_profile_at timestamp with time zone,
-    ad_profile_model text,
     fts tsvector GENERATED ALWAYS AS (to_tsvector('swedish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(description, ''::text)))) STORED,
-    profile_embedding public.vector(768),
-    profile_embedded_at timestamp with time zone,
     owner_profile_id uuid,
     CONSTRAINT ads_apply_email_source_check CHECK ((apply_email_source = ANY (ARRAY['api'::text, 'scanned'::text, 'manual'::text]))),
     CONSTRAINT ads_source_check CHECK ((source = ANY (ARRAY['platsbanken'::text, 'linkedin'::text, 'academicwork'::text, 'manual'::text])))
@@ -179,12 +214,6 @@ COMMENT ON COLUMN public.ads.embedding_model IS 'Which model produced this vecto
 --
 
 COMMENT ON COLUMN public.ads.apply_email_source IS 'api = published by Arbetsförmedlingen; scanned = read off the ad page and confirmed by the user; manual = typed in by hand.';
-
---
--- Name: COLUMN ads.ad_profile; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ads.ad_profile IS 'The ad read into the CV profile''s vocabulary — see src/adprofile.js. Used for embedding and grading so both sides of the comparison have the same shape.';
 
 --
 -- Name: COLUMN ads.owner_profile_id; Type: COMMENT; Schema: public; Owner: -
@@ -384,6 +413,43 @@ COMMENT ON TABLE public.email_messages IS 'The thread, both directions.';
 --
 
 COMMENT ON COLUMN public.email_messages.imap_uid IS 'For catch-up since the last seen UID after a dropped IDLE connection.';
+
+--
+-- Name: error_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.error_log (
+    id bigint NOT NULL,
+    at timestamp with time zone DEFAULT now() NOT NULL,
+    "källa" text NOT NULL,
+    "väg" text,
+    metod text,
+    meddelande text NOT NULL,
+    digest text
+);
+
+--
+-- Name: TABLE error_log; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.error_log IS 'Uncaught errors: app requests (instrumentation.js onRequestError) and the worker/janitor (process handlers). Shown on /admin, deleted after 30 days. No bodies, no user ids — the path and the message only.';
+
+--
+-- Name: error_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.error_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+--
+-- Name: error_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.error_log_id_seq OWNED BY public.error_log.id;
 
 --
 -- Name: imap_state; Type: TABLE; Schema: public; Owner: -
@@ -599,6 +665,23 @@ CREATE TABLE public.never_apply (
 COMMENT ON TABLE public.never_apply IS 'One user''s "never apply". Keyed on (profile, FINGERPRINT), not ad_id, so a repost with a fresh external_id stays hidden — for that user only.';
 
 --
+-- Name: platform_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.platform_settings (
+    key text NOT NULL,
+    value jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_by uuid
+);
+
+--
+-- Name: TABLE platform_settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.platform_settings IS 'Settings that belong to the platform, not to any user: changed on the admin page (src/platform.js). embeddings_enabled: whether the worker embeds new ads and rebuilds query vectors — the operator''s spend.';
+
+--
 -- Name: poll_state; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -619,7 +702,7 @@ COMMENT ON TABLE public.poll_state IS 'One global JobStream cursor: all searches
 -- Name: postcode_coords; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.postcode_coords AS
+CREATE VIEW public.postcode_coords WITH (security_invoker='true') AS
  SELECT replace(((raw -> 'workplace_address'::text) ->> 'postcode'::text), ' '::text, ''::text) AS postcode,
     avg(lat) AS lat,
     avg(lon) AS lon,
@@ -666,12 +749,13 @@ CREATE TABLE public.profile (
     cv_embedding_model text,
     cv_embedded_at timestamp with time zone,
     daily_score_limit integer DEFAULT 400 NOT NULL,
-    embeddings_enabled boolean DEFAULT false NOT NULL,
     monthly_budget_usd numeric(10,2),
     gmail_app_password_enc text,
     gmail_verified_at timestamp with time zone,
     gmail_error text,
     gmail_error_at timestamp with time zone,
+    google_refresh_token_enc text,
+    onboarded_at timestamp with time zone,
     CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
 );
 
@@ -730,12 +814,6 @@ COMMENT ON COLUMN public.profile.home_label IS 'What the user typed (postcode or
 COMMENT ON COLUMN public.profile.daily_score_limit IS 'Most ads that may be scored in one calendar day. Counted from match_results.scored_at; finding ads is free and not counted.';
 
 --
--- Name: COLUMN profile.embeddings_enabled; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.profile.embeddings_enabled IS 'Whether the worker may spend money embedding ads. False = the embed tick is skipped entirely; existing vectors are retained untouched.';
-
---
 -- Name: COLUMN profile.monthly_budget_usd; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -758,6 +836,18 @@ COMMENT ON COLUMN public.profile.gmail_verified_at IS 'When a login to Gmail wit
 --
 
 COMMENT ON COLUMN public.profile.gmail_error IS 'Last reason Gmail refused this user''s app password, after which their mail loop stopped. Cleared when a new password is saved.';
+
+--
+-- Name: COLUMN profile.google_refresh_token_enc; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.google_refresh_token_enc IS 'Google OAuth refresh token from sign-in, encrypted (src/secrets.js). Unused until Gmail access over OAuth is approved.';
+
+--
+-- Name: COLUMN profile.onboarded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.onboarded_at IS 'When the user finished (or skipped through) the first-run guide at /valkommen. NULL sends them there from the start page.';
 
 --
 -- Name: projects; Type: TABLE; Schema: public; Owner: -
@@ -784,6 +874,22 @@ COMMENT ON TABLE public.projects IS 'The user''s projects, matched against ads. 
 --
 
 COMMENT ON COLUMN public.projects.summary IS 'One paragraph, used in letters.';
+
+--
+-- Name: rate_limits; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rate_limits (
+    nyckel text NOT NULL,
+    "fönster" timestamp with time zone NOT NULL,
+    antal integer DEFAULT 1 NOT NULL
+);
+
+--
+-- Name: TABLE rate_limits; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rate_limits IS 'Fixed-window request counts per key — "login:<ip>", "sync:<profile>". A key holds no more than an IP address or a profile id, and a window older than a day is deleted.';
 
 --
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
@@ -981,7 +1087,7 @@ COMMENT ON COLUMN public.searches.send_from IS 'Start of the daily sending windo
 -- Name: search_results; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.search_results AS
+CREATE VIEW public.search_results WITH (security_invoker='true') AS
  SELECT m.search_id,
     a.id AS ad_id,
     a.title,
@@ -1057,8 +1163,12 @@ CREATE TABLE public.taxonomy_vectors (
 CREATE TABLE public.users (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     email text NOT NULL,
-    password_hash text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    password_hash text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    auth_id uuid,
+    role text DEFAULT 'user'::text NOT NULL,
+    disabled_at timestamp with time zone,
+    CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))
 );
 
 --
@@ -1068,11 +1178,41 @@ CREATE TABLE public.users (
 COMMENT ON TABLE public.users IS 'Login identity. One account = one profile.';
 
 --
+-- Name: COLUMN users.password_hash; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.password_hash IS 'scrypt hash, local password mode only (CI and development). NULL for Google accounts.';
+
+--
+-- Name: COLUMN users.auth_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.auth_id IS 'The Supabase Auth user (auth.users.id) this account signs in as. NULL for local password accounts.';
+
+--
+-- Name: COLUMN users.role; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages, platform settings and every user''s usage. Set by hand: node scripts/make-admin.js <email>.';
+
+--
+-- Name: COLUMN users.disabled_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.users.disabled_at IS 'Blocked by the operator. Sign-in is refused (403), campaigns are paused with the reason, the mailbox closes. Cleared to let them back in; campaigns stay paused for the user to restart.';
+
+--
+-- Name: error_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.error_log ALTER COLUMN id SET DEFAULT nextval('public.error_log_id_seq'::regclass);
+
+--
 -- Name: ad_checks ad_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.ad_checks
-    ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, cv_key);
+    ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, profile_id, cv_key);
 
 --
 -- Name: ad_contacts ad_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1087,6 +1227,13 @@ ALTER TABLE ONLY public.ad_contacts
 
 ALTER TABLE ONLY public.ad_opens
     ADD CONSTRAINT ad_opens_pkey PRIMARY KEY (profile_id, ad_id);
+
+--
+-- Name: ad_reads ad_reads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_pkey PRIMARY KEY (ad_id, profile_id);
 
 --
 -- Name: ads ads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1143,6 +1290,13 @@ ALTER TABLE ONLY public.campaign_messages
 
 ALTER TABLE ONLY public.email_messages
     ADD CONSTRAINT email_messages_pkey PRIMARY KEY (id);
+
+--
+-- Name: error_log error_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.error_log
+    ADD CONSTRAINT error_log_pkey PRIMARY KEY (id);
 
 --
 -- Name: imap_state imap_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1222,6 +1376,13 @@ ALTER TABLE ONLY public.never_apply
     ADD CONSTRAINT never_apply_pkey PRIMARY KEY (profile_id, fingerprint);
 
 --
+-- Name: platform_settings platform_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.platform_settings
+    ADD CONSTRAINT platform_settings_pkey PRIMARY KEY (key);
+
+--
 -- Name: poll_state poll_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1248,6 +1409,13 @@ ALTER TABLE ONLY public.profile
 
 ALTER TABLE ONLY public.projects
     ADD CONSTRAINT projects_pkey PRIMARY KEY (id);
+
+--
+-- Name: rate_limits rate_limits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rate_limits
+    ADD CONSTRAINT rate_limits_pkey PRIMARY KEY (nyckel, "fönster");
 
 --
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1283,6 +1451,13 @@ ALTER TABLE ONLY public.suggested_replies
 
 ALTER TABLE ONLY public.taxonomy_vectors
     ADD CONSTRAINT taxonomy_vectors_pkey PRIMARY KEY (type, concept_id);
+
+--
+-- Name: users users_auth_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_auth_id_key UNIQUE (auth_id);
 
 --
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1339,12 +1514,6 @@ CREATE INDEX ads_latlon ON public.ads USING btree (lat, lon) WHERE (lat IS NOT N
 --
 
 CREATE INDEX ads_needs_embedding ON public.ads USING btree (published_at DESC NULLS LAST) WHERE ((embedding IS NULL) AND (removed_at IS NULL));
-
---
--- Name: ads_needs_profile_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_needs_profile_idx ON public.ads USING btree (published_at DESC NULLS LAST) WHERE ((ad_profile IS NULL) AND (removed_at IS NULL));
 
 --
 -- Name: ads_open_deadline_idx; Type: INDEX; Schema: public; Owner: -
@@ -1405,12 +1574,6 @@ CREATE INDEX ads_open_worktime_c_idx ON public.ads USING btree ((((raw -> 'worki
 --
 
 CREATE INDEX ads_owner ON public.ads USING btree (owner_profile_id) WHERE (owner_profile_id IS NOT NULL);
-
---
--- Name: ads_profile_vec_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_profile_vec_idx ON public.ads USING hnsw (profile_embedding public.vector_cosine_ops) WHERE (removed_at IS NULL);
 
 --
 -- Name: ads_source_external; Type: INDEX; Schema: public; Owner: -
@@ -1479,6 +1642,12 @@ CREATE INDEX email_messages_inreplyto ON public.email_messages USING btree (in_r
 CREATE INDEX email_messages_msgid ON public.email_messages USING btree (message_id);
 
 --
+-- Name: error_log_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX error_log_at ON public.error_log USING btree (at DESC);
+
+--
 -- Name: lead_scans_ok; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1540,6 +1709,13 @@ ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
 
 --
+-- Name: ad_checks ad_checks_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_checks
+    ADD CONSTRAINT ad_checks_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
 -- Name: ad_contacts ad_contacts_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1566,6 +1742,20 @@ ALTER TABLE ONLY public.ad_opens
 
 ALTER TABLE ONLY public.ad_opens
     ADD CONSTRAINT ad_opens_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_reads ad_reads_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_reads ad_reads_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_reads
+    ADD CONSTRAINT ad_reads_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
 -- Name: ads ads_owner_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -1722,6 +1912,13 @@ ALTER TABLE ONLY public.never_apply
     ADD CONSTRAINT never_apply_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
+-- Name: platform_settings platform_settings_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.platform_settings
+    ADD CONSTRAINT platform_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+--
 -- Name: profile profile_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1762,6 +1959,186 @@ ALTER TABLE ONLY public.suggested_replies
 
 ALTER TABLE ONLY public.suggested_replies
     ADD CONSTRAINT suggested_replies_reply_to_id_fkey FOREIGN KEY (reply_to_id) REFERENCES public.email_messages(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_checks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_checks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_contacts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_opens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_opens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_reads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ad_reads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: applications; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: attachments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.attachments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: auto_apply_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auto_apply_log ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: campaign_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.campaign_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: email_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.email_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: error_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.error_log ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: imap_state; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.imap_state ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: imap_sync_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.imap_sync_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: interview_prep; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.interview_prep ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: lead_scans; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.lead_scans ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: letter_versions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.letter_versions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: llm_usage; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.llm_usage ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: match_results; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.match_results ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: never_apply; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.never_apply ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: platform_settings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: poll_state; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.poll_state ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: profile; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.profile ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: projects; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rate_limits; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: schema_migrations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: search_messages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.search_messages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: searches; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.searches ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: suggested_replies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.suggested_replies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: taxonomy_vectors; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.taxonomy_vectors ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: users; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
 --
 -- PostgreSQL database dump complete

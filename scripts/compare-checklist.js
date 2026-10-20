@@ -64,7 +64,7 @@ function spearman(a, b) {
   return täljare / Math.sqrt(sa * sb);
 }
 
-const { rows: [p] } = await pool.query(`SELECT cv_text, cv_profile FROM profile LIMIT 1`);
+const { rows: [p] } = await pool.query(`SELECT id, cv_text, cv_profile FROM profile LIMIT 1`);
 const cvRenderad = renderCvProfile(p.cv_profile) || p.cv_text || '';
 
 // Ads with a verdict from the old scorer, still open, spread across the
@@ -93,7 +93,7 @@ const rader = [];
 
 for (const ad of urval) {
   try {
-    const r = await checkAd(ad, { cvText: p.cv_text, cvProfile: p.cv_profile, force: true });
+    const r = await checkAd(ad, { cvText: p.cv_text, cvProfile: p.cv_profile, profileId: p.id, force: true });
     const annonstext = adTextShownToModel(ad);
     const medBelagg = (r.items || []).filter((i) => i.evidence).length;
     const svarade = (r.items || []).filter((i) => i.status === 'uppfyllt' || i.status === 'delvis');

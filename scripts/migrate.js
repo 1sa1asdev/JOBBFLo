@@ -39,6 +39,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { anslutning } from '../src/dbConfig.js';
 
 const DB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'db');
 const MIGRATIONS = join(DB_DIR, 'migrations');
@@ -91,7 +92,7 @@ function args(argv) {
 }
 
 async function connect(url) {
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client(anslutning(url));
   await client.connect();
   // Notices from IF NOT EXISTS and friends are noise on every run.
   await client.query('SET client_min_messages = warning');

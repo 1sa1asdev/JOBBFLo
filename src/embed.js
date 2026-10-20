@@ -1,5 +1,4 @@
 import { pool } from './db.js';
-import { renderAdProfile } from './adprofile.js';
 
 // ------------------------------------------------------------
 // Embeddings: the free half of matching.
@@ -132,44 +131,16 @@ const toVector = (v) => `[${v.join(',')}]`;
 // most of the signal and the description adds context; the tail of a
 // long ad is benefits boilerplate that dilutes the vector.
 export function adEmbedText(ad) {
-  // The profile when the ad has one, raw text until then.
+  // The ad's own words, never a user's read of them.
   //
-  // This is the half of the symmetry that decides ranking. A search
-  // vector is built from criteria; an ad vector built from raw prose
-  // shares a space with it only insofar as two writing styles happen to
-  // share vocabulary. Built from the profile, the ad is
-  // "## ROLL / ## KRAV / ## UPPGIFTER" in the same field words the CV
-  // profile uses — so a care ad and care experience land near each
-  // other because they say the same thing, not because the ad's prose
-  // happened to sound like a CV.
-  //
-  // Falling back rather than waiting: profiles fill in over days
-  // against a rate-limited model, and an ad with no vector is invisible
-  // to ranking, which is worse than one ranked from its own prose.
-  // Off by default, and the measurement is why. scripts/prove-adprofile.js
-  // embeds the same three jobs written three ways — an AF notice,
-  // Teamtailor marketing copy, a scraped fragment — and reports two
-  // numbers. Three runs:
-  //
-  //            format dependence      discrimination
-  //   run 1    -52%                   -16%
-  //   run 2    -22%                   -19%
-  //   run 3    -48%                   -14%
-  //
-  // The profile does what it was built for: the format stops deciding.
-  // But it costs discrimination every single time — the gap between the
-  // right job and the wrong ones narrows 14–20%, because every ad
-  // rendered into "## ROLL / ## KRAV / ## UPPGIFTER" reads a little
-  // more like every other ad. Ranking exists to separate; a 15% loss
-  // there is not paid for by a gain that swings between 22% and 52%
-  // depending on what the profile model felt like that minute.
-  //
-  // So the profile is built, stored and used — it just does not decide
-  // ranking yet. Turn this on to try it: EMBED_FROM_PROFILE=1.
-  if (ad.ad_profile && process.env.EMBED_FROM_PROFILE === '1') {
-    const rendered = renderAdProfile(ad.ad_profile);
-    if (rendered) return rendered;
-  }
+  // Building this vector from the requirement read (EMBED_FROM_PROFILE)
+  // was tried and measured: scripts/prove-adprofile.js embedded the same
+  // three jobs written three ways, and the read cut format dependence by
+  // 22–52% but cost 14–20% discrimination every run — every ad rendered
+  // into "## ROLL / ## KRAV" reads a little like every other ad. It was
+  // never switched on, and it cannot be now: reads belong to the user
+  // who made them (ad_reads), and this vector is the shared pool's,
+  // paid for by the platform.
   return [
     ad.title,
     ad.occupation,
@@ -186,7 +157,6 @@ export function adEmbedText(ad) {
 export async function embedPendingAds({ limit = 64 } = {}) {
   const { rows: ads } = await pool.query(
     `SELECT a.id, a.title, a.employer, a.municipality, a.description,
-            a.ad_profile,
             a.raw->'occupation'->>'label' AS occupation
      FROM ads a
      -- Never pay to embed an ad that can no longer be applied to. This
@@ -209,48 +179,6 @@ export async function embedPendingAds({ limit = 64 } = {}) {
        WHERE id = $1`,
       [ad.id, toVector(vectors[i]), `${cfg.provider}:${cfg.model}`]
     );
-  }
-  return ads.length;
-}
-
-// ------------------------------------------------------------
-// The second vector: the ad read as requirements, in the same shape
-// the CV is read into.
-//
-// Separate from `embedding` on purpose. That one keeps the ad's own
-// words and answers "is this the kind of job I searched for", which is
-// the question a rendered profile is measurably worse at — every ad
-// turned into "## ROLL / ## KRAV" reads a little like every other ad,
-// and discrimination drops 14-20% (the measurement is above).
-//
-// This one answers the other question: could this candidate do the job.
-// Against the checklist's scores on 23 ads, ad text vs criteria
-// correlates 0.26 and this correlates 0.45.
-//
-// Only ads a search actually holds are profiled and embedded — 1861
-// ads rather than 43k, because reading every ad in Sweden into a
-// profile would cost $30 and nothing would look at most of them.
-// ------------------------------------------------------------
-export async function embedPendingProfiles({ limit = 96 } = {}) {
-  const { rows: ads } = await pool.query(
-    `SELECT a.id, a.ad_profile FROM ads a
-     WHERE a.ad_profile IS NOT NULL
-       AND a.removed_at IS NULL
-       AND (a.deadline IS NULL OR a.deadline >= current_date)
-       AND (a.profile_embedding IS NULL OR a.profile_embedded_at < a.ad_profile_at)
-       AND EXISTS (SELECT 1 FROM match_results m WHERE m.ad_id = a.id)
-     ORDER BY a.ad_profile_at DESC NULLS LAST
-     LIMIT $1`, [limit]);
-  if (!ads.length) return 0;
-
-  const { renderAdProfile } = await import('./adprofile.js');
-  const texter = ads.map((a) => renderAdProfile(a.ad_profile) || '');
-  const vektorer = await embedTexts(texter);
-
-  for (const [i, ad] of ads.entries()) {
-    await pool.query(
-      `UPDATE ads SET profile_embedding = $2::vector, profile_embedded_at = now()
-       WHERE id = $1`, [ad.id, toVector(vektorer[i])]);
   }
   return ads.length;
 }

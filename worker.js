@@ -18,7 +18,11 @@ import { checkFollowups } from './src/followups.js';
 import { runAllAutoApply, requestVerdicts } from './src/autoapply.js';
 import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
-import { embedPendingAds, embedPendingProfiles, embedSearchQuery } from './src/embed.js';
+import { embeddingsPåslagna } from './src/platform.js';
+import { fångaProcessfel } from './src/fellogg.js';
+
+fångaProcessfel('worker');
+import { embedPendingAds, embedSearchQuery } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
@@ -182,9 +186,8 @@ async function drainTick() {
 let embedQuiet = false;
 async function embedTick() {
   try {
-    const { rows: [p] } = await pool.query(
-      `SELECT embeddings_enabled FROM profile LIMIT 1`);
-    if (!p?.embeddings_enabled) return;
+    // The platform's spend, switched on the admin page (src/platform.js).
+    if (!(await embeddingsPåslagna())) return;
 
     // A changed purpose must not keep ranking against the old one, and
     // that cannot wait for the daily tick — the user changes criteria
@@ -200,12 +203,6 @@ async function embedTick() {
         .then(() => console.log(`embed: sökvektor för "${s2.name}"`))
         .catch((e) => console.error(`embed sökvektor ${s2.name}:`, e.message.slice(0, 90)));
     }
-
-    // The second vector: the ad as requirements, against the CV in the
-    // same shape. Cheap (an embedding, not a model call) and only for
-    // ads that have a profile at all.
-    const np = await embedPendingProfiles({ limit: 96 });
-    if (np) console.log(`embed: ${np} kravprofiler vektoriserade`);
 
     const n = await embedPendingAds({ limit: 64 });
     if (n) {
@@ -227,9 +224,8 @@ async function embedTick() {
 // rebuilding a query vector costs money like any other embedding.
 async function vectorsTick() {
   try {
-    const { rows: [p] } = await pool.query(
-      `SELECT embeddings_enabled FROM profile LIMIT 1`);
-    if (!p?.embeddings_enabled) return;
+    // The platform's spend, switched on the admin page (src/platform.js).
+    if (!(await embeddingsPåslagna())) return;
     // Expired vectors are released by retireClosedAds, which also
     // covers withdrawn ads and runs whether or not embeddings are on.
     await refreshQueryVectors();
