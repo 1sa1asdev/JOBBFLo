@@ -71,11 +71,13 @@ export async function POST(req) {
 
   const { rows: [ad] } = await pool.query(
     `INSERT INTO ads (source, external_id, fingerprint, title, employer, employer_type,
-       description, apply_email, municipality, published_at)
-     VALUES ('manual', NULL, $1, $2, $3, 'private', $4, $5, $6, now())
+       description, apply_email, municipality, published_at, owner_profile_id)
+     VALUES ('manual', NULL, $1, $2, $3, 'private', $4, $5, $6, now(), $7)
      RETURNING id, title, employer, apply_email`,
     [fingerprint({ employer: emp, title: headline, municipality: municipality || null }),
-     headline, emp, body, addr, String(municipality || '').trim() || null]
+     headline, emp, body, addr, String(municipality || '').trim() || null,
+     // private: only the maker's searches see it — the address is theirs
+     search.profile_id]
   );
 
   // Into the campaign's queue as a candidate. score stays NULL — see

@@ -108,7 +108,15 @@ export async function GET(req, { params }) {
   // similarity has an actual job to do.
   const { rows: [sv] } = await pool.query(
     `SELECT query_embedding FROM searches WHERE id = $1`, [id]);
-  const rankBy = sv?.query_embedding ? '$6::vector' : null;
+  // The rows query binds $1 id, $2 limit, $3 offset, then lat/lon ONLY
+  // when the user has a home (distSql is NULL otherwise and names no
+  // placeholder), then the query vector. The vector's index follows
+  // from that instead of being hardcoded as $6: with lat/lon always
+  // bound, every user without a home got a 500 on their whole result
+  // list — a new user's first search came back empty. The fourth time
+  // this one has turned up here, so the indexes are now derived.
+  const vektorIdx = hasHome ? 6 : 4;
+  const rankBy = sv?.query_embedding ? `$${vektorIdx}::vector` : null;
 
   const orderSql = sort === 'distance' && hasHome
     ? `${rowDist} ASC NULLS LAST, r.score DESC NULLS LAST`
@@ -123,7 +131,7 @@ export async function GET(req, { params }) {
   // $6 only exists when the order actually references it. Binding a
   // parameter the SQL does not mention is a hard Postgres error, not a
   // no-op — this has cost a route on this project more than once.
-  const args = [id, limit, offset, me?.home_lat ?? 0, me?.home_lon ?? 0];
+  const args = [id, limit, offset, ...(hasHome ? [me.home_lat, me.home_lon] : [])];
   if (rankBy && sort !== 'distance') args.push(sv.query_embedding);
 
   // counts query binds: $1 id, $2 lat, $3 lon
@@ -138,7 +146,8 @@ export async function GET(req, { params }) {
        -- opened the ad's own link from here, or wrote a letter for it.
        -- Without either, marking it applied is a claim about something
        -- the user has not done yet.
-       (a.apply_url_opened_at IS NOT NULL) AS link_opened,
+       EXISTS (SELECT 1 FROM ad_opens o
+               WHERE o.ad_id = r.ad_id AND o.profile_id = sr.profile_id) AS link_opened,
        (app.letter_text IS NOT NULL)       AS has_letter,
        a.lat, a.lon,
        a.raw->'workplace_address'->>'street_address' AS street,
@@ -160,7 +169,7 @@ export async function GET(req, { params }) {
      JOIN match_results m ON m.search_id = r.search_id AND m.ad_id = r.ad_id
      JOIN ads a ON a.id = r.ad_id
      JOIN searches sr ON sr.id = r.search_id
-     LEFT JOIN applications app ON app.ad_id = r.ad_id
+     LEFT JOIN applications app ON app.ad_id = r.ad_id AND app.profile_id = sr.profile_id
      WHERE ${where}
      ORDER BY ${orderSql}, r.ad_id
      LIMIT $2 OFFSET $3`,

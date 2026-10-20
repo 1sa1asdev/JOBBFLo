@@ -415,15 +415,21 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
 // duplicate check: flag, never silently merge. Hiding a job
 // the user hasn't seen is worse than showing a dupe.
 // ------------------------------------------------------------
-export async function findDuplicates(adId) {
+// Other postings of the same job, as ONE user sees them: their own
+// application status, and never another user's private ads. This used
+// to join every user's applications, so a duplicate showed whoever had
+// applied to it as if the viewer had.
+export async function findDuplicates(adId, profileId) {
+  if (!profileId) throw new Error('findDuplicates: profileId krävs');
   const { rows } = await pool.query(
     `SELECT b.id, b.title, b.employer, b.deadline, app.status, app.sent_at
      FROM ads a
      JOIN ads b ON b.fingerprint = a.fingerprint AND b.id <> a.id
-     LEFT JOIN applications app ON app.ad_id = b.id
+       AND (b.owner_profile_id IS NULL OR b.owner_profile_id = $2)
+     LEFT JOIN applications app ON app.ad_id = b.id AND app.profile_id = $2
      WHERE a.id = $1
      ORDER BY b.published_at DESC`,
-    [adId]
+    [adId, profileId]
   );
   return rows;
 }

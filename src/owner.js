@@ -81,3 +81,10 @@ export const ägerFörslag = (suggestionId, profileId) => finns(
 export const ägerBilaga = (attachmentId, profileId) => finns(
   `SELECT 1 FROM attachments WHERE id = $1 AND profile_id = $2`,
   [attachmentId, profileId]);
+
+// An ad is visible to a user when it is in the shared pool, or when it
+// is one they added themselves. Another user's manual ad answers like
+// an ad that does not exist.
+export const serAnnons = (adId, profileId) => finns(
+  `SELECT 1 FROM ads WHERE id = $1 AND (owner_profile_id IS NULL OR owner_profile_id = $2)`,
+  [adId, profileId]);

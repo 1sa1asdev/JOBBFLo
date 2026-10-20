@@ -332,7 +332,8 @@ async function drainQueue(searchId, { limit }) {
   const { rows: ads } = await pool.query(
     `SELECT a.* FROM match_results m
      JOIN ads a ON a.id = m.ad_id
-     LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint
+     JOIN searches s ON s.id = m.search_id
+     LEFT JOIN never_apply na ON na.fingerprint = a.fingerprint AND na.profile_id = s.profile_id
      WHERE m.search_id = $1
        AND m.score_requested_at IS NOT NULL  -- the gate: no explicit request, no spend
        AND m.score IS NULL

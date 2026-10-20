@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 046.
+-- Baseline covers migrations up to 043; latest migration 049.
 -- ============================================================
 
 --
@@ -53,6 +53,22 @@ CREATE TABLE public.ad_checks (
 );
 
 --
+-- Name: ad_opens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ad_opens (
+    profile_id uuid NOT NULL,
+    ad_id uuid NOT NULL,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
+-- Name: TABLE ad_opens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.ad_opens IS 'When a user last opened an ad''s application link from inside the app. Per user: it used to sit on the shared ad, where one user''s click showed for everyone.';
+
+--
 -- Name: ads; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -82,13 +98,13 @@ CREATE TABLE public.ads (
     embedded_at timestamp with time zone,
     apply_email_source text,
     apply_email_found_at timestamp with time zone,
-    apply_url_opened_at timestamp with time zone,
     ad_profile jsonb,
     ad_profile_at timestamp with time zone,
     ad_profile_model text,
     fts tsvector GENERATED ALWAYS AS (to_tsvector('swedish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(description, ''::text)))) STORED,
     profile_embedding public.vector(768),
     profile_embedded_at timestamp with time zone,
+    owner_profile_id uuid,
     CONSTRAINT ads_apply_email_source_check CHECK ((apply_email_source = ANY (ARRAY['api'::text, 'scanned'::text, 'manual'::text]))),
     CONSTRAINT ads_source_check CHECK ((source = ANY (ARRAY['platsbanken'::text, 'linkedin'::text, 'academicwork'::text, 'manual'::text])))
 );
@@ -148,16 +164,16 @@ COMMENT ON COLUMN public.ads.embedding_model IS 'Which model produced this vecto
 COMMENT ON COLUMN public.ads.apply_email_source IS 'api = published by Arbetsförmedlingen; scanned = read off the ad page and confirmed by the user; manual = typed in by hand.';
 
 --
--- Name: COLUMN ads.apply_url_opened_at; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ads.apply_url_opened_at IS 'Last time the user opened this ad''s application link from inside the app. Gates the "✓ Sökt" button.';
-
---
 -- Name: COLUMN ads.ad_profile; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.ads.ad_profile IS 'The ad read into the CV profile''s vocabulary — see src/adprofile.js. Used for embedding and grading so both sides of the comparison have the same shape.';
+
+--
+-- Name: COLUMN ads.owner_profile_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ads.owner_profile_id IS 'NULL for the shared pool (JobStream and the snapshot). Set for an ad a user added by hand: only that user''s searches see it, and other users get a 404 on it.';
 
 --
 -- Name: applications; Type: TABLE; Schema: public; Owner: -
@@ -525,14 +541,15 @@ COMMENT ON COLUMN public.match_results.score_requested_at IS 'The user asked for
 CREATE TABLE public.never_apply (
     fingerprint text NOT NULL,
     reason text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    profile_id uuid NOT NULL
 );
 
 --
 -- Name: TABLE never_apply; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.never_apply IS 'Keyed on FINGERPRINT, not ad_id, so a repost with a fresh external_id stays suppressed.';
+COMMENT ON TABLE public.never_apply IS 'One user''s "never apply". Keyed on (profile, FINGERPRINT), not ad_id, so a repost with a fresh external_id stays hidden — for that user only.';
 
 --
 -- Name: poll_state; Type: TABLE; Schema: public; Owner: -
@@ -937,14 +954,14 @@ CREATE VIEW public.search_results AS
      JOIN public.searches s ON ((s.id = m.search_id)))
      JOIN public.ads a ON ((a.id = m.ad_id)))
      LEFT JOIN public.applications app ON (((app.ad_id = a.id) AND (app.profile_id = s.profile_id))))
-     LEFT JOIN public.never_apply na ON ((na.fingerprint = a.fingerprint)))
+     LEFT JOIN public.never_apply na ON (((na.fingerprint = a.fingerprint) AND (na.profile_id = s.profile_id))))
   WHERE (a.removed_at IS NULL);
 
 --
 -- Name: VIEW search_results; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON VIEW public.search_results IS 'The query that fixes the predecessor''s bug: application status is a JOIN, not a sync. Same ad in two searches: two scores, one status.';
+COMMENT ON VIEW public.search_results IS 'The query that fixes the predecessor''s bug: application status is a JOIN, not a sync. Same ad in two searches: two scores, one status. Application and "suppressed" are the search owner''s own.';
 
 --
 -- Name: suggested_replies; Type: TABLE; Schema: public; Owner: -
@@ -1001,6 +1018,13 @@ COMMENT ON TABLE public.users IS 'Login identity. One account = one profile.';
 
 ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_pkey PRIMARY KEY (ad_id, cv_key);
+
+--
+-- Name: ad_opens ad_opens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_opens
+    ADD CONSTRAINT ad_opens_pkey PRIMARY KEY (profile_id, ad_id);
 
 --
 -- Name: ads ads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1126,7 +1150,7 @@ ALTER TABLE ONLY public.match_results
 --
 
 ALTER TABLE ONLY public.never_apply
-    ADD CONSTRAINT never_apply_pkey PRIMARY KEY (fingerprint);
+    ADD CONSTRAINT never_apply_pkey PRIMARY KEY (profile_id, fingerprint);
 
 --
 -- Name: poll_state poll_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1308,6 +1332,12 @@ CREATE INDEX ads_open_region_c_idx ON public.ads USING btree ((((raw -> 'workpla
 CREATE INDEX ads_open_worktime_c_idx ON public.ads USING btree ((((raw -> 'working_hours_type'::text) ->> 'concept_id'::text))) WHERE (removed_at IS NULL);
 
 --
+-- Name: ads_owner; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ads_owner ON public.ads USING btree (owner_profile_id) WHERE (owner_profile_id IS NOT NULL);
+
+--
 -- Name: ads_profile_vec_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1441,6 +1471,27 @@ ALTER TABLE ONLY public.ad_checks
     ADD CONSTRAINT ad_checks_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
 
 --
+-- Name: ad_opens ad_opens_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_opens
+    ADD CONSTRAINT ad_opens_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE CASCADE;
+
+--
+-- Name: ad_opens ad_opens_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ad_opens
+    ADD CONSTRAINT ad_opens_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
+-- Name: ads ads_owner_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ads
+    ADD CONSTRAINT ads_owner_profile_id_fkey FOREIGN KEY (owner_profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
+
+--
 -- Name: applications applications_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1565,6 +1616,13 @@ ALTER TABLE ONLY public.match_results
 
 ALTER TABLE ONLY public.match_results
     ADD CONSTRAINT match_results_search_id_fkey FOREIGN KEY (search_id) REFERENCES public.searches(id) ON DELETE CASCADE;
+
+--
+-- Name: never_apply never_apply_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.never_apply
+    ADD CONSTRAINT never_apply_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE CASCADE;
 
 --
 -- Name: profile profile_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

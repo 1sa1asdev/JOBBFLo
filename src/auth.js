@@ -3,7 +3,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypt
 import { cookies } from 'next/headers';
 import { pool } from './db.js';
 import { NextResponse } from 'next/server';
-import { endaProfilId, ägerSökning, ägerAnsökan, ägerFörslag, ägerBilaga } from './owner.js';
+import { endaProfilId, ägerSökning, ägerAnsökan, ägerFörslag, ägerBilaga, serAnnons } from './owner.js';
 
 // ------------------------------------------------------------
 // Accounts. Zero external deps:
@@ -144,5 +144,8 @@ export const ägareAvSökning = ägareAv(ägerSökning);
 export const ägareAvAnsökan = ägareAv(ägerAnsökan);
 export const ägareAvFörslag = ägareAv(ägerFörslag);
 export const ägareAvBilaga = ägareAv(ägerBilaga);
+// For ads it is "may this user see it", not "do they own it": the pool
+// is everyone's, a manual ad only its maker's.
+export const ägareAvAnnons = ägareAv(serAnnons);
 
 export const inteHittad = (vad = 'finns inte') => NextResponse.json({ error: vad }, { status: 404 });
