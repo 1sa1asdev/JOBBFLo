@@ -24,3 +24,6 @@ db/seed.local.sql
 
 # Supabase local stack secrets (OAuth client ids etc.)
 supabase/.env
+
+# Supabase CA certificates for the hosted projects (scripts/setup-supabase.js)
+supabase/*.crt
