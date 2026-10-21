@@ -4,6 +4,7 @@ import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås } from './src/ensam.js';
+import { version } from './src/version.js';
 
 fångaProcessfel('janitor');
 
@@ -113,11 +114,26 @@ if (!(await väntaPåLås(låskoppling, LÅS, 'janitor', { signal: avbryt.signal
 }
 
 console.log('jobbflo janitor startar');
+
+// A heartbeat with the commit it runs, once a minute — started before
+// the first round, because a snapshot takes minutes and a janitor busy
+// with one is alive, not stuck. The deploy workflow reads it to confirm
+// a release reached the janitor too (scripts/verify-deploy.js).
+const puls = async () => {
+  await pool.query(
+    `INSERT INTO poll_state (key, last_run_at, note) VALUES ('janitor_alive', now(), $1)
+     ON CONFLICT (key) DO UPDATE SET last_run_at = now(), note = EXCLUDED.note`, [version()])
+    .catch((e) => console.error('janitor-puls:', e.message));
+};
+await puls();
+const pulsTimer = setInterval(puls, 60_000);
+
 await varv();
 const timer = setInterval(varv, STÄD_VARJE);
 
 const stäng = async () => {
   clearInterval(timer);
+  clearInterval(pulsTimer);
   låskoppling.release();
   await pool.end();
   process.exit(0);

@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Seventeen scripts, each one a rule that protects money, reputation or the
+Eighteen scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -238,6 +238,7 @@ node scripts/prove-rate-limits.js        # password guessing, Gmail connections 
 node scripts/prove-history-move.js       # a user's local history moves into their cloud account whole, and into nobody else's
 node scripts/prove-single-instance.js    # a deploy leaves exactly one worker and one janitor, never none
 node scripts/prove-ai-matning.js         # every AI call is measured by task and link, at the price actually charged
+node scripts/prove-deploy-verify.js      # a deploy is green only when app, worker and janitor run the released commit
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
