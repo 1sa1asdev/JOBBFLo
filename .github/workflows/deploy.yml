@@ -33,6 +33,15 @@
 #   SUPABASE_ANON_KEY  ditto — the public key, used to prove it reads nothing
 #   DATABASE_CA_CERT   Supabase's CA certificate (PEM text), so the connection
 #                      is encrypted and the server verified
+#
+# And for checking that the release runs (all optional, DEPLOY.md §8):
+#   vars    APP_URL               the environment's address; /api/health
+#           VERIFY_WORKER=true    also wait for the worker and janitor
+#           RAILWAY_WORKER_SERVICE / RAILWAY_JANITOR_SERVICE
+#                                 their names on Railway, if not "worker"/"janitor"
+#   secrets VERCEL_DEPLOY_HOOK    Vercel's deploy hook for the branch
+#           RAILWAY_TOKEN         a Railway project token for the environment
+#           VERCEL_BYPASS         if the deployment is behind Vercel's login
 # ------------------------------------------------------------
 name: Deploy
 
@@ -63,7 +72,9 @@ jobs:
           && github.event.workflow_run.event == 'push')
         || (github.event_name == 'workflow_dispatch' && inputs.miljo == 'staging'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # migrations and checks take minutes; waiting for the release to
+    # come up takes up to 15 more (scripts/verify-deploy.js)
+    timeout-minutes: 30
     environment: staging
     concurrency: { group: deploy-staging, cancel-in-progress: false }
     env:
@@ -98,13 +109,32 @@ jobs:
       - name: Deploy — move the staging branch
         run: git push --force origin "$SHA:refs/heads/staging"
 
+      # Moving the branch only asks Vercel and Railway to build. On 21 Oct
+      # Railway was down when it moved, this run went green, and the
+      # worker ran the old code for hours. This waits until the app, the
+      # worker and the janitor answer with this commit, nudges a host that
+      # missed the push, and fails if one never does.
+      - name: The release is running
+        if: vars.APP_URL != '' || vars.VERIFY_WORKER == 'true'
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          VERIFY_WORKER: ${{ vars.VERIFY_WORKER }}
+          RAILWAY_WORKER_SERVICE: ${{ vars.RAILWAY_WORKER_SERVICE }}
+          RAILWAY_JANITOR_SERVICE: ${{ vars.RAILWAY_JANITOR_SERVICE }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_BYPASS }}
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: node scripts/verify-deploy.js "$SHA"
+
   production:
     if: >-
       vars.DEPLOY_ENABLED == 'true' && (
         github.event_name == 'release'
         || (github.event_name == 'workflow_dispatch' && inputs.miljo == 'production'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # migrations and checks take minutes; waiting for the release to
+    # come up takes up to 15 more (scripts/verify-deploy.js)
+    timeout-minutes: 30
     # Required reviewers on this environment make a person approve
     # before anything below runs.
     environment: production
@@ -146,3 +176,20 @@ jobs:
 
       - name: Deploy — move the production branch
         run: git push --force origin "HEAD:refs/heads/production"
+
+      # Moving the branch only asks Vercel and Railway to build. On 21 Oct
+      # Railway was down when it moved, this run went green, and the
+      # worker ran the old code for hours. This waits until the app, the
+      # worker and the janitor answer with this commit, nudges a host that
+      # missed the push, and fails if one never does.
+      - name: The release is running
+        if: vars.APP_URL != '' || vars.VERIFY_WORKER == 'true'
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          VERIFY_WORKER: ${{ vars.VERIFY_WORKER }}
+          RAILWAY_WORKER_SERVICE: ${{ vars.RAILWAY_WORKER_SERVICE }}
+          RAILWAY_JANITOR_SERVICE: ${{ vars.RAILWAY_JANITOR_SERVICE }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_BYPASS }}
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: node scripts/verify-deploy.js "$(git rev-parse HEAD)"

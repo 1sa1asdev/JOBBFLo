@@ -126,6 +126,10 @@ jobs:
       - name: Proof — every AI call is measured by task, at the price charged
         run: time node scripts/prove-ai-matning.js
 
+      # A fake Vercel and Railway; the release must answer with its commit.
+      - name: Proof — a deploy is green only when the release runs
+        run: time node scripts/prove-deploy-verify.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
+import { version } from '../../../src/version.js';
 
 export const dynamic = 'force-dynamic';
 
 // ------------------------------------------------------------
 // For an uptime monitor: is the database reachable, and has the worker
 // checked in lately. Public on purpose (middleware.js) and therefore
-// says nothing else — no counts, no users, no versions.
+// says nothing else — no counts and no users. The commit it runs is
+// shown, because the deploy workflow needs it and it is no secret:
+// the repository is the same code.
 //
 // 503 when the database does not answer; the worker's silence is
 // reported but does not fail the check, because the UI still works
@@ -23,6 +26,8 @@ export async function GET() {
       ok: true,
       databas_ms: Date.now() - start,
       worker: workerSekunder != null && workerSekunder < 120 ? 'lever' : 'tyst',
+      // which commit this deployment runs — the deploy workflow waits for it
+      version: version(),
     }, { headers: { 'cache-control': 'no-store' } });
   } catch {
     return NextResponse.json({ ok: false, databas: 'svarar inte' }, { status: 503 });

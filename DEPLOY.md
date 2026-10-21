@@ -191,7 +191,8 @@ Båda bygger `Dockerfile` (Node 22). Variabler per miljö: `DATABASE_URL`,
 `PLATFORM_OPENROUTER_API_KEY`, `JOBSTREAM_API_KEY`, `TZ=Europe/Stockholm`.
 
 Bara **en** worker per miljö: den tar ett rådgivande lås, och en andra
-avslutar sig själv. Janitorns dagliga ögonblicksbild är några hundra MB, så
+väntar tills låset blir ledigt. Så tar en ny deploy över när Railway
+stänger den gamla, utan att det någonsin står noll workers. Janitorns dagliga ögonblicksbild är några hundra MB, så
 ge den minst 1 GB minne.
 
 ---
@@ -241,6 +242,39 @@ gren → PR → CI grönt → merge → staging (automatiskt) → testa → rele
 Migrationer körs medan den förra koden fortfarande är igång. De måste
 därför fungera med koden före dem: lägg till, fyll i, byt över, och ta bort
 det gamla först i en senare release. Byt aldrig namn på något direkt.
+
+### Att releasen faktiskt kör
+
+Att grenen flyttas betyder bara att Vercel och Railway ombeds bygga. Den
+21 okt låg Railway nere när `production` flyttades: körningen blev grön,
+appen körde den nya koden och workern den gamla i flera timmar, utan att
+något sa det.
+
+Därför slutar `deploy.yml` med att vänta tills appen (`/api/health`),
+workern och janitorn svarar med just den commit som släpptes
+(`scripts/verify-deploy.js`). Workern och janitorn skriver sin commit med
+sina hjärtslag, och bara den som håller låset slår, så en ny version där
+betyder att den nya containern har tagit över. Efter 5 minuter puffas den
+som släpar en gång, och efter 15 blir körningen röd och säger vilken del
+som inte kom upp.
+
+Per miljö under **Settings → Environments** (allt är valfritt; utan
+`APP_URL` och `VERIFY_WORKER` hoppas steget över):
+
+| Typ | Namn | Värde |
+|---|---|---|
+| Variabel | `APP_URL` | `https://jobbflo.vercel.app` (staging: grenens adress i Vercel) |
+| Variabel | `VERIFY_WORKER` | `true` där worker och janitor körs på Railway |
+| Variabel | `RAILWAY_WORKER_SERVICE`, `RAILWAY_JANITOR_SERVICE` | tjänsternas namn på Railway, om de inte heter `worker` och `janitor` |
+| Hemlighet | `VERCEL_DEPLOY_HOOK` | Vercel → Settings → Git → **Deploy Hooks**, en för grenen |
+| Hemlighet | `RAILWAY_TOKEN` | Railway → projektet → Settings → **Tokens**, en projekttoken för miljön |
+| Hemlighet | `VERCEL_BYPASS` | bara om miljön ligger bakom Vercels inloggning: Settings → Deployment Protection → **Protection Bypass for Automation** |
+
+Blir steget rött för workern eller janitorn: titta på
+[status.railway.com](https://status.railway.com) och tjänstens Deployments,
+tryck **Redeploy** när Railway är uppe, och kör arbetsflödet igen
+(Actions → Deploy → Run workflow) — migrationerna är redan gjorda och
+körs om utan att något ändras.
 
 ---
 

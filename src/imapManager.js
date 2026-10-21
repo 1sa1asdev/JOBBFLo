@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { brevlåda } from './imap.js';
+import { version } from './version.js';
 
 // ------------------------------------------------------------
 // One mailbox per user, kept in step with who should have one.
@@ -106,10 +107,11 @@ export function postansvarig({ skapa = brevlåda } = {}) {
   // microseconds and the "this request" match below never matched.
   async function svaraPåKnappar() {
     // How the route knows whether anyone is listening at all. Belongs
-    // to the process, not to any user.
+    // to the process, not to any user. The note says which commit this
+    // worker runs, which is how a release is confirmed live.
     await pool.query(
-      `INSERT INTO poll_state (key, last_run_at) VALUES ('imap_worker_alive', now())
-       ON CONFLICT (key) DO UPDATE SET last_run_at = now()`);
+      `INSERT INTO poll_state (key, last_run_at, note) VALUES ('imap_worker_alive', now(), $1)
+       ON CONFLICT (key) DO UPDATE SET last_run_at = now(), note = EXCLUDED.note`, [version()]);
     if (!lådor.size) return;
     const { rows } = await pool.query(
       `UPDATE imap_sync_requests SET outcome = 'pågår'
