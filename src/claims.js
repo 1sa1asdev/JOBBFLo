@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // Does the letter claim things the CV cannot back?
@@ -79,11 +80,13 @@ quote MÅSTE vara kopierad ordagrant ur brevet, max 20 ord. Ta bara med
 påståenden som är ostyrkta eller motsagda — styrkta behöver inte
 redovisas. Hittar du inga, svara {"claims":[]}.`;
 
-export async function checkClaims({ letter, cvText, cvProfile = null, profileId }) {
+export async function checkClaims({ letter, cvText, cvProfile = null, profileId, koppling = {} }) {
   if (!letter?.trim() || !cvText?.trim()) return { claims: [], checked: false };
 
   const r = await llmJson({
     profileId,
+    uppgift: UPPGIFT.BREV_KONTROLL,
+    koppling,
     // Measured, not assumed. On 'fast' this flagged "substitut-
     // vårdbiträde i Åtvidabergs kommun" as unsupported against a CV
     // that names Åtvidaberg — six letters produced 21 flags, most of
@@ -153,6 +156,7 @@ export async function checkApplicationClaims(applicationId) {
   const r = await checkClaims({
     letter: app.letter_text, cvText: app.cv_text, cvProfile: app.cv_profile,
     profileId: app.profile_id,
+    koppling: { applicationId },
   });
 
   await pool.query(

@@ -122,6 +122,10 @@ jobs:
       - name: Proof — a deploy leaves exactly one worker, never none
         run: time node scripts/prove-single-instance.js
 
+      # A fake OpenAI-compatible server stands in for OpenRouter.
+      - name: Proof — every AI call is measured by task, at the price charged
+        run: time node scripts/prove-ai-matning.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

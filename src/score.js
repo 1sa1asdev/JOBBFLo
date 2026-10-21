@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // LAYER 1 — natural language -> structured API filters.
@@ -81,6 +82,7 @@ Ett tomt sökresultat är värre än ett brett — hellre 200 annonser att bedö
 export async function parseCriteria(criteriaText, { profileId } = {}) {
   return llmJson({
     profileId,
+    uppgift: UPPGIFT.KRITERIER_TOLKA,
     tier: 'bulk',
     maxTokens: 1000,
     system: FILTER_SYSTEM,

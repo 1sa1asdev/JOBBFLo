@@ -1,5 +1,6 @@
 import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // The ad, read into the same shape as the CV.
@@ -191,6 +192,8 @@ export async function buildAdProfile(ad, { profileId, läsare = llmJson } = {}) 
 
   const läs = async (tier) => kontrollera(await läsare({
     profileId,
+    uppgift: UPPGIFT.LÄSA_KRAV,
+    koppling: { adId: ad.id },
     onModel: (m) => { usedModel = m; },
     tier,
     // Long ads truncated the JSON at 2500 and the whole read was lost.

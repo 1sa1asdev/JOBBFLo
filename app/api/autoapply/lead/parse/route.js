@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
 import { llmJson } from '../../../../../src/llm.js';
 import { aktivProfilId } from '../../../../../src/auth.js';
+import { UPPGIFT } from '../../../../../src/uppgifter.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -73,6 +74,7 @@ export async function POST(req) {
   try {
     r = await llmJson({
       profileId: await aktivProfilId(),
+      uppgift: UPPGIFT.LEAD_TOLKA,
       tier: 'fast',
       maxTokens: 3000,
       system: SYSTEM,

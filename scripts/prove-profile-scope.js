@@ -69,6 +69,11 @@ const AI_ENV = new RegExp(
 // config for the "test this key" button. A call without one would fall
 // back to "the only profile", which refuses the day there are two.
 const anropUtanÄgare = [];
+// And what it is for (src/uppgifter.js, llm_usage.uppgift): a call that
+// does not say leaves a hole in the measured cost of a judged ad or a
+// campaign, which is what the budget is built on.
+const { KÄNDA_UPPGIFTER, UPPGIFT } = await import('../src/uppgifter.js');
+const anropUtanUppgift = [];
 function anropsArgument(kod, start) {
   const i = kod.indexOf('{', start);
   if (i < 0) return '';
@@ -91,12 +96,13 @@ for (const dir of ['src', 'app', 'lib']) {
     if (/process\.env\.GMAIL_(USER|APP_PASSWORD)\b/.test(kod)) gmailUrMiljön.push(f);
     if (!/[\\/]embed\.js$/.test(f) && AI_ENV.test(kod)) aiUrMiljön.push(f);
     if (!/[\\/]llm\.js$/.test(f)) {
-      for (const m of kod.matchAll(/\b(llmJson|llmText|fråga)\(\s*\{/g)) {
+      for (const m of kod.matchAll(/\b(llmJson|llmText|fråga|läsare)\(\s*\{/g)) {
         const arg = anropsArgument(kod, m.index);
-        if (!/\bprofileId\b|\bconfig\b/.test(arg)) {
-          const rad = kod.slice(0, m.index).split('\n').length;
-          anropUtanÄgare.push(`${f}:${rad}`);
-        }
+        const rad = kod.slice(0, m.index).split('\n').length;
+        if (!/\bprofileId\b|\bconfig\b/.test(arg)) anropUtanÄgare.push(`${f}:${rad}`);
+        // And what it is for — a known task from src/uppgifter.js.
+        const u = arg.match(/\buppgift:\s*UPPGIFT\.([A-ZÅÄÖ_]+)/);
+        if (!u || !KÄNDA_UPPGIFTER.has(UPPGIFT[u[1]])) anropUtanUppgift.push(`${f}:${rad}`);
       }
     }
   }
@@ -135,6 +141,7 @@ for (const f of filer('app/api')) {
 kolla('every route taking someone\'s id checks the owner', !utanÄgarkontroll.length, utanÄgarkontroll.join(', '));
 kolla('every admin route checks for the operator', !adminUtanKontroll.length, adminUtanKontroll.join(', '));
 kolla('every model call says whose it is', !anropUtanÄgare.length, anropUtanÄgare.join(', '));
+kolla('every model call says what it is for', !anropUtanUppgift.length, anropUtanUppgift.join(', '));
 
 // ------------------------------------------------------------
 // dynamic — one profile: everything answers as before

@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { llmJson, llmText } from './llm.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // Inbound reply handling: classify fast (Haiku, ~1s, so the
@@ -16,9 +17,11 @@ Svara ENDAST med JSON, inga kodstaket:
 - "rejected": tack-men-nej, gått vidare med andra kandidater.
 - "replied": allt annat (bekräftelse, följdfråga, begäran om komplettering).`;
 
-export async function classifyReply(emailBody, { subject = '', profileId } = {}) {
+export async function classifyReply(emailBody, { subject = '', profileId, koppling = {} } = {}) {
   return llmJson({
     profileId,
+    uppgift: UPPGIFT.SVAR_KLASSA,
+    koppling,
     tier: 'fast',
     maxTokens: 300,
     system: CLASSIFY_SYSTEM,
@@ -52,6 +55,8 @@ export async function draftReply(applicationId, inboundEmailId) {
 
   const raw = await llmText({
     profileId: app.profile_id,
+    uppgift: UPPGIFT.SVAR_UTKAST,
+    koppling: { applicationId },
     tier: 'write',
     maxTokens: 1000,
     system: REPLY_SYSTEM,
@@ -107,6 +112,8 @@ export async function generateInterviewPrep(applicationId) {
 
   const prep = await llmJson({
     profileId: app.profile_id,
+    uppgift: UPPGIFT.INTERVJU,
+    koppling: { applicationId },
     tier: 'write',
     maxTokens: 1500,
     system: PREP_SYSTEM,

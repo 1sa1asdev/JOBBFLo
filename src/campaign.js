@@ -2,6 +2,7 @@ import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { ensureLetterShape } from './letters.js';
 import { adressFör } from './addresses.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // The campaign letter: ONE letter, written by the user and the AI
@@ -126,7 +127,8 @@ export async function writeCampaignLetter(searchId, instruction = null) {
   }
 
   const draft = await llmJson({
-    profileId: ctx.s.profile_id, tier: 'write', maxTokens: 2000, system: CAMPAIGN_SYSTEM, messages,
+    profileId: ctx.s.profile_id, uppgift: UPPGIFT.KAMPANJ_CHATT, koppling: { searchId },
+    tier: 'write', maxTokens: 2000, system: CAMPAIGN_SYSTEM, messages,
   });
   // ctx.s carries the profile's name/email/phone: the SELECT lists them
   // after s.*, so they win over the search's own `name` column. Passing

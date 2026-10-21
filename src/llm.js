@@ -134,7 +134,7 @@ export async function configFor(provider, primary) {
 
 // ---------- transports ----------
 async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens,
-                                     provider, tier, hink, profileId }) {
+                                     provider, tier, hink, profileId, uppgift, koppling }) {
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -146,6 +146,9 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
       model,
       max_tokens: maxTokens,
       messages: [{ role: 'system', content: system }, ...messages],
+      // OpenRouter then reports what the call actually cost, which is
+      // what the budget is measured in — not tokens × a list price.
+      ...(provider === 'openrouter' ? { usage: { include: true } } : {}),
     }),
   });
 
@@ -204,10 +207,11 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
   // its own errors for the same reason.
   import('./prices.js')
     .then(({ recordUsage }) => recordUsage({
-      provider, model, tier, profileId,
+      provider, model, tier, profileId, uppgift, koppling,
       promptTokens: data.usage?.prompt_tokens,
       completionTokens: data.usage?.completion_tokens,
       totalTokens: used,
+      rapporteradUsd: Number.isFinite(data.usage?.cost) ? data.usage.cost : null,
     }))
     .catch(() => {});
 
@@ -324,11 +328,16 @@ const estimateTokens = (system, messages, maxTokens) =>
     + messages.reduce((s, m) => s + String(m.content || '').length, 0)) / 3.6) + (maxTokens || 0);
 
 // ---------- public API ----------
+// `uppgift` says what the call is for (src/uppgifter.js) and `koppling`
+// what it belongs to ({ searchId, adId, applicationId }); both go into
+// llm_usage, so a judged ad or a campaign has a measured cost.
+//
 // `onModel` is called with "provider:model" for whichever entry in the
 // chain actually answered. Callers that persist a result need it: a CV
 // profile built by a weak fallback should be rebuilt, not trusted, and
 // without this the chain silently hides which model produced what.
-export async function llmText({ profileId, tier = 'smart', system, messages, maxTokens = 2000, validate, config, onModel }) {
+export async function llmText({ profileId, tier = 'smart', system, messages, maxTokens = 2000, validate, config, onModel,
+  uppgift = null, koppling = {} }) {
   const cfg = config || await llmConfig({ profileId });
   if (!cfg) {
     throw new Error('Ingen AI-leverantör vald — gå till Profil → AI-leverantör och lägg in en nyckel.');
@@ -364,7 +373,8 @@ export async function llmText({ profileId, tier = 'smart', system, messages, max
       const hink = `${nyckel}|${provider}:${model}`;
       if (providerIsBlocked(`${nyckel}|${provider}`)) continue;  // this key's account cap
       if (modelIsBlocked(hink)) continue;                         // this key's daily budget for the model
-      const anrop = { ...pcfg, model, system, messages, maxTokens, provider, tier, hink, profileId: ägarId };
+      const anrop = { ...pcfg, model, system, messages, maxTokens, provider, tier, hink, profileId: ägarId,
+        uppgift, koppling };
       try {
         // pace BEFORE spending, so a burst scan doesn't trip the
         // per-minute ceiling and look like an exhausted account.
