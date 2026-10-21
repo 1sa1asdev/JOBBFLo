@@ -20,6 +20,7 @@ import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
 import { embeddingsPåslagna } from './src/platform.js';
 import { fångaProcessfel } from './src/fellogg.js';
+import { väntaPåLås } from './src/ensam.js';
 
 fångaProcessfel('worker');
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
@@ -320,12 +321,10 @@ process.on('SIGTERM', () => abort.abort());
 // so it releases only when this process actually dies.
 // ------------------------------------------------------------
 const WORKER_LOCK = 8123472;
+// Waited for, not given up on: a deploy starts the new container before
+// it stops the old one (src/ensam.js).
 const lockClient = await pool.connect();
-const { rows: [lock] } = await lockClient.query(
-  'SELECT pg_try_advisory_lock($1) AS got', [WORKER_LOCK]
-);
-if (!lock.got) {
-  console.error('en annan worker kör redan — avslutar (det ska bara finnas en)');
+if (!(await väntaPåLås(lockClient, WORKER_LOCK, 'worker', { signal: abort.signal }))) {
   lockClient.release();
   process.exit(0);
 }
