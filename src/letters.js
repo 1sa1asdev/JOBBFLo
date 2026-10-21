@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // Cover letters. Always drafts — nothing here sends anything.
@@ -236,6 +237,8 @@ export async function draftLetter(adId, { originSearchId = null, profileId } = {
 
   const draft = await llmJson({
     profileId: ctx.profile.id,
+    uppgift: UPPGIFT.BREV,
+    koppling: { adId, searchId: originSearchId },
     tier: 'write',
     // The evidence array is part of the response now, and on a letter
     // with several claims it pushed past 2000 — the model stopped
@@ -285,6 +288,8 @@ export async function reviseLetter(applicationId, instruction) {
 
   const draft = await llmJson({
     profileId: ctx.profile.id,
+    uppgift: UPPGIFT.BREV_REVIDERA,
+    koppling: { applicationId, adId: app.ad_id, searchId: app.origin_search_id },
     tier: 'write',
     maxTokens: 2000,
     system: LETTER_SYSTEM,

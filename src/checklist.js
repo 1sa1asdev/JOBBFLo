@@ -4,6 +4,7 @@ import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
 import { buildAdProfile, renderAdProfile } from './adprofile.js';
 import { renderCvProfile } from './cvprofile.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // The grade, as a checklist.
@@ -377,6 +378,8 @@ export async function checkAd(ad, {
   // need a working key to run.
   const svar = await fråga({
     profileId,
+    uppgift: UPPGIFT.BEDÖMA,
+    koppling: { adId: ad.id },
     onModel: (m) => { usedModel = m; },
     tier: 'bulk',
     // Sixteen requirements, each with a quote and a sentence, does not

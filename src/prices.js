@@ -49,15 +49,24 @@ export async function costOf({ provider, model, promptTokens, completionTokens }
        + (Number(completionTokens) || 0) * p.completion;
 }
 
+// What the provider said the call cost wins over tokens × list price:
+// OpenRouter reports it per call (usage.cost), and that is the number
+// the user is billed. The source is stored beside it (usd_källa).
 export async function recordUsage(entry) {
-  const usd = await costOf(entry);
+  const gratis = FREE_PROVIDERS.has(entry.provider);
+  const rapporterad = !gratis && Number.isFinite(entry.rapporteradUsd);
+  const usd = gratis ? 0 : rapporterad ? entry.rapporteradUsd : await costOf(entry);
+  const k = entry.koppling || {};
   await pool.query(
     `INSERT INTO llm_usage
-       (provider, model, tier, prompt_tokens, completion_tokens, total_tokens, usd, profile_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+       (provider, model, tier, prompt_tokens, completion_tokens, total_tokens, usd, profile_id,
+        uppgift, search_id, ad_id, application_id, usd_källa)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [entry.provider, entry.model, entry.tier || null,
      entry.promptTokens ?? null, entry.completionTokens ?? null,
-     entry.totalTokens ?? null, usd, entry.profileId || null]
+     entry.totalTokens ?? null, usd, entry.profileId || null,
+     entry.uppgift || null, k.searchId || null, k.adId || null, k.applicationId || null,
+     gratis ? 'gratis' : rapporterad ? 'leverantör' : 'listpris']
   ).catch(() => { /* metering must never break the call it measures */ });
   return usd;
 }

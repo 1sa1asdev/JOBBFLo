@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 058.
+-- Baseline covers migrations up to 043; latest migration 059.
 -- ============================================================
 
 --
@@ -565,7 +565,13 @@ CREATE TABLE public.llm_usage (
     completion_tokens integer,
     total_tokens integer,
     usd numeric(12,8) DEFAULT 0 NOT NULL,
-    profile_id uuid
+    profile_id uuid,
+    uppgift text,
+    search_id uuid,
+    ad_id uuid,
+    application_id uuid,
+    "usd_källa" text DEFAULT 'listpris'::text NOT NULL,
+    CONSTRAINT "llm_usage_usd_källa_check" CHECK (("usd_källa" = ANY (ARRAY['leverantör'::text, 'listpris'::text, 'gratis'::text])))
 );
 
 --
@@ -579,6 +585,18 @@ COMMENT ON TABLE public.llm_usage IS 'One row per LLM call, with the cost comput
 --
 
 COMMENT ON COLUMN public.llm_usage.profile_id IS 'The user whose key paid for this call. NULL for calls recorded before per-user keys, and for users since deleted.';
+
+--
+-- Name: COLUMN llm_usage.uppgift; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.llm_usage.uppgift IS 'What the call did (src/uppgifter.js): läsa_krav, bedöma, brev, brev_revidera, brev_kontroll, svar_klassa, svar_utkast, intervju, påminnelse, kriterier_chatt, kriterier_tolka, kampanj_chatt, cv_profil, lead_tolka, test. "före mätningen" for rows recorded before migration 059.';
+
+--
+-- Name: COLUMN llm_usage."usd_källa"; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.llm_usage."usd_källa" IS 'leverantör: the cost OpenRouter reported for this call. listpris: tokens × the listed price. gratis: a local model.';
 
 --
 -- Name: match_results; Type: TABLE; Schema: public; Owner: -
@@ -1666,6 +1684,12 @@ CREATE INDEX llm_usage_at ON public.llm_usage USING btree (at DESC);
 CREATE INDEX llm_usage_profile_at ON public.llm_usage USING btree (profile_id, at DESC);
 
 --
+-- Name: llm_usage_uppgift; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX llm_usage_uppgift ON public.llm_usage USING btree (uppgift, at);
+
+--
 -- Name: match_results_candidates; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1870,11 +1894,32 @@ ALTER TABLE ONLY public.letter_versions
     ADD CONSTRAINT letter_versions_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
 
 --
+-- Name: llm_usage llm_usage_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_usage
+    ADD CONSTRAINT llm_usage_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES public.ads(id) ON DELETE SET NULL;
+
+--
+-- Name: llm_usage llm_usage_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_usage
+    ADD CONSTRAINT llm_usage_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE SET NULL;
+
+--
 -- Name: llm_usage llm_usage_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.llm_usage
     ADD CONSTRAINT llm_usage_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profile(id) ON DELETE SET NULL;
+
+--
+-- Name: llm_usage llm_usage_search_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.llm_usage
+    ADD CONSTRAINT llm_usage_search_id_fkey FOREIGN KEY (search_id) REFERENCES public.searches(id) ON DELETE SET NULL;
 
 --
 -- Name: match_results match_results_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

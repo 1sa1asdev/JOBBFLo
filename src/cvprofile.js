@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { verifyQuotes } from './score.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // Read the CV once, properly, and keep the result.
@@ -83,6 +84,7 @@ export async function buildCvProfile(cvText, { profileId } = {}) {
   let usedModel = null;
   const profile = await llmJson({
     profileId,
+    uppgift: UPPGIFT.CV_PROFIL,
     onModel: (m) => { usedModel = m; },
     // 'smart' is the best tier configured. This runs once per upload,
     // so the most capable model available is affordable here even when

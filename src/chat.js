@@ -2,6 +2,7 @@ import { pool } from './db.js';
 import { llmJson } from './llm.js';
 import { parseCriteria, scanSearch } from './score.js';
 import { mergeReparsed, orterIFilter } from './filterMerge.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // The search-criteria conversation. Each saved search is one
@@ -31,6 +32,8 @@ export async function chatTurn(searchId, userMessage) {
 
   const { criteria, reply } = await llmJson({
     profileId: search.profile_id,
+    uppgift: UPPGIFT.KRITERIER_CHATT,
+    koppling: { searchId },
     tier: 'write',
     maxTokens: 1000,
     system: MERGE_SYSTEM,

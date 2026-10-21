@@ -4,6 +4,7 @@ import { PROVIDERS } from '../../../../../src/providers.js';
 import { decryptSecret } from '../../../../../src/secrets.js';
 import { pool } from '../../../../../src/db.js';
 import { llmText } from '../../../../../src/llm.js';
+import { UPPGIFT } from '../../../../../src/uppgifter.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,7 @@ export async function POST(req) {
   try {
     const reply = await llmText({
       config,
+      uppgift: UPPGIFT.TEST,
       tier: 'smart',
       maxTokens: 40,
       system: 'Svara med exakt ordet: OK',

@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { llmText } from './llm.js';
+import { UPPGIFT } from './uppgifter.js';
 
 // ------------------------------------------------------------
 // Follow-up nudges. Scheduled follow-ups schedule a DRAFT —
@@ -43,6 +44,8 @@ export async function checkFollowups() {
     try {
       const body = await llmText({
         profileId: app.profile_id,
+        uppgift: UPPGIFT.PÅMINNELSE,
+        koppling: { applicationId: app.id },
         tier: 'write',
         maxTokens: 500,
         system: FOLLOWUP_SYSTEM,

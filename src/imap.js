@@ -257,7 +257,8 @@ async function handleMessage(parsed, uid, ägare) {
   // fast classify → status flips within ~1s of storage
   try {
     // the mailbox owner's key: their mail, their bill
-    const cls = await classifyReply(body, { subject: parsed.subject, profileId: ägare.profileId });
+    const cls = await classifyReply(body, {
+      subject: parsed.subject, profileId: ägare.profileId, koppling: { applicationId } });
     await pool.query(
       `UPDATE applications SET status = $2, updated_at = now()
        WHERE id = $1 AND status IN ${OPEN_STATUSES}`,
