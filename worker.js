@@ -20,7 +20,7 @@ import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
 import { embeddingsPåslagna } from './src/platform.js';
 import { fångaProcessfel } from './src/fellogg.js';
-import { väntaPåLås } from './src/ensam.js';
+import { väntaPåLås, enÅtGången } from './src/ensam.js';
 
 fångaProcessfel('worker');
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
@@ -330,22 +330,29 @@ if (!(await väntaPåLås(lockClient, WORKER_LOCK, 'worker', { signal: abort.sig
 }
 
 console.log('jobbflo worker starting');
-pollTick();
-scoreTick();
-drainTick();
-embedTick();
-vectorsTick();
-followupTick();
-autoApplyTick();
-setInterval(pollTick, POLL_EVERY);
-setInterval(scoreTick, SCORE_EVERY);
-setInterval(drainTick, DRAIN_EVERY);
-setInterval(followupTick, FOLLOWUP_EVERY);
-setInterval(embedTick, EMBED_EVERY);
-setInterval(vectorsTick, VECTORS_EVERY);
-setInterval(autoApplyTick, AUTOAPPLY_EVERY);
-setInterval(leadScanTick, LEADSCAN_EVERY);
-setInterval(judgeTick, JUDGE_EVERY);
+// Each tick runs one at a time: one still running when its timer fires
+// again is skipped, not doubled (src/ensam.js enÅtGången). Without it a
+// slow database got more load the slower it was.
+const [poll, score, drain, embed, vectors, followup, autoApply, leadScan, judge] = [
+  pollTick, scoreTick, drainTick, embedTick, vectorsTick, followupTick, autoApplyTick,
+  leadScanTick, judgeTick,
+].map(enÅtGången);
+poll();
+score();
+drain();
+embed();
+vectors();
+followup();
+autoApply();
+setInterval(poll, POLL_EVERY);
+setInterval(score, SCORE_EVERY);
+setInterval(drain, DRAIN_EVERY);
+setInterval(followup, FOLLOWUP_EVERY);
+setInterval(embed, EMBED_EVERY);
+setInterval(vectors, VECTORS_EVERY);
+setInterval(autoApply, AUTOAPPLY_EVERY);
+setInterval(leadScan, LEADSCAN_EVERY);
+setInterval(judge, JUDGE_EVERY);
 // No background ad reading. It used to run here behind AD_PROFILES=1,
 // reading ads before anyone judged them — twice switched on, twice a
 // producer left running after its consumer went away (1575 profiles

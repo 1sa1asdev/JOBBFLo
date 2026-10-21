@@ -35,3 +35,28 @@ export async function väntaPåLås(klient, nyckel, namn, { signal, intervall = 
     if (signal?.aborted) return false;
   }
 }
+
+// ------------------------------------------------------------
+// One at a time within the process, too: a tick still running when its
+// timer fires again is skipped, not started a second time.
+//
+// setInterval does not wait. On 21 Oct the production database ran out
+// of disk throughput, every tick took longer than its interval, and the
+// worker kept starting new ones on top: three embedding batches updating
+// the same rows and waiting on each other, the pool (PG_POOL_MAX) full,
+// the heartbeat queued behind them and the app's own queries starved.
+// The slower the database got, the more load the worker added. Skipping
+// keeps it at one of each, however slow the database is.
+// ------------------------------------------------------------
+export function enÅtGången(fn) {
+  let pågår = false;
+  return async (...args) => {
+    if (pågår) return undefined;
+    pågår = true;
+    try {
+      return await fn(...args);
+    } finally {
+      pågår = false;
+    }
+  };
+}
