@@ -11,12 +11,17 @@
 //   2. the moment the old one's connection closes, the new one takes over
 //   3. a waiting instance that is told to stop (SIGTERM) leaves quietly,
 //      without the lock
+//   4. inside the one instance, a tick still running when its timer
+//      fires again is skipped, not started twice — and runs again once
+//      it is done, failed or not (enÅtGången). On 21 Oct a slow database
+//      got three embedding batches on top of each other and the worker
+//      starved the app.
 //
 // On throwaway connections to DATABASE_URL; the lock key is this run's own.
 import 'dotenv/config';
 import pg from 'pg';
 import { anslutning } from '../src/dbConfig.js';
-import { väntaPåLås } from '../src/ensam.js';
+import { väntaPåLås, enÅtGången } from '../src/ensam.js';
 
 const NYCKEL = 900000 + (process.pid % 90000);
 let fel = 0;
@@ -56,6 +61,29 @@ try {
   console.error('✗ beviset kraschade:', err.message);
 } finally {
   for (const c of [gammal, ny, tredje]) await c.end().catch(() => {});
+}
+
+// ---- 4 ----
+{
+  let körs = 0; let samtidigt = 0; let flest = 0; let släpp; let fallera = false;
+  const tick = enÅtGången(async () => {
+    körs += 1; samtidigt += 1; flest = Math.max(flest, samtidigt);
+    try {
+      await new Promise((ok) => { släpp = ok; });
+      if (fallera) throw new Error('tick föll');
+    } finally { samtidigt -= 1; }
+  });
+  const första = tick();
+  for (let i = 0; i < 5; i += 1) await tick(); // the timer fires five more times meanwhile
+  kolla('4. en tick som pågår startas inte igen', körs === 1 && flest === 1, `${körs} körningar`);
+  släpp(); await första;
+  fallera = true;
+  const andra = tick().catch(() => 'föll');
+  släpp();
+  kolla('4. när den är klar körs den igen', körs === 2 && (await andra) === 'föll');
+  fallera = false;
+  const tredje = tick(); släpp(); await tredje;
+  kolla('4. också efter en tick som föll', körs === 3);
 }
 
 console.log(fel ? `\n${fel} fel` : '\nallt håller');

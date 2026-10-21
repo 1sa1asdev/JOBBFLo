@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { brevlåda } from './imap.js';
 import { version } from './version.js';
+import { enÅtGången } from './ensam.js';
 
 // ------------------------------------------------------------
 // One mailbox per user, kept in step with who should have one.
@@ -139,8 +140,10 @@ export function postansvarig({ skapa = brevlåda } = {}) {
   }
 
   function start() {
-    const stämSäkert = () => stäm().catch((e) => console.error('imap-stäm:', e.message));
-    const knappSäkert = () => svaraPåKnappar().catch((e) => console.error('sync-begäran:', e.message));
+    // One at a time, like the worker's ticks: a slow database must not
+    // get a new heartbeat every three seconds on top of the last.
+    const stämSäkert = enÅtGången(() => stäm().catch((e) => console.error('imap-stäm:', e.message)));
+    const knappSäkert = enÅtGången(() => svaraPåKnappar().catch((e) => console.error('sync-begäran:', e.message)));
     stämSäkert();
     timrar.push(setInterval(stämSäkert, STÄM_VAR));
     timrar.push(setInterval(knappSäkert, KNAPP_VAR));

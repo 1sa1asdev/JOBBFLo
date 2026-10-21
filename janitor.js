@@ -3,7 +3,7 @@ import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { fångaProcessfel } from './src/fellogg.js';
-import { väntaPåLås } from './src/ensam.js';
+import { väntaPåLås, enÅtGången } from './src/ensam.js';
 import { version } from './src/version.js';
 
 fångaProcessfel('janitor');
@@ -87,14 +87,16 @@ async function snapshot() {
   }
 }
 
-async function varv() {
+// One round at a time: a snapshot that outlasts STÄD_VARJE must not
+// get a second one started beside it (src/ensam.js enÅtGången).
+const varv = enÅtGången(async () => {
   try {
     await snapshot();
     await städa();
   } catch (err) {
     console.error('janitor:', err.message);
   }
-}
+});
 
 // One janitor, enforced by Postgres rather than by whoever started it —
 // two of them would walk the same snapshot twice and fight over the
