@@ -117,6 +117,11 @@ jobs:
       - name: Proof — local history moves into one cloud account, whole
         run: time node scripts/prove-history-move.js
 
+      # A deploy starts the new container before stopping the old one; the
+      # worker used to exit on the old one's lock and leave none running.
+      - name: Proof — a deploy leaves exactly one worker, never none
+        run: time node scripts/prove-single-instance.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

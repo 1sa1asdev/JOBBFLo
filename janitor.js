@@ -3,6 +3,7 @@ import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { fångaProcessfel } from './src/fellogg.js';
+import { väntaPåLås } from './src/ensam.js';
 
 fångaProcessfel('janitor');
 
@@ -99,10 +100,13 @@ async function varv() {
 // same rows. The lock is held on its own connection for the life of
 // the process, so it is released only when this process actually dies.
 const LÅS = 8123475;
+// Waited for, not given up on: a deploy starts the new container before
+// it stops the old one (src/ensam.js).
 const låskoppling = await pool.connect();
-const { rows: [lås] } = await låskoppling.query('SELECT pg_try_advisory_lock($1) AS ok', [LÅS]);
-if (!lås.ok) {
-  console.log('en annan janitor kör redan — avslutar');
+const avbryt = new AbortController();
+process.once('SIGTERM', () => avbryt.abort());
+process.once('SIGINT', () => avbryt.abort());
+if (!(await väntaPåLås(låskoppling, LÅS, 'janitor', { signal: avbryt.signal }))) {
   låskoppling.release();
   await pool.end();
   process.exit(0);
