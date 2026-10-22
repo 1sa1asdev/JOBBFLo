@@ -8,6 +8,7 @@ export const LOGIN_FEL = {
   'konto-finns': 'Det finns redan ett konto med den adressen.',
   'inte-paslagen': 'Google-inloggning är inte påslagen här.',
   'for-manga': 'För många inloggningsförsök. Vänta tio minuter och försök igen.',
+  serverfel: 'Inloggningen är felinställd på servern, så den går inte igenom just nu. Det är inte ditt fel — hör av dig till oss.',
   okant: 'Inloggningen gick inte igenom. Försök igen.',
 };
 

@@ -9,8 +9,15 @@ export const dynamic = 'force-dynamic';
 // Swedish text per code (src/loginFel.js). The two that happen to
 // people: the link was opened in another browser than the one that
 // started sign-in (the PKCE verifier is a cookie there), or it is old.
+//
+// And one that is the server's, not the user's: a SUPABASE_ANON_KEY that
+// does not belong to the project ("Invalid API key"). Starting sign-in
+// never checks the key, so Google works and only this exchange fails —
+// staging sat like that, and "invalid" sent it to "the link is old",
+// which no amount of trying again fixes.
 function felkod(text = '') {
   if (/code verifier/i.test(text)) return 'annan-webblasare';
+  if (/api key/i.test(text)) return 'serverfel';
   if (/expired|invalid/i.test(text)) return 'lank-gammal';
   return 'okant';
 }
@@ -42,7 +49,12 @@ export async function GET(req) {
   try {
     const supabase = await supabaseServer();
     const { data, error } = await supabase.auth.exchangeCodeForSession(kod);
-    if (error || !data?.session) return tillbaka(felkod(error?.message));
+    if (error || !data?.session) {
+      // What Supabase actually said, for the host's log: the page only
+      // ever shows one of the fixed texts.
+      console.error('auth/callback: utbytet misslyckades:', error?.status, error?.code, error?.message);
+      return tillbaka(felkod(error?.message));
+    }
     await kontoFörSupabase(data.user, { providerRefreshToken: data.session.provider_refresh_token });
     return tillbaka(null);
   } catch (err) {
