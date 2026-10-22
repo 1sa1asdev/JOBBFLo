@@ -93,10 +93,13 @@ function ägdaTabeller(per) {
 }
 
 const harId = (info) => info.kolumner.some((k) => k.kolumn === 'id' && k.typ === 'uuid');
+// Vectors are not moved: they are rebuilt where they land. Both types,
+// since migration 061 stores them at half precision.
+const ärVektor = (k) => k.typ === 'vector' || k.typ === 'halfvec';
 
 function värdeFör(k, v) {
   if (v == null) return null;
-  if (k.typ === 'vector' || /_enc$/.test(k.kolumn)) return null;
+  if (ärVektor(k) || /_enc$/.test(k.kolumn)) return null;
   if (k.typ === 'jsonb' || k.typ === 'json') return JSON.stringify(v);
   return v;
 }
@@ -235,7 +238,7 @@ export async function flyttaHistorik({ från, till, frånProfil, tillProfil, log
     }
 
     // The profile row itself: the CV and settings, onto the target's.
-    const kol = per.profile.kolumner.filter((k) => !PROFIL_STANNAR.test(k.kolumn) && k.typ !== 'vector');
+    const kol = per.profile.kolumner.filter((k) => !PROFIL_STANNAR.test(k.kolumn) && !ärVektor(k));
     const tilldelningar = kol
       .map((k, i) => `${citera(k.kolumn)} = $${i + 2}${k.typ === 'jsonb' ? '::jsonb' : ''}`)
       .join(', ');

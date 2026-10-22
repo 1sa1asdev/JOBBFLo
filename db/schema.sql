@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 059.
+-- Baseline covers migrations up to 043; latest migration 061.
 -- ============================================================
 
 --
@@ -150,7 +150,7 @@ CREATE TABLE public.ads (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     lon double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 0))::double precision) STORED,
     lat double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 1))::double precision) STORED,
-    embedding public.vector(768),
+    embedding public.halfvec(768),
     embedding_model text,
     embedded_at timestamp with time zone,
     apply_email_source text,
@@ -202,6 +202,12 @@ COMMENT ON COLUMN public.ads.removed_at IS 'When the ad stopped being published 
 --
 
 COMMENT ON COLUMN public.ads.lat IS 'Workplace latitude, derived from raw. AF orders coordinates [lon, lat] — index 1 is lat.';
+
+--
+-- Name: COLUMN ads.embedding; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ads.embedding IS 'The ad as a vector, at half precision: text-embedding-3-small sends half-precision numbers, so nothing is lost (migration 061). No vector index: every ranking query orders by (embedding IS NULL) first and reads up to 1500 filtered rows, which HNSW cannot serve.';
 
 --
 -- Name: COLUMN ads.embedding_model; Type: COMMENT; Schema: public; Owner: -
@@ -763,7 +769,7 @@ CREATE TABLE public.profile (
     home_lat double precision,
     home_lon double precision,
     home_label text,
-    cv_embedding public.vector(768),
+    cv_embedding public.halfvec(768),
     cv_embedding_model text,
     cv_embedded_at timestamp with time zone,
     daily_score_limit integer DEFAULT 400 NOT NULL,
@@ -824,6 +830,12 @@ COMMENT ON COLUMN public.profile.home_lat IS 'Where the user travels from, for t
 --
 
 COMMENT ON COLUMN public.profile.home_label IS 'What the user typed (postcode or place). Resolved to coordinates against ads.raw, so no external geocoder is involved.';
+
+--
+-- Name: COLUMN profile.cv_embedding; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.cv_embedding IS 'The CV as a vector, half precision like ads.embedding (migration 061).';
 
 --
 -- Name: COLUMN profile.daily_score_limit; Type: COMMENT; Schema: public; Owner: -
@@ -974,7 +986,7 @@ CREATE TABLE public.searches (
     cv_profile_at timestamp with time zone,
     cv_profile_model text,
     criteria_changed_at timestamp with time zone,
-    query_embedding public.vector(768),
+    query_embedding public.halfvec(768),
     query_embedding_model text,
     query_embedded_at timestamp with time zone,
     campaign_created_at timestamp with time zone,
@@ -1052,6 +1064,12 @@ COMMENT ON COLUMN public.searches.dropped_filters IS 'Filters JobSearch rejected
 --
 
 COMMENT ON COLUMN public.searches.criteria_changed_at IS 'When criteria_text last changed. A match_result scored before this was judged against different criteria — stale, not invalid.';
+
+--
+-- Name: COLUMN searches.query_embedding; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.searches.query_embedding IS 'The search criteria as a vector, half precision like ads.embedding (migration 061).';
 
 --
 -- Name: COLUMN searches.campaign_created_at; Type: COMMENT; Schema: public; Owner: -
@@ -1171,8 +1189,14 @@ CREATE TABLE public.taxonomy_vectors (
     type text NOT NULL,
     concept_id text NOT NULL,
     label text NOT NULL,
-    embedding public.vector(768) NOT NULL
+    embedding public.halfvec(768) NOT NULL
 );
+
+--
+-- Name: COLUMN taxonomy_vectors.embedding; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.taxonomy_vectors.embedding IS 'The occupation label as a vector, half precision like ads.embedding (migration 061).';
 
 --
 -- Name: users; Type: TABLE; Schema: public; Owner: -
@@ -1504,12 +1528,6 @@ CREATE INDEX ads_closed_with_vector_idx ON public.ads USING btree (id) WHERE ((e
 CREATE INDEX ads_deadline ON public.ads USING btree (deadline) WHERE (removed_at IS NULL);
 
 --
--- Name: ads_embedding_hnsw; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_embedding_hnsw ON public.ads USING hnsw (embedding public.vector_cosine_ops) WHERE (embedding IS NOT NULL);
-
---
 -- Name: ads_fingerprint; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1723,7 +1741,7 @@ CREATE INDEX match_results_to_score ON public.match_results USING btree (search_
 -- Name: taxonomy_vectors_hnsw; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX taxonomy_vectors_hnsw ON public.taxonomy_vectors USING hnsw (embedding public.vector_cosine_ops);
+CREATE INDEX taxonomy_vectors_hnsw ON public.taxonomy_vectors USING hnsw (embedding public.halfvec_cosine_ops);
 
 --
 -- Name: ad_checks ad_checks_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

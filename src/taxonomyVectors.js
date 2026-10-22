@@ -43,7 +43,7 @@ export async function buildTaxonomyVectors({ force = false } = {}) {
         if (!id) continue;
         await pool.query(
           `INSERT INTO taxonomy_vectors (type, concept_id, label, embedding)
-           VALUES ($1, $2, $3, $4::vector)
+           VALUES ($1, $2, $3, $4::halfvec)
            ON CONFLICT (type, concept_id) DO UPDATE
              SET label = EXCLUDED.label, embedding = EXCLUDED.embedding`,
           [typ, id, label, `[${vektorer[j].join(',')}]`]
@@ -79,9 +79,9 @@ export async function nearestOccupations(text, { k = 3, vektor = null } = {}) {
   const ut = {};
   for (const typ of AXLAR) {
     const { rows } = await pool.query(
-      `SELECT concept_id, label, (embedding <=> $2::vector) AS avstand
+      `SELECT concept_id, label, (embedding <=> $2::halfvec) AS avstand
        FROM taxonomy_vectors WHERE type = $1
-       ORDER BY embedding <=> $2::vector
+       ORDER BY embedding <=> $2::halfvec
        LIMIT $3`,
       [typ, lit, k]
     );

@@ -1,0 +1,17 @@
+-- ============================================================
+-- The ad vector index, dropped: nothing can use it.
+--
+-- Every query that ranks ads (localsearch.js, autoapply.js, the results
+-- and leads routes) orders by (embedding IS NULL) first and reads up to
+-- 1500 rows under filters, which an HNSW index cannot serve: it returns
+-- about 40 nearest neighbours and knows nothing of filters. It had 0
+-- scans in the local database's whole life and in production, cost 118
+-- MB there, and added an index insert to every embedding — the writes
+-- that ran the free-tier production database out of disk throughput on
+-- 21 Oct.
+--
+-- Its own migration, so the space is free (at commit) before 061
+-- rewrites the ad table: on a small disk the rewrite needs room for a
+-- second copy while it runs.
+-- ============================================================
+DROP INDEX IF EXISTS public.ads_embedding_hnsw;

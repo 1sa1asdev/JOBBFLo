@@ -45,7 +45,7 @@ export async function GET(req) {
   // from being reachable — and CV similarity orders within that.
   const order = s.query_embedding
     ? `ORDER BY (ls.ad_id IS NULL), (a.embedding IS NULL),
-                a.embedding <=> $2::vector, a.published_at DESC NULLS LAST`
+                a.embedding <=> $2::halfvec, a.published_at DESC NULLS LAST`
     : `ORDER BY (ls.ad_id IS NULL), a.published_at DESC NULLS LAST`;
   const args = s.query_embedding ? [searchId, s.query_embedding] : [searchId];
 
