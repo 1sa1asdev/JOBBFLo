@@ -41,21 +41,23 @@ export default function GoogleLogin({ url, anonKey, epostlänk = false, fel = nu
   }
 
   return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="login-head">
-          <span className="brand-line">Jobbflo</span>
-          <h1>Logga in</h1>
-        </div>
+    <div className="login-card">
+      <div className="login-head">
+        <span className="brand-line">Jobbflo</span>
+        <h1>Logga in</h1>
+      </div>
 
-        <p className="login-hint" style={{ marginTop: 0 }}>
-          Du loggar in med ditt Google-konto. Har du inget konto skapas ett när du loggar in första gången.
+      <div className="login-body">
+        <p className="login-lede">
+          Du loggar in med ditt Google-konto. Första gången skapas ett konto, och en kort guide
+          hjälper dig att koppla Gmail, välja AI och ladda upp ditt CV.
         </p>
 
-        {error && <div className="err-note" style={{ margin: '0 0 14px' }}>{error}</div>}
+        {error && <div className="err-note">{error}</div>}
 
-        <button className="btn primary login-submit" type="button" onClick={google} disabled={busy}>
-          {busy ? 'Ett ögonblick…' : 'Fortsätt med Google →'}
+        <button className="btn primary login-submit login-google" type="button" onClick={google} disabled={busy}>
+          <GoogleG />
+          <span>{busy ? 'Ett ögonblick…' : 'Fortsätt med Google →'}</span>
         </button>
 
         {epostlänk && (
@@ -80,5 +82,19 @@ export default function GoogleLogin({ url, anonKey, epostlänk = false, fel = nu
         </p>
       </div>
     </div>
+  );
+}
+
+// Google's mark, as their sign-in guidelines ask a "continue with
+// Google" button to carry. Drawn inline: no request to Google before
+// the user has chosen to go there.
+function GoogleG() {
+  return (
+    <svg className="login-g" viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.2z" />
+      <path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z" />
+      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z" />
+    </svg>
   );
 }

@@ -134,10 +134,13 @@ export default function App() {
     setMobilePanel('chat');
   }
 
+  // The search on screen is the URL's ?sok, like everything else here.
+  // These three used to call a setActiveSearchId that the move to the
+  // URL removed, so "+ Ny sökning" threw before it opened anything.
   function startNewSearch() {
     setCreatingSearch(true);
-    setActiveSearchId(null);
-    backToList();
+    setLetterState(null);
+    navigate({ vy: 'search', sok: null, annons: null });
     setMobilePanel('chat');
   }
 
@@ -147,8 +150,8 @@ export default function App() {
     const rows = await api('/api/searches').catch(() => []);
     setSearches(rows);
     if (id === activeSearchId) {
-      backToList();
-      setActiveSearchId(rows[0]?.id || null);
+      setLetterState(null);
+      navigate({ sok: rows[0]?.id || null, annons: null });
     }
   }
 
@@ -159,7 +162,7 @@ export default function App() {
     });
     setCreatingSearch(false);
     await loadSearches();
-    setActiveSearchId(search.id);
+    navigate({ vy: 'search', sok: search.id, annons: null });
   }
 
   return (
@@ -248,7 +251,11 @@ export default function App() {
           </div>
         </div>
       ) : workspace === 'dash' ? (
-        <Dashboard />
+        <Dashboard
+          onProfil={() => setShowProfile(true)}
+          onNySökning={startNewSearch}
+          onSök={() => setWorkspace('search')}
+        />
       ) : workspace === 'auto' ? (
         <AutoApply
           onFindSimilar={(searchId) => {

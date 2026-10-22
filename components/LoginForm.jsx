@@ -28,8 +28,8 @@ export default function LoginForm() {
     }
   }
 
+  // The page around it (components/Landing.jsx) places the card.
   return (
-    <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
         <div className="login-head">
           <span className="brand-line">Jobbflo</span>
@@ -79,6 +79,5 @@ export default function LoginForm() {
           </p>
         )}
       </form>
-    </div>
   );
 }
