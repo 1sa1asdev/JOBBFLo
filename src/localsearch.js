@@ -202,7 +202,7 @@ export async function matchSearch(searchId, { limit = 1500 } = {}) {
 
   const params = [searchId];
   if (s.query_embedding) params.push(s.query_embedding);
-  const vektor = s.query_embedding ? '$2::vector' : null;
+  const vektor = s.query_embedding ? '$2::halfvec' : null;
   const synlig = öppen(params, s.profile_id);
   const { villkor } = filterSql(filter, params);
   params.push(limit);

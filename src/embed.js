@@ -20,9 +20,14 @@ export const EMBED_DIMS = 768;                       // nomic-embed-text-v1.5
 const LOCAL_URL = process.env.LMSTUDIO_BASE_URL || 'http://127.0.0.1:1234/v1';
 
 // `dimensions` is what lets a 1536-wide OpenAI model fill a
-// vector(768) column: text-embedding-3 is Matryoshka-trained, so a
+// halfvec(768) column: text-embedding-3 is Matryoshka-trained, so a
 // truncated vector is still a usable vector rather than a broken one.
 // Keeping 768 halves the index and matches the column already in place.
+//
+// The columns are half precision (migration 061) because this model
+// sends half-precision numbers. Before switching models, run
+// scripts/check-halfvec.js: a model that sends full precision is
+// rounded on the way in.
 // ------------------------------------------------------------
 // Embedding is the platform's cost, not a user's — the only AI work
 // the operator pays for. Every ad in the shared pool is embedded once
@@ -175,7 +180,7 @@ export async function embedPendingAds({ limit = 64 } = {}) {
 
   for (const [i, ad] of ads.entries()) {
     await pool.query(
-      `UPDATE ads SET embedding = $2::vector, embedding_model = $3, embedded_at = now()
+      `UPDATE ads SET embedding = $2::halfvec, embedding_model = $3, embedded_at = now()
        WHERE id = $1`,
       [ad.id, toVector(vectors[i]), `${cfg.provider}:${cfg.model}`]
     );
@@ -201,7 +206,7 @@ export async function embedCv(profileId) {
   const [v] = await embedTexts([text]);
 
   await pool.query(
-    `UPDATE profile SET cv_embedding = $1::vector, cv_embedding_model = $2, cv_embedded_at = now()
+    `UPDATE profile SET cv_embedding = $1::halfvec, cv_embedding_model = $2, cv_embedded_at = now()
      WHERE id = $3`,
     [toVector(v), `${cfg.provider}:${cfg.model}`, profileId]
   );
@@ -248,7 +253,7 @@ export async function embedSearchQuery(searchId) {
   const [v] = await embedTexts([text]);
 
   await pool.query(
-    `UPDATE searches SET query_embedding = $2::vector, query_embedding_model = $3,
+    `UPDATE searches SET query_embedding = $2::halfvec, query_embedding_model = $3,
        query_embedded_at = now() WHERE id = $1`,
     [searchId, toVector(v), `${cfg.provider}:${cfg.model}`]
   );

@@ -119,7 +119,7 @@ export async function GET(req, { params }) {
   // list — a new user's first search came back empty. The fourth time
   // this one has turned up here, so the indexes are now derived.
   const vektorIdx = hasHome ? 6 : 4;
-  const rankBy = sv?.query_embedding ? `$${vektorIdx}::vector` : null;
+  const rankBy = sv?.query_embedding ? `$${vektorIdx}::halfvec` : null;
 
   const orderSql = sort === 'distance' && hasHome
     ? `${rowDist} ASC NULLS LAST, r.score DESC NULLS LAST`

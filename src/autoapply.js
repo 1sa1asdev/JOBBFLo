@@ -428,7 +428,7 @@ if (!search.auto_apply_require_score) return 0;
   // in the results route.
   const ranked = search.query_embedding
     ? `ORDER BY (a.embedding IS NULL),
-                a.embedding <=> $3::vector,
+                a.embedding <=> $3::halfvec,
                 a.published_at DESC NULLS LAST`
     : `ORDER BY a.published_at DESC NULLS LAST`;
 
