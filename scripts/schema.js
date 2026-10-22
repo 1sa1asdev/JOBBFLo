@@ -133,6 +133,10 @@ async function körFil(url, sql) {
   await c.connect();
   try {
     await c.query('SET client_min_messages = warning');
+    // pg_dump orders functions by name, so one can come before a function
+    // it calls (ad_raw_krav before ad_raw_lista). The dump says so itself
+    // with this setting; städa() strips SET lines for readability.
+    await c.query('SET check_function_bodies = false');
     await c.query(sql);
   } finally { await c.end(); }
 }

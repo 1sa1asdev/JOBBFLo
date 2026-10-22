@@ -130,6 +130,11 @@ jobs:
       - name: Proof — a deploy is green only when the release runs
         run: time node scripts/prove-deploy-verify.js
 
+      # raw keeps only what is read; a new raw-> path in the code that the
+      # slimming drops fails here instead of matching nothing in production.
+      - name: Proof — the ad pool keeps every field the app reads, once
+        run: time node scripts/prove-ad-raw.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

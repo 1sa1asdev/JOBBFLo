@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 061.
+-- Baseline covers migrations up to 043; latest migration 062.
 -- ============================================================
 
 --
@@ -36,6 +36,96 @@ CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 --
 -- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
 --
+
+--
+-- Name: ad_raw_begrepp(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ad_raw_begrepp(c jsonb) RETURNS jsonb
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT CASE WHEN jsonb_typeof(c) = 'object'
+    THEN jsonb_build_object('concept_id', c->'concept_id', 'label', c->'label') END
+$$;
+
+--
+-- Name: ad_raw_krav(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ad_raw_krav(k jsonb) RETURNS jsonb
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT CASE WHEN jsonb_typeof(k) = 'object' THEN NULLIF(jsonb_strip_nulls(jsonb_build_object(
+    'skills', public.ad_raw_lista(k->'skills'),
+    'languages', public.ad_raw_lista(k->'languages'),
+    'work_experiences', public.ad_raw_lista(k->'work_experiences'),
+    'education', public.ad_raw_lista(k->'education'),
+    'education_level', public.ad_raw_lista(k->'education_level'))), '{}'::jsonb) END
+$$;
+
+--
+-- Name: ad_raw_lista(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ad_raw_lista(l jsonb) RETURNS jsonb
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT CASE WHEN jsonb_typeof(l) = 'array' AND jsonb_array_length(l) > 0 THEN
+    (SELECT jsonb_agg(jsonb_build_object(
+              'concept_id', e->'concept_id', 'label', e->'label', 'weight', e->'weight') ORDER BY i)
+     FROM jsonb_array_elements(l) WITH ORDINALITY AS t(e, i)) END
+$$;
+
+--
+-- Name: ad_raw_slim(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ad_raw_slim(r jsonb) RETURNS jsonb
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT CASE WHEN jsonb_typeof(r) IS DISTINCT FROM 'object' THEN r ELSE jsonb_strip_nulls(jsonb_build_object(
+    'id', r->'id',
+    'experience_required', r->'experience_required',
+    'workplace_address', CASE WHEN jsonb_typeof(r->'workplace_address') = 'object' THEN jsonb_build_object(
+      'municipality', r#>'{workplace_address,municipality}',
+      'municipality_concept_id', r#>'{workplace_address,municipality_concept_id}',
+      'region', r#>'{workplace_address,region}',
+      'region_concept_id', r#>'{workplace_address,region_concept_id}',
+      'city', r#>'{workplace_address,city}',
+      'street_address', r#>'{workplace_address,street_address}',
+      'postcode', r#>'{workplace_address,postcode}',
+      'coordinates', r#>'{workplace_address,coordinates}') END,
+    'occupation', public.ad_raw_begrepp(r->'occupation'),
+    'occupation_group', public.ad_raw_begrepp(r->'occupation_group'),
+    'occupation_field', public.ad_raw_begrepp(r->'occupation_field'),
+    'employment_type', public.ad_raw_begrepp(r->'employment_type'),
+    'working_hours_type', public.ad_raw_begrepp(r->'working_hours_type'),
+    'employer', CASE WHEN r#>>'{employer,organization_number}' IS NOT NULL
+      THEN jsonb_build_object('organization_number', r#>'{employer,organization_number}') END,
+    'must_have', public.ad_raw_krav(r->'must_have'),
+    'nice_to_have', public.ad_raw_krav(r->'nice_to_have'))) END
+$$;
+
+--
+-- Name: FUNCTION ad_raw_slim(r jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.ad_raw_slim(r jsonb) IS 'The paths of a JobTech ad the app reads; everything else is dropped. Idempotent. A new raw-> path in the code must be added here, or it reads null.';
+
+--
+-- Name: ads_slim_raw(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ads_slim_raw() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.source = 'platsbanken' THEN
+    NEW.raw := public.ad_raw_slim(NEW.raw);
+  END IF;
+  RETURN NEW;
+END
+$$;
 
 --
 -- Name: ad_checks; Type: TABLE; Schema: public; Owner: -
@@ -148,8 +238,6 @@ CREATE TABLE public.ads (
     removed_at timestamp with time zone,
     raw jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    lon double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 0))::double precision) STORED,
-    lat double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 1))::double precision) STORED,
     embedding public.halfvec(768),
     embedding_model text,
     embedded_at timestamp with time zone,
@@ -157,6 +245,8 @@ CREATE TABLE public.ads (
     apply_email_found_at timestamp with time zone,
     fts tsvector GENERATED ALWAYS AS (to_tsvector('swedish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(description, ''::text)))) STORED,
     owner_profile_id uuid,
+    lon double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 0))::double precision) STORED,
+    lat double precision GENERATED ALWAYS AS (((((raw -> 'workplace_address'::text) -> 'coordinates'::text) ->> 1))::double precision) STORED,
     CONSTRAINT ads_apply_email_source_check CHECK ((apply_email_source = ANY (ARRAY['api'::text, 'scanned'::text, 'manual'::text]))),
     CONSTRAINT ads_source_check CHECK ((source = ANY (ARRAY['platsbanken'::text, 'linkedin'::text, 'academicwork'::text, 'manual'::text])))
 );
@@ -198,10 +288,10 @@ COMMENT ON COLUMN public.ads.ats_vendor IS 'The hiring system behind apply_url: 
 COMMENT ON COLUMN public.ads.removed_at IS 'When the ad stopped being published — from JobStream, or from the janitor''s full snapshot. Searches read only rows where this is NULL.';
 
 --
--- Name: COLUMN ads.lat; Type: COMMENT; Schema: public; Owner: -
+-- Name: COLUMN ads.raw; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.ads.lat IS 'Workplace latitude, derived from raw. AF orders coordinates [lon, lat] — index 1 is lat.';
+COMMENT ON COLUMN public.ads.raw IS 'What the app reads from the JobTech ad, not the whole response (migration 062, public.ad_raw_slim): workplace_address, the occupation and employment concepts, experience_required, employer.organization_number and the skill lists. The description lives once, in ads.description. Slimmed by the ads_slim_raw trigger on every write.';
 
 --
 -- Name: COLUMN ads.embedding; Type: COMMENT; Schema: public; Owner: -
@@ -226,6 +316,12 @@ COMMENT ON COLUMN public.ads.apply_email_source IS 'api = published by Arbetsfö
 --
 
 COMMENT ON COLUMN public.ads.owner_profile_id IS 'NULL for the shared pool (JobStream and the snapshot). Set for an ad a user added by hand: only that user''s searches see it, and other users get a 404 on it.';
+
+--
+-- Name: COLUMN ads.lat; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ads.lat IS 'Workplace latitude, derived from raw. AF orders coordinates [lon, lat] — index 1 is lat.';
 
 --
 -- Name: applications; Type: TABLE; Schema: public; Owner: -
@@ -1742,6 +1838,12 @@ CREATE INDEX match_results_to_score ON public.match_results USING btree (search_
 --
 
 CREATE INDEX taxonomy_vectors_hnsw ON public.taxonomy_vectors USING hnsw (embedding public.halfvec_cosine_ops);
+
+--
+-- Name: ads ads_slim_raw; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ads_slim_raw BEFORE INSERT OR UPDATE OF raw, source ON public.ads FOR EACH ROW EXECUTE FUNCTION public.ads_slim_raw();
 
 --
 -- Name: ad_checks ad_checks_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

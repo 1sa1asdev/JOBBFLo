@@ -120,8 +120,15 @@ export async function upsertAd(client, a) {
      -- minute that had not changed — a dead row per ad per poll for
      -- vacuum to clean up, and the embedding and scan paths seeing
      -- churn where there was none.
+     --
+     -- raw is slimmed by a trigger (migration 062) and EXCLUDED sees the
+     -- slimmed value. It no longer holds the text, so the columns that
+     -- get updated are compared themselves: an edited description is a
+     -- change, a new last_publication_date is not.
      WHERE ads.raw IS DISTINCT FROM EXCLUDED.raw
         OR ads.removed_at IS DISTINCT FROM EXCLUDED.removed_at
+        OR (ads.title, ads.description, ads.deadline, ads.ats_vendor)
+           IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.description, EXCLUDED.deadline, EXCLUDED.ats_vendor)
      RETURNING id, (xmax = 0) AS inserted`,
     [a.source, a.external_id, a.fingerprint, a.title, a.employer, a.employer_type,
      a.municipality, a.region, a.description, a.apply_email, a.apply_url,
