@@ -56,7 +56,8 @@ export default function Integritet() {
         <li>
           <b>AI-leverantören du själv väljer:</b> ditt CV, annonserna, dina brev och mejlen i dina trådar
           skickas dit för att läsas och skrivas, med din egen nyckel och under deras villkor. Väljer du
-          en leverantör märkt EU stannar uppgifterna inom EU/EES.
+          OpenRouter går uppgifterna vidare till tillverkaren av modellen du valt (till exempel Google
+          eller OpenAI), ofta utanför EU. Väljer du LM Studio eller Ollama stannar de på din egen dator.
         </li>
         <li><b>Arbetsgivare:</b> får ditt brev och dina bilagor när du skickar en ansökan.</li>
       </ul>

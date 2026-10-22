@@ -3,6 +3,8 @@ import { embedConfig } from './embed.js';
 import { embeddingCoverage } from './refresh.js';
 import { embeddingsPåslagna } from './platform.js';
 import { openrouterKredit } from './openrouterCredit.js';
+import { modellista, NIVÅER, NIVÅNAMN } from './modeller.js';
+import { priceTable } from './prices.js';
 
 // ------------------------------------------------------------
 // What the operator sees: the platform's own spend and health, and the
@@ -13,6 +15,31 @@ import { openrouterKredit } from './openrouterCredit.js';
 // One ad embedded, measured on the current provider (OpenAI
 // text-embedding-3-small via OpenRouter, 768 dims).
 const KOSTNAD_PER_ANNONS = 0.0000125;
+
+// The models users may pick on OpenRouter, per job: each with its price
+// and how many users have it as their choice — a count, not who.
+export async function modellöversikt() {
+  const [lista, priser, { rows }] = await Promise.all([
+    modellista({ färsk: true }),
+    priceTable(),
+    pool.query(
+      `SELECT llm_model_fast AS fast, llm_model_bulk AS bulk, llm_model_write AS write, llm_model_smart AS smart
+       FROM profile WHERE llm_provider = 'openrouter'`),
+  ]);
+  const förstaModell = (v) => String(v || '').split(',')[0].trim();
+  const perMiljon = (n) => (Number.isFinite(n) ? Math.round(n * 1e6 * 100) / 100 : null);
+  return Object.fromEntries(NIVÅER.map((n) => [n, {
+    namn: NIVÅNAMN[n],
+    modeller: lista[n].map((id) => ({
+      id,
+      in: perMiljon(priser.get(id)?.prompt),
+      ut: perMiljon(priser.get(id)?.completion),
+      // null when OpenRouter's catalogue could not be read just now
+      finns: priser.size ? priser.has(id) : null,
+      användare: rows.filter((r) => förstaModell(r[n]) === id).length,
+    })),
+  }]));
+}
 
 export async function översikt() {
   const cfg = embedConfig();
@@ -48,6 +75,7 @@ export async function översikt() {
   const kvar = Math.max(0, täckning.total - täckning.embedded);
   const sedan = (k) => (st[k]?.last_run_at ? Math.round((Date.now() - new Date(st[k].last_run_at)) / 1000) : null);
   return {
+    modeller: await modellöversikt(),
     plattformsnyckel: { satt: Boolean(cfg.key), kredit },
     embeddings: {
       påslagna,

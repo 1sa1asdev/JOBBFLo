@@ -135,6 +135,11 @@ jobs:
       - name: Proof — the ad pool keeps every field the app reads, once
         run: time node scripts/prove-ad-raw.js
 
+      # Which AI a user can choose, and where the server will call it:
+      # localhost and private networks are refused before a request leaves.
+      - name: Proof — three providers, the operator's models, no internal addresses
+        run: time node scripts/prove-llm-val.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

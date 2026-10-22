@@ -1,6 +1,6 @@
 import { pool } from './db.js';
 import { priceTable } from './prices.js';
-import { PROVIDERS } from './providers.js';
+import { PROVIDERS, ärLokal } from './providers.js';
 
 // ------------------------------------------------------------
 // What a choice of models will cost a user a month, before they spend
@@ -48,7 +48,7 @@ const förstaModell = (fält) => String(fält || '').split(',')[0].trim() || nul
 // checked without a network.
 export function uppskatta({ provider, modeller, priser, tokens = TOKENS_STANDARD,
   annonserPerVecka = 50, brevPerVecka = 5 }) {
-  const gratisLeverantör = ['groq', 'ollama', 'lmstudio'].includes(provider);
+  const gratisLeverantör = ärLokal(provider);
   const okända = new Set();
   const pris = (modell, t) => {
     if (!modell) return 0;

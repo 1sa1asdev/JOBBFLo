@@ -2115,3 +2115,13 @@
 .dokument h3{margin:26px 0 6px;font-size:15px;}
 .dokument p,.dokument li{margin:0 0 8px;}
 .dokument ul{padding-left:20px;margin:0 0 10px;}
+
+/* admin: the model list (components/AdminView.jsx Modellista) */
+.adm-modeller{border-top:1px solid var(--tag-border);padding:12px 0;}
+.adm-modeller > b{font-size:13px;}
+.adm-modeller ul{list-style:none;margin:8px 0;}
+.adm-modeller li{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0;font-size:12.5px;}
+.adm-modeller li .dim{color:var(--mute);font-size:11.5px;}
+.adm-modeller li .btn{margin-left:auto;padding:5px 9px;min-height:28px;font-size:9.5px;}
+.adm-ny{display:flex;gap:8px;max-width:560px;}
+.adm-ny .txt-input{flex:1;}

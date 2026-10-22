@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { PROVIDERS } from './providers.js';
+import { PROVIDERS, ärLokal } from './providers.js';
+import { modellista, tillåtenKedja, NIVÅER } from './modeller.js';
+import { prövaAdress } from './adress.js';
 import { decryptSecret } from './secrets.js';
 
 // ------------------------------------------------------------
@@ -13,8 +15,8 @@ import { decryptSecret } from './secrets.js';
 // embedding the shared ad pool, which lives in src/embed.js with its
 // own key.
 //
-// Every provider except Anthropic speaks OpenAI chat-completions,
-// so there are only two transports here.
+// The providers are OpenRouter, LM Studio and Ollama (src/providers.js),
+// and all three speak OpenAI chat-completions: one transport.
 //
 // Callers only use llmText()/llmJson() with a tier:
 //   'bulk'  — scoring. ~90% of all tokens, so this is what decides
@@ -71,10 +73,13 @@ export async function llmConfig({ profileId, fresh = false } = {}) {
      FROM profile WHERE id = $1 AND llm_provider IS NOT NULL`, [id]
   );
   let cfg = null;
-  if (p?.llm_provider) {
-    const preset = PROVIDERS[p.llm_provider] || {};
+  // A provider no longer offered (migration 063 clears them) is no
+  // provider: the user is asked to choose again rather than called on.
+  const preset = PROVIDERS[p?.llm_provider];
+  if (preset) {
     const apiKey = decryptSecret(p.llm_api_key_enc);
-    if (apiKey || ['ollama', 'lmstudio'].includes(p.llm_provider)) {
+    const lokal = ärLokal(p.llm_provider);
+    if (apiKey || lokal) {
       cfg = {
         provider: p.llm_provider,
         apiKey: apiKey || 'local',
@@ -82,10 +87,18 @@ export async function llmConfig({ profileId, fresh = false } = {}) {
         fast: p.llm_model_fast || preset.fast || p.llm_model_smart || preset.smart,
         bulk: p.llm_model_bulk || preset.bulk || null,
         write: p.llm_model_write || preset.write || null,
-        baseUrl: p.llm_base_url || preset.baseUrl,
+        // OpenRouter's address is fixed; only a local model has one of
+        // the user's choosing
+        baseUrl: lokal ? (p.llm_base_url || preset.baseUrl) : preset.baseUrl,
         source: 'user',
         profileId: id,
       };
+      // OpenRouter: only the operator's models (src/modeller.js). A model
+      // taken off the list gives way to the first one for that job.
+      if (!lokal) {
+        const lista = await modellista();
+        for (const n of NIVÅER) cfg[n] = tillåtenKedja(cfg[n], n, lista);
+      }
     }
   }
   configCache.set(id, { cfg, at: Date.now() });
@@ -119,7 +132,7 @@ export async function configFor(provider, primary) {
   if (!preset) return null;
   if (provider === primary?.provider) return primary;
 
-  const isLocal = ['ollama', 'lmstudio'].includes(provider);
+  const isLocal = ärLokal(provider);
   // A config handed in directly (the "test connection" button) has no
   // profile behind it, and so no other keys to borrow.
   const key = primary?.profileId ? (await providerKeys(primary.profileId))[provider] : null;
@@ -135,8 +148,17 @@ export async function configFor(provider, primary) {
 // ---------- transports ----------
 async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, maxTokens,
                                      provider, tier, hink, profileId, uppgift, koppling }) {
+  // A user's own address is checked on every call, not only when it was
+  // saved: a hostname can be re-pointed at an internal one afterwards.
+  if (ärLokal(provider)) {
+    const nej = await prövaAdress(baseUrl);
+    if (nej) throw Object.assign(new Error(nej), { status: 400 });
+  }
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
+    // a redirect would take the request somewhere the check above
+    // never saw
+    redirect: 'error',
     headers: {
       authorization: `Bearer ${apiKey}`,
       'content-type': 'application/json',
@@ -222,13 +244,6 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, system, messages, 
     throw err;
   }
   return text;
-}
-
-async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey });
-  const res = await client.messages.create({ model, max_tokens: maxTokens, system, messages });
-  return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
 // ---------- free-tier daily quota breaker ----------
@@ -380,18 +395,16 @@ export async function llmText({ profileId, tier = 'smart', system, messages, max
         // per-minute ceiling and look like an exhausted account.
         // Local servers have no per-minute quota — pacing just sleeps
         // between ads, so skip it there entirely.
-        if (!['ollama', 'lmstudio'].includes(provider)) {
+        if (!ärLokal(provider)) {
           await waitForBudget(hink, need);
         }
-        const text = provider === 'anthropic'
-          ? await callAnthropic(anrop)
-          : await callOpenAICompatible(anrop);
+        const text = await callOpenAICompatible(anrop);
         onModel?.(`${provider}:${model}`);
         return validate ? validate(text) : text;
       } catch (err) {
         // local servers have no quotas — never block, never retry-chain,
         // just report the failure and move on
-        if (provider === 'ollama' || provider === 'lmstudio') {
+        if (ärLokal(provider)) {
           problems.push(`${model}: ${err.message.slice(0, 80)}`);
           continue;
         }
@@ -418,9 +431,7 @@ export async function llmText({ profileId, tier = 'smart', system, messages, max
           // rather than falling through to a weaker one
           try {
             await waitForBudget(hink, need);
-            const text = provider === 'anthropic'
-              ? await callAnthropic(anrop)
-              : await callOpenAICompatible(anrop);
+            const text = await callOpenAICompatible(anrop);
             onModel?.(`${provider}:${model}`);
             return validate ? validate(text) : text;
           } catch (retryErr) {

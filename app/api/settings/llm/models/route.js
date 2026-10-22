@@ -1,97 +1,58 @@
 import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId } from '../../../../../src/auth.js';
-import { pool } from '../../../../../src/db.js';
-import { PROVIDERS } from '../../../../../src/providers.js';
-import { decryptSecret } from '../../../../../src/secrets.js';
+import { PROVIDERS, ärLokal } from '../../../../../src/providers.js';
 import { blockedModels } from '../../../../../src/llm.js';
+import { modellista, prövaVal, NIVÅER } from '../../../../../src/modeller.js';
+import { priceTable } from '../../../../../src/prices.js';
 
 export const dynamic = 'force-dynamic';
 
-// Anthropic has no OpenAI-style /models endpoint worth listing here
-const ANTHROPIC_MODELS = [
-  'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-1',
-];
-
-// Keep the list useful rather than exhaustive: hide models that
-// can't do this job (audio/vision/embedding/guard) so the dropdown
-// isn't 300 entries of noise.
-const USELESS = /whisper|tts|embed|guard|moderation|rerank|vision|-vl-|image|dall-e|sora|realtime/i;
-
-// "free" is only reported reliably by some providers. OpenRouter exposes
-// pricing AND uses the `:free` id suffix; everyone else's /models returns
-// no prices at all. So the flag is true when known-free, and undefined when
-// unknowable — the UI must not treat "unknown" as "paid".
-function isFree(m) {
-  if (m.id?.includes(':free')) return true;
-  if (m.pricing) {
-    const prompt = Number(m.pricing.prompt);
-    if (Number.isFinite(prompt)) return prompt === 0;
-  }
-  return undefined;
-}
-
+// What the settings page may offer.
+//
+//   OpenRouter  the operator's list per job (src/modeller.js), each with
+//               OpenRouter's price per million tokens — never the
+//               provider's full catalogue
+//   LM Studio / Ollama  whatever the user's own server has loaded, read
+//               from the address they gave — after src/adress.js has
+//               said the server may call it
 export async function GET(req) {
   const url = new URL(req.url);
   const provider = url.searchParams.get('provider');
-  const baseUrlParam = url.searchParams.get('base_url');
-  const keyParam = url.searchParams.get('api_key');
-  const preset = PROVIDERS[provider];
-  if (!preset) return NextResponse.json({ error: 'okänd leverantör' }, { status: 400 });
+  const baseUrl = url.searchParams.get('base_url')?.trim() || null;
+  if (!PROVIDERS[provider]) return NextResponse.json({ error: 'Välj OpenRouter, LM Studio eller Ollama.' }, { status: 400 });
+  const blocked = await blockedModels(await aktivProfilId());
 
-  if (provider === 'anthropic') {
-    return NextResponse.json({
-      models: ANTHROPIC_MODELS.map((id) => ({ id, free: false })),
-      pricing_reported: true,
-      blocked: await blockedModels(await aktivProfilId()),
-    });
+  if (!ärLokal(provider)) {
+    const [lista, priser] = await Promise.all([modellista(), priceTable()]);
+    const perMiljon = (n) => (Number.isFinite(n) ? Math.round(n * 1e6 * 100) / 100 : null);
+    const modeller = Object.fromEntries(NIVÅER.map((n) => [n, lista[n].map((id) => {
+      const p = priser.get(id);
+      return { id, in: perMiljon(p?.prompt), ut: perMiljon(p?.completion) };
+    })]));
+    return NextResponse.json({ modeller, blocked });
   }
 
-  const baseUrl = baseUrlParam?.trim() || preset.baseUrl;
-  if (!baseUrl) return NextResponse.json({ error: 'bas-URL saknas' }, { status: 400 });
-
-  // a key typed in the form but not yet saved wins (test-before-save flow,
-  // same as /settings/llm/test); otherwise the user's saved key — never
-  // the server's
-  let key = keyParam?.trim() || null;
-  if (!key) {
-    const { rows: [p] } = await pool.query(
-      `SELECT llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
-    key = decryptSecret(p?.llm_api_key_enc);
-  }
-
+  const fel = await prövaVal({ provider, baseUrl });
+  if (fel) return NextResponse.json({ error: fel, models: [] }, { status: 200 });
+  const bas = baseUrl || PROVIDERS[provider].baseUrl;
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
-      headers: key ? { authorization: `Bearer ${key}` } : {},
+    const res = await fetch(`${bas.replace(/\/$/, '')}/models`, {
       signal: AbortSignal.timeout(12_000),
+      redirect: 'error',
     });
     if (!res.ok) {
-      return NextResponse.json(
-        { error: `kunde inte hämta modeller (${res.status})`, models: [] }, { status: 200 }
-      );
+      return NextResponse.json({ error: `kunde inte hämta modeller (${res.status})`, models: [] }, { status: 200 });
     }
     const data = await res.json();
-    const list = (data.data || data.models || [])
-      .map((m) => ({
-        id: m.id || m.name,
-        free: isFree(m),
-        context: m.context_length || m.context_window || undefined,
-      }))
-      .filter((m) => m.id && !USELESS.test(m.id))
+    const models = (data.data || data.models || [])
+      .map((m) => ({ id: m.id || m.name }))
+      .filter((m) => m.id && !/embed/i.test(m.id))
       .sort((a, b) => a.id.localeCompare(b.id));
-
-    return NextResponse.json({
-      models: list,
-      // does THIS provider report prices at all? if not, "free" is
-      // unknowable and the UI should say so rather than filter to nothing
-      pricing_reported: list.some((m) => m.free !== undefined),
-      blocked: await blockedModels(await aktivProfilId()),
-    });
+    return NextResponse.json({ models, blocked });
   } catch (err) {
     unstable_rethrow(err); // a 401/403 from the auth check is not this route's error
     return NextResponse.json(
-      { error: `kunde inte nå ${baseUrl} (${err.message.slice(0, 60)})`, models: [] },
-      { status: 200 }
-    );
+      { error: `kunde inte nå ${bas} (${err.message.slice(0, 60)})`, models: [] }, { status: 200 });
   }
 }

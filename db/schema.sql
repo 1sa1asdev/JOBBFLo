@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 062.
+-- Baseline covers migrations up to 043; latest migration 063.
 -- ============================================================
 
 --
@@ -876,7 +876,8 @@ CREATE TABLE public.profile (
     gmail_error_at timestamp with time zone,
     google_refresh_token_enc text,
     onboarded_at timestamp with time zone,
-    CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0))
+    CONSTRAINT profile_daily_score_limit_check CHECK ((daily_score_limit > 0)),
+    CONSTRAINT profile_llm_provider_check CHECK (((llm_provider IS NULL) OR (llm_provider = ANY (ARRAY['openrouter'::text, 'lmstudio'::text, 'ollama'::text]))))
 );
 
 --
@@ -902,6 +903,18 @@ COMMENT ON COLUMN public.profile.about_text IS '"Om dig, i egna ord" — the use
 --
 
 COMMENT ON COLUMN public.profile.tone_text IS 'Letter tone preferences.';
+
+--
+-- Name: COLUMN profile.llm_provider; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.llm_provider IS 'openrouter, lmstudio or ollama (migration 063). OpenRouter models are limited to platform_settings.llm_modeller; a local provider''s address must be one the server may call (src/adress.js).';
+
+--
+-- Name: COLUMN profile.llm_base_url; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.profile.llm_base_url IS 'Only for lmstudio/ollama: the address of the user''s own model server. With login on it must be public https (src/adress.js), checked when saved and on every call.';
 
 --
 -- Name: COLUMN profile.cv_profile; Type: COMMENT; Schema: public; Owner: -

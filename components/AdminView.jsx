@@ -29,6 +29,63 @@ function Stat({ label, value, sub, accent }) {
   );
 }
 
+// The OpenRouter models users may pick, per job (src/modeller.js). An
+// edited copy is kept here until "Spara"; the server checks every id
+// against OpenRouter's catalogue before it is stored.
+function Modellista({ modeller, onSpara, busy }) {
+  const [utkast, setUtkast] = useState(() => Object.fromEntries(
+    Object.entries(modeller).map(([n, v]) => [n, v.modeller.map((m) => m.id)])));
+  const [ny, setNy] = useState({});
+  const ändrad = Object.entries(modeller).some(([n, v]) => v.modeller.map((m) => m.id).join() !== utkast[n].join());
+  const info = (n, id) => modeller[n].modeller.find((m) => m.id === id);
+
+  return (
+    <section className="dash-block">
+      <div className="dash-stat-label">Modeller användarna kan välja (OpenRouter)</div>
+      <p className="hint">
+        Den första i varje lista är den rekommenderade och används när en användares val tagits
+        bort. Gratismodeller tål inte riktig användning — de tar slut inom ett dygn.
+      </p>
+      {Object.entries(modeller).map(([n, v]) => (
+        <div key={n} className="adm-modeller">
+          <b>{v.namn}</b>
+          <ul>
+            {utkast[n].map((id, i) => {
+              const m = info(n, id);
+              return (
+                <li key={id}>
+                  <code>{id}</code>
+                  {i === 0 && <span className="tag">rekommenderad</span>}
+                  <span className="dim">
+                    {m ? (m.in == null ? 'pris okänt' : `$${m.in} / $${m.ut} per miljon`) : 'ny — kontrolleras när du sparar'}
+                    {m ? ` · ${m.användare} användare` : ''}
+                    {m?.finns === false ? ' · finns inte längre hos OpenRouter' : ''}
+                  </span>
+                  <button type="button" className="btn" disabled={utkast[n].length <= 1}
+                    onClick={() => setUtkast((u) => ({ ...u, [n]: u[n].filter((x) => x !== id) }))}>Ta bort</button>
+                </li>
+              );
+            })}
+          </ul>
+          <form className="adm-ny" onSubmit={(e) => {
+            e.preventDefault();
+            const id = (ny[n] || '').trim();
+            if (id && !utkast[n].includes(id)) setUtkast((u) => ({ ...u, [n]: [...u[n], id] }));
+            setNy((x) => ({ ...x, [n]: '' }));
+          }}>
+            <input className="txt-input" placeholder="t.ex. anthropic/claude-haiku-4.5" value={ny[n] || ''}
+              onChange={(e) => setNy((x) => ({ ...x, [n]: e.target.value }))} />
+            <button className="btn" type="submit">Lägg till</button>
+          </form>
+        </div>
+      ))}
+      <button className="btn primary" type="button" disabled={!ändrad || busy} onClick={() => onSpara(utkast)}>
+        {busy ? 'Sparar…' : 'Spara modellistan'}
+      </button>
+    </section>
+  );
+}
+
 export default function AdminView() {
   const [ö, setÖ] = useState(null);
   const [users, setUsers] = useState(null);
@@ -44,6 +101,13 @@ export default function AdminView() {
   async function embeddings(på) {
     setBusy('embed'); setError(null);
     try { setÖ(await api('/api/admin/installningar', { method: 'PATCH', body: { embeddings: på } })); }
+    catch (e) { setError(e.message); }
+    setBusy(null);
+  }
+
+  async function sparaModeller(modeller) {
+    setBusy('modeller'); setError(null);
+    try { setÖ(await api('/api/admin/installningar', { method: 'PATCH', body: { modeller } })); }
     catch (e) { setError(e.message); }
     setBusy(null);
   }
@@ -96,6 +160,9 @@ export default function AdminView() {
           {busy === 'embed' ? 'Sparar…' : e.påslagna ? 'Stäng av indexeringen' : 'Slå på indexeringen'}
         </button>
       </section>
+
+      <Modellista key={JSON.stringify(ö.modeller)} modeller={ö.modeller}
+        onSpara={sparaModeller} busy={busy === 'modeller'} />
 
       <section className="dash-block">
         <div className="dash-stat-label">Bakgrundsjobb</div>
