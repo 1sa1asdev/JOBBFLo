@@ -65,6 +65,14 @@ export default function Onboarding({ status }) {
           </button>
         </div>
 
+        {steg === 0 && (
+          <p className="onb-intro">
+            Tre saker behövs innan Jobbflo kan söka åt dig, och det tar ungefär fem minuter.
+            Allt går att ändra senare under Profil. När du är klar visar Översikt vägen vidare
+            till din första sökning och ditt första brev.
+          </p>
+        )}
+
         <div className="dash-period">
           {STEG.map((s, i) => (
             <button key={s.id} type="button" className={`btn${i === steg ? ' primary' : ''}`} onClick={() => setSteg(i)}>

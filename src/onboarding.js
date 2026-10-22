@@ -21,6 +21,20 @@ export async function onboardingStatus(profileId) {
   return p ? { namn: p.name, klar: Boolean(p.onboarded_at), gmail: p.gmail, ai: p.ai, cv: p.cv } : null;
 }
 
+// How far into actually using the app a user is: the "Kom igång" panel
+// on Översikt (components/KomIgang.jsx) ticks its steps from these, so a
+// step counts however it was done.
+export async function framsteg(profileId) {
+  const { rows: [r] } = await pool.query(
+    `SELECT
+       (SELECT count(*) FROM searches WHERE profile_id = $1 AND deleted_at IS NULL)::int AS sökningar,
+       (SELECT count(*) FROM ad_checks WHERE profile_id = $1 AND score IS NOT NULL)::int AS bedömda,
+       (SELECT count(*) FROM applications WHERE profile_id = $1)::int AS brev,
+       (SELECT count(*) FROM applications WHERE profile_id = $1 AND sent_at IS NOT NULL)::int AS skickade`,
+    [profileId]);
+  return r;
+}
+
 // Does the start page send this request to the guide? Never without
 // login — one person on their own machine set things up long ago.
 export async function behöverOnboarding() {
