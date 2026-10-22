@@ -4,6 +4,7 @@ import { api, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
 import LiveDot from './LiveDot';
 import Dots from './Dots';
+import KomIgang from './KomIgang';
 
 // ------------------------------------------------------------
 // Did any of this work?
@@ -59,7 +60,7 @@ function PerDay({ rows }) {
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onProfil, onNySökning, onSök }) {
   const [data, setData] = useState(null);
   const [dagar, setDagar] = useState(0);
   const [checked, setChecked] = useState(null);
@@ -92,6 +93,8 @@ export default function Dashboard() {
           mer om slumpen än om kampanjen.
         </p>
       </div>
+
+      <KomIgang onProfil={onProfil} onNySökning={onNySökning} onSök={onSök} />
 
       <div className="dash-period">
         {[[0, 'Hela tiden'], [30, '30 dagar'], [7, '7 dagar']].map(([d, l]) => (

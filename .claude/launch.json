@@ -6,6 +6,16 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "jobbjakt-login",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3001"],
+      "env": {
+        "SUPABASE_URL": "https://exempel.supabase.co",
+        "SUPABASE_ANON_KEY": "bara-for-att-visa-inloggningssidan"
+      },
+      "port": 3001
     }
   ]
 }
