@@ -36,10 +36,11 @@ export async function priceTable() {
   return cache;
 }
 
-// Groq's free tier really is free, and a local model costs nothing to
-// call. Saying so explicitly stops those provider's calls from being
-// silently priced with an OpenRouter figure for the same model name.
-const FREE_PROVIDERS = new Set(['groq', 'ollama', 'lmstudio']);
+// A local model costs nothing to call. Saying so explicitly stops its
+// calls from being priced with an OpenRouter figure for a model that
+// happens to share the name.
+// the models that run on the user's own machine (src/providers.js)
+const FREE_PROVIDERS = new Set(['ollama', 'lmstudio']);
 
 export async function costOf({ provider, model, promptTokens, completionTokens }) {
   if (FREE_PROVIDERS.has(provider)) return 0;

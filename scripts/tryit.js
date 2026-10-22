@@ -18,7 +18,7 @@ const CRITERIA =
   'Junior/mid frontend- eller fullstackroller i Stockholm. Inget krav på 5+ års erfarenhet, gärna React. Inte intresserad av tunga .NET-legacy-grejer. Hybrid är okej.';
 
 if (!(await llmAvailable())) {
-  console.error('Ingen AI-leverantör konfigurerad — välj en i appen (Profil → AI-leverantör) eller sätt OPENROUTER_API_KEY / ANTHROPIC_API_KEY i .env.');
+  console.error('Ingen AI-leverantör konfigurerad — välj en i appen (Profil → AI-leverantör) (OpenRouter, LM Studio eller Ollama).');
   process.exit(1);
 }
 

@@ -81,8 +81,8 @@ try {
     const gratis = uppskatta({ provider: 'openrouter', priser,
       modeller: { fast: 'x/a:free', bulk: 'x/b:free', write: 'x/c:free' } });
     kolla('3. gratismodeller kostar inget', gratis.månad === 0);
-    const groq = uppskatta({ provider: 'groq', modeller: val, priser });
-    kolla('3. en gratis leverantör kostar inget', groq.månad === 0);
+    const lokal = uppskatta({ provider: 'ollama', modeller: val, priser });
+    kolla('3. en lokal modell kostar inget', lokal.månad === 0);
     const okänd = uppskatta({ provider: 'openrouter', priser, modeller: { ...val, bulk: 'bevis/okand' } });
     kolla('3. modell utan pris namnges, gissas inte', okänd.okändaPriser.includes('bevis/okand'));
     kolla('3. resonerande modell flaggas', en.resonerande.includes('openai/gpt-oss-120b'));

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
-import { PROVIDERS, providerList } from '../../../../src/providers.js';
+import { providerList, ärLokal } from '../../../../src/providers.js';
+import { modellista, prövaVal, NIVÅNAMN } from '../../../../src/modeller.js';
 import { encryptSecret, decryptSecret, maskSecret } from '../../../../src/secrets.js';
 import { invalidateLlmConfig, llmConfig, blockedModels } from '../../../../src/llm.js';
 
@@ -19,6 +20,10 @@ export async function GET() {
 
   return NextResponse.json({
     providers: providerList(),
+    // the OpenRouter models the operator allows, per job — the only ones
+    // the settings page offers (src/modeller.js)
+    modeller: await modellista(),
+    nivånamn: NIVÅNAMN,
     // which models are spent for today (model -> minutes left). The client
     // polls this so the dropdown can mark models that ran out of tokens.
     blocked: await blockedModels(profileId),
@@ -41,9 +46,14 @@ export async function GET() {
 export async function PUT(req) {
   const { provider, api_key, model_smart, model_fast, model_bulk, model_write, base_url } = await req.json();
 
-  if (provider && !PROVIDERS[provider]) {
-    return NextResponse.json({ error: 'okänd leverantör' }, { status: 400 });
-  }
+  // Only the three providers, only the allowed OpenRouter models, and for
+  // a local model only an address the server may call (src/modeller.js).
+  const fel = await prövaVal({
+    provider,
+    modeller: { fast: model_fast, bulk: model_bulk, write: model_write, smart: model_smart },
+    baseUrl: base_url?.trim() || null,
+  });
+  if (fel) return NextResponse.json({ error: fel }, { status: 400 });
 
   const { rows: [p] } = await pool.query(
     `SELECT id, llm_api_key_enc FROM profile WHERE id = $1`, [await aktivProfilId()]);
@@ -58,7 +68,7 @@ export async function PUT(req) {
        llm_model_bulk = $7, llm_model_write = $8, updated_at = now()
      WHERE id = $1`,
     [p.id, provider || null, keyEnc,
-     model_smart?.trim() || null, model_fast?.trim() || null, base_url?.trim() || null,
+     model_smart?.trim() || null, model_fast?.trim() || null, (ärLokal(provider) && base_url?.trim()) || null,
      model_bulk?.trim() || null, model_write?.trim() || null]
   );
 

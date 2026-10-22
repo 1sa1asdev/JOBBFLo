@@ -9,6 +9,9 @@ import { pool } from './db.js';
 const STANDARD = {
   // Embedding new ads and rebuilding query vectors: the operator's spend.
   embeddings_enabled: true,
+  // The OpenRouter models users may pick, per job (src/modeller.js).
+  // null: the standard list there.
+  llm_modeller: null,
 };
 
 export async function plattformsinställning(key) {

@@ -1,13 +1,18 @@
 // ------------------------------------------------------------
-// LLM provider registry.
+// LLM provider registry: OpenRouter, LM Studio and Ollama, nothing else.
 //
-// Everything except Anthropic speaks the OpenAI chat-completions
-// shape, so one client covers them all — a provider is really
-// just a base URL + default model pair.
+// There used to be eleven. Every one is a different set of models, a
+// different price list and different failure modes, and the cost
+// estimate, the measured tokens per task and the budget all assume the
+// models Jobbflo has actually been run on. OpenRouter reaches those
+// models (and is the one provider that reports what a call cost);
+// LM Studio and Ollama are for the user who wants nothing to leave
+// their own machine. Which OpenRouter models a user may pick is the
+// operator's list (src/modeller.js), not anything the provider serves.
 //
-// `eu` marks providers that process data inside the EU. This app
-// sends a CV, personal details and employer correspondence to
-// whichever provider is picked, so that column is not decoration.
+// `eu` marks providers that keep data inside the EU. This app sends a
+// CV, personal details and employer correspondence to whichever
+// provider is picked, so that column is not decoration.
 // ------------------------------------------------------------
 
 export const PROVIDERS = {
@@ -16,90 +21,14 @@ export const PROVIDERS = {
     baseUrl: 'https://openrouter.ai/api/v1',
     keyUrl: 'https://openrouter.ai/keys',
     // What Jobbflo is run and measured on (src/kostnad.js estimates with
-    // these): cheap reads, a capable grader, a writer that reads well.
+    // these, and src/modeller.js starts its list with them): cheap
+    // reads, a capable grader, a writer that reads well.
     smart: 'google/gemini-2.5-flash',
     fast: 'google/gemini-2.5-flash-lite',
     bulk: 'google/gemini-2.5-flash',
     write: 'openai/gpt-oss-120b',
     eu: false,
-    note: 'Router till många modeller. Gratisnivå finns men har dagskvot (~50 anrop); $10 credits ger 1000/dag.',
-  },
-  deepseek: {
-    label: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    keyUrl: 'https://platform.deepseek.com/api_keys',
-    smart: 'deepseek-chat',
-    fast: 'deepseek-chat',
-    bulk: 'deepseek-chat',
-    write: 'deepseek-chat',
-    eu: false,
-    note: 'Billigast per token av de bra modellerna. Data behandlas i Kina — se GDPR-noten.',
-  },
-  mistral: {
-    label: 'Mistral',
-    baseUrl: 'https://api.mistral.ai/v1',
-    keyUrl: 'https://console.mistral.ai/api-keys',
-    smart: 'mistral-large-latest',
-    fast: 'mistral-small-latest',
-    bulk: 'mistral-small-latest',
-    write: 'mistral-large-latest',
-    eu: true,
-    note: 'Franskt bolag, data inom EU. Bra val om GDPR väger tungt. Gratisnivå finns.',
-  },
-  groq: {
-    label: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1',
-    keyUrl: 'https://console.groq.com/keys',
-    smart: 'llama-3.3-70b-versatile',
-    fast: 'llama-3.1-8b-instant',
-    bulk: 'llama-3.1-8b-instant',
-    write: 'llama-3.3-70b-versatile',
-    eu: false,
-    note: 'Mycket snabb inferens, generös gratisnivå. Öppna modeller (Llama m.fl.).',
-  },
-  together: {
-    label: 'Together AI',
-    baseUrl: 'https://api.together.xyz/v1',
-    keyUrl: 'https://api.together.ai/settings/api-keys',
-    smart: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
-    fast: 'meta-llama/Llama-3.1-8B-Instruct-Turbo',
-    bulk: 'meta-llama/Llama-3.1-8B-Instruct-Turbo',
-    write: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
-    eu: false,
-    note: 'Brett urval av öppna modeller.',
-  },
-  gemini: {
-    label: 'Google Gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    keyUrl: 'https://aistudio.google.com/apikey',
-    smart: 'gemini-2.5-flash',
-    fast: 'gemini-2.5-flash-lite',
-    bulk: 'gemini-2.5-flash-lite',
-    write: 'gemini-2.5-flash',
-    eu: false,
-    note: 'Generös gratisnivå via AI Studio.',
-  },
-  openai: {
-    label: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-    keyUrl: 'https://platform.openai.com/api-keys',
-    smart: 'gpt-4o',
-    fast: 'gpt-4o-mini',
-    bulk: 'gpt-4o-mini',
-    write: 'gpt-4o',
-    eu: false,
-    note: 'Ingen gratisnivå.',
-  },
-  anthropic: {
-    label: 'Anthropic (Claude)',
-    baseUrl: null,               // uses the Anthropic SDK, not OpenAI-compatible
-    keyUrl: 'https://console.anthropic.com/settings/keys',
-    smart: 'claude-sonnet-4-6',
-    fast: 'claude-haiku-4-5',
-    bulk: 'claude-haiku-4-5',
-    write: 'claude-sonnet-4-6',
-    eu: false,
-    note: 'Bäst kvalitet i den här appens prompter. Ingen gratisnivå.',
+    note: 'Rekommenderas. Ger dig modellerna Jobbflo är testat och prissatt med. Du betalar OpenRouter direkt och ser kostnaden innan något dras.',
   },
   lmstudio: {
     label: 'LM Studio (lokalt)',
@@ -110,7 +39,7 @@ export const PROVIDERS = {
     bulk: 'local-model',
     write: 'local-model',
     eu: true,                    // never leaves the machine
-    note: 'Kör modellen på din egen dator, helt gratis och utan kvot. Bäst val för AMD-grafikkort på Windows (Vulkan). Starta servern i LM Studio → Developer → Start Server.',
+    note: 'Kör modellen på din egen dator, gratis och utan kvot. I den publicerade appen måste servern nå datorn via en publik https-adress, till exempel en tunnel.',
   },
   ollama: {
     label: 'Ollama (lokalt)',
@@ -121,20 +50,14 @@ export const PROVIDERS = {
     bulk: 'llama3.1',
     write: 'llama3.1',
     eu: true,                    // never leaves the machine
-    note: 'Körs på din egen dator. Gratis och inget data lämnar maskinen — men kräver en någorlunda kraftig dator.',
-  },
-  custom: {
-    label: 'Egen (OpenAI-kompatibel)',
-    baseUrl: null,               // user supplies
-    keyUrl: null,
-    smart: '',
-    fast: '',
-    bulk: '',
-    write: '',
-    eu: null,
-    note: 'Valfri endpoint som följer OpenAI:s chat/completions-format.',
+    note: 'Körs på din egen dator och inget data lämnar den. Kräver en någorlunda kraftig dator, och i den publicerade appen en publik https-adress till den.',
   },
 };
+
+// The two that run on the user's own machine: no key, any model name,
+// and a base URL the user supplies (src/adress.js decides whether the
+// server may call it).
+export const ärLokal = (provider) => provider === 'lmstudio' || provider === 'ollama';
 
 export const providerList = () =>
   Object.entries(PROVIDERS).map(([id, p]) => ({
@@ -147,6 +70,7 @@ export const providerList = () =>
     write: p.write,
     eu: p.eu,
     note: p.note,
-    needsBaseUrl: p.baseUrl === null && id !== 'anthropic',
-    needsKey: !['ollama','lmstudio'].includes(id),
+    lokal: ärLokal(id),
+    needsBaseUrl: ärLokal(id),
+    needsKey: !ärLokal(id),
   }));

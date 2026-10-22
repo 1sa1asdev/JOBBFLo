@@ -21,7 +21,6 @@
     "embed": "node scripts/embed-backfill.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "dotenv": "^16.4.5",

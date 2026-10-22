@@ -120,7 +120,7 @@ requirements is what it stops. `prove-ad-reads.js` holds all of this.
 | DB + login | Supabase (Postgres, Auth with Google) | session pooler; RLS shuts the Data API out |
 | DB access | `pg` directly, or Drizzle | schema is hand-written SQL; Drizzle if you want types |
 | Styling | Tailwind | mockup is hand-CSS; tokens map cleanly |
-| LLM | `@anthropic-ai/sdk` | Sonnet for scoring/letters, Haiku for fast classify |
+| LLM | OpenRouter, LM Studio or Ollama (OpenAI chat-completions over `fetch`) | the user's own key; OpenRouter models limited to the operator's list (`src/modeller.js`), local addresses to public https (`src/adress.js`) |
 | Email out | `nodemailer` → Gmail SMTP | app password, no OAuth |
 | Email in | `imapflow` → Gmail IMAP IDLE | push, 1–3s latency |
 | UI host | Vercel (`arn1`) | builds only the `staging`/`production` branches |
@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Nineteen scripts, each one a rule that protects money, reputation or the
+Twenty scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -240,6 +240,7 @@ node scripts/prove-single-instance.js    # a deploy leaves exactly one worker an
 node scripts/prove-ai-matning.js         # every AI call is measured by task and link, at the price actually charged
 node scripts/prove-deploy-verify.js      # a deploy is green only when app, worker and janitor run the released commit
 node scripts/prove-ad-raw.js             # ads.raw keeps every path the code reads, the description only once
+node scripts/prove-llm-val.js            # OpenRouter (the operator's models), LM Studio, Ollama — and no internal addresses
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
