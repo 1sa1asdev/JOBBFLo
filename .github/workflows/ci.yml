@@ -140,6 +140,11 @@ jobs:
       - name: Proof — three providers, the operator's models, no internal addresses
         run: time node scripts/prove-llm-val.js
 
+      # One beacon round must ask for every view on screen and hand each
+      # its own answer — two searches must not overwrite each other.
+      - name: Proof — the shared beacon asks for every view, and answers each its own
+        run: time node scripts/prove-beacon.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

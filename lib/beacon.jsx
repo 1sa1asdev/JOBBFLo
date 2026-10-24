@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useRef } from 'react';
 import { api } from './api.js';
+import { planera, versionFör } from './beaconPlan.js';
 
 // ------------------------------------------------------------
 // One change beacon for the whole screen.
@@ -22,15 +23,16 @@ import { api } from './api.js';
 //
 // `interval` is how fresh a view needs its area: the loop runs at the
 // fastest anyone asks for, and an area slower than that is only asked
-// for when it is due. Like usePoll it stops while the tab is hidden,
+// for when it is due. `minGap` is the least time between two calls to
+// a view whose rebuild is expensive (the campaign cards: 8 s, the old
+// timer's pace), so a busy campaign can never cost more than before.
+// Like usePoll it stops while the tab is hidden,
 // runs at once when the tab comes back, and never has two in flight.
 // A view whose handler is still running (a slow load) is not called
 // again on top of itself; it gets one more call when it finishes, if
 // its version moved meanwhile.
 // ------------------------------------------------------------
 const Beacon = createContext(null);
-
-const SVARSNYCKEL = { global: 'version', search: 'search', kampanjer: 'kampanjer', adresser: 'adresser' };
 
 export function BeaconProvider({ children }) {
   const subs = useRef(new Map());
@@ -50,10 +52,24 @@ export function BeaconProvider({ children }) {
     // Call a view with its latest version — unless its previous call is
     // still running; then once more when that finishes, if the version
     // moved again in between.
+    //
+    // And never more often than its minGap. While a campaign runs, its
+    // hash moves every round; without a floor the campaign cards (a
+    // second or more each) would rebuild every 5 s — more than the 8 s
+    // timer this replaced, at the busiest moment. A change inside the
+    // gap is not dropped: one call follows when the gap has passed.
     const ropa = (s, first) => {
       if (s.kör) { s.igen = true; return; }
+      const kvar = (s.minGap || 0) - (Date.now() - (s.körd || 0));
+      if (kvar > 0) {
+        if (!s.väntar) {
+          s.väntar = setTimeout(() => { s.väntar = null; if (s.senast !== s.kallad) ropa(s, false); }, kvar);
+        }
+        return;
+      }
       const v = s.senast;
       s.kallad = v;
+      s.körd = Date.now();
       s.kör = Promise.resolve()
         .then(() => s.fn.current(v, { first }))
         .catch(() => { /* the view's own error handling shows it */ })
@@ -68,23 +84,14 @@ export function BeaconProvider({ children }) {
       igång = true;
       try {
         const nu = Date.now();
-        const q = new URLSearchParams();
-        const delar = new Set();
-        const frågade = [];
-        for (const s of subs.current.values()) {
-          // global is always asked; another area only when it is due
-          if (s.del !== 'global' && s.frågad && nu - s.frågad < s.interval - 250) continue;
-          frågade.push(s);
-          if (s.del === 'search' && s.param) q.set('search', s.param);
-          if (s.del === 'adresser' && s.param) q.set('adresser', s.param);
-          if (s.del === 'kampanjer') delar.add('kampanjer');
-        }
-        if (delar.size) q.set('delar', [...delar].join(','));
-        const fråga = q.toString();
-        const svar = await api(`/api/pulse${fråga ? `?${fråga}` : ''}`);
+        // global is always asked; another area only when it is due
+        const frågade = [...subs.current.values()]
+          .filter((s) => s.del === 'global' || !s.frågad || nu - s.frågad >= s.interval - 250);
+        const { frågor, svarIndex } = planera(frågade);
+        const svar = await Promise.all(frågor.map((f) => api(`/api/pulse${f ? `?${f}` : ''}`)));
         for (const s of frågade) {
           s.frågad = nu;
-          const v = svar[SVARSNYCKEL[s.del]] ?? null;
+          const v = versionFör(s, svar, svarIndex);
           s.onTick?.current?.();
           if (v === s.senast) continue;
           const first = s.senast === undefined;
@@ -121,7 +128,10 @@ export function BeaconProvider({ children }) {
       // a new or changed subscription is asked about on the next tick,
       // not a whole interval later
       prenumerera(id, s) { subs.current.set(id, s); schemalägg(true); },
-      avsluta(id) { subs.current.delete(id); },
+      avsluta(id) {
+        clearTimeout(subs.current.get(id)?.väntar);
+        subs.current.delete(id);
+      },
     };
   }
 
@@ -131,7 +141,7 @@ export function BeaconProvider({ children }) {
 
 let nästaId = 0;
 
-export function useBeacon(del, fn, { param = null, interval = 5000, enabled = true, onTick } = {}) {
+export function useBeacon(del, fn, { param = null, interval = 5000, minGap = 0, enabled = true, onTick } = {}) {
   const motor = useContext(Beacon);
   const fnRef = useRef(fn);
   fnRef.current = fn;
@@ -144,7 +154,7 @@ export function useBeacon(del, fn, { param = null, interval = 5000, enabled = tr
     if (!motor || !enabled || ((del === 'search' || del === 'adresser') && !param)) return undefined;
     // a new param (another search) starts from no version: its first
     // answer is a "first", not a change
-    motor.prenumerera(id.current, { del, param, interval, fn: fnRef, onTick: tickRef, senast: undefined, frågad: 0 });
+    motor.prenumerera(id.current, { del, param, interval, minGap, fn: fnRef, onTick: tickRef, senast: undefined, frågad: 0 });
     return () => motor.avsluta(id.current);
-  }, [motor, del, param, interval, enabled]);
+  }, [motor, del, param, interval, minGap, enabled]);
 }

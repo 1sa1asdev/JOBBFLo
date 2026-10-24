@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Twenty scripts, each one a rule that protects money, reputation or the
+Twenty-one scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -241,6 +241,7 @@ node scripts/prove-ai-matning.js         # every AI call is measured by task and
 node scripts/prove-deploy-verify.js      # a deploy is green only when app, worker and janitor run the released commit
 node scripts/prove-ad-raw.js             # ads.raw keeps every path the code reads, the description only once
 node scripts/prove-llm-val.js            # OpenRouter (the operator's models), LM Studio, Ollama — and no internal addresses
+node scripts/prove-beacon.js             # one beacon round asks for every view on screen and answers each its own
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)

@@ -366,7 +366,8 @@ export default function AutoApply({ onFindSimilar }) {
   // a slow fallback for what no beacon sees: an ad closing, a deadline
   // passing.
   useBeacon('kampanjer', (v, { first }) => (first ? undefined : load()),
-    { interval: 5000, enabled: view === 'campaigns' });
+    // at most every 8 s, the old timer's pace, however busy the campaign
+    { interval: 5000, minGap: 8000, enabled: view === 'campaigns' });
   usePoll(load, { interval: 60_000, enabled: view === 'campaigns' });
 
   async function update(searchId, patch) {

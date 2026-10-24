@@ -61,7 +61,7 @@ export default function LeadFinder({ campaigns, onChanged }) {
   // scan's results and typed-in addresses move it. The clock shows the
   // beacon answered, not that the list was rebuilt.
   useBeacon('adresser', (v, { first }) => (first ? undefined : load()),
-    { param: searchId, interval: 10000, onTick: () => setChecked(Date.now()) });
+    { param: searchId, interval: 10000, minGap: 10000, onTick: () => setChecked(Date.now()) });
   usePoll(load, { interval: 60_000, enabled: Boolean(searchId) });
 
   async function runScan(adId) {

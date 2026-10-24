@@ -101,8 +101,9 @@ export async function GET(req) {
   // i dag"). That route costs a second or more — whyNothing alone is
   // most of it — and Auto-ansökan used to call it every 8 s whether or
   // not anything had moved. This hash moves when any of those inputs do.
-  // What it cannot see — an ad closing, a deadline passing — the view
-  // picks up on its slow fallback refresh.
+  // An ad closing (removed_at, set by the janitor) is in it; a deadline
+  // passing is the date rolling over, which current_date covers. The
+  // view's slow fallback refresh is for anything else.
   let kampanjer = null;
   if (delar.has('kampanjer')) {
     const { rows: [k] } = await pool.query(
@@ -114,8 +115,11 @@ export async function GET(req) {
          current_date,
          (SELECT string_agg(c.rad, ',' ORDER BY c.id) FROM c),
          (SELECT concat_ws(':', count(*), count(m.score), count(m.score_requested_at),
-                           max(m.scored_at), max(ls.scanned_at), count(ls.ad_id))
-            FROM match_results m LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
+                           max(m.scored_at), max(ls.scanned_at), count(ls.ad_id),
+                           count(ad.removed_at), max(ad.removed_at))
+            FROM match_results m
+            JOIN ads ad ON ad.id = m.ad_id
+            LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
            WHERE m.search_id IN (SELECT id FROM c)),
          (SELECT concat_ws(':', count(*), max(a.updated_at)) FROM applications a
            WHERE a.origin_search_id IN (SELECT id FROM c)),
@@ -130,8 +134,11 @@ export async function GET(req) {
   if (adresserFör && await ägareAvSökning(adresserFör)) {
     const { rows: [a] } = await pool.query(
       `SELECT md5(concat_ws('|',
-         (SELECT concat_ws(':', count(*), count(m.score), max(ls.scanned_at), count(ls.ad_id))
-            FROM match_results m LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
+         (SELECT concat_ws(':', count(*), count(m.score), max(ls.scanned_at), count(ls.ad_id),
+                           count(ad.removed_at), current_date)
+            FROM match_results m
+            JOIN ads ad ON ad.id = m.ad_id
+            LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
            WHERE m.search_id = $1),
          (SELECT concat_ws(':', count(*), max(created_at)) FROM ad_contacts WHERE profile_id = $2),
          (SELECT concat_ws(':', count(*), max(updated_at)) FROM applications

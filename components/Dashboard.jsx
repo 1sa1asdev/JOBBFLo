@@ -79,7 +79,7 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
   // every 15 s; the slow fallback keeps the AI cost line current, which
   // no beacon tracks.
   useBeacon('global', (v, { first }) => (first ? undefined : load()),
-    { interval: 5000, onTick: () => setChecked(Date.now()) });
+    { interval: 5000, minGap: 15000, onTick: () => setChecked(Date.now()) });
   usePoll(load, { interval: 60_000 });
 
   if (!data) return <div className="loading-note">{err || <>Laddar<Dots /></>}</div>;

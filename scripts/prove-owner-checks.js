@@ -188,6 +188,8 @@ try {
     ['/api/inbox?source=auto', (d) => !JSON.stringify(d).includes(AP)],
     ['/api/autoapply', (d) => !JSON.stringify(d).includes(S)],
     ['/api/dashboard', (d) => Number(d.total?.utkast || 0) === 0 && !JSON.stringify(d).includes('B:s')],
+    // the inbox refetches this on every beacon change
+    ['/api/stats', (d) => Number(d.skills_gap?.scored ?? 0) === 0 && d.calibration?.ready !== true],
   ];
   for (const [väg, ren] of listor) {
     const r = await anrop(A.cookie, 'GET', väg);
@@ -204,6 +206,16 @@ try {
   const pulsAmedAdresser = await anrop(A.cookie, 'GET', `/api/pulse?adresser=${S}&delar=kampanjer`);
   kolla('pulsen ger inget om B:s adressökning', pulsAmedAdresser.data?.adresser === null,
     String(pulsAmedAdresser.data?.adresser));
+  // The campaigns' part is one hash over the caller's campaigns. B
+  // changing a campaign must not move A's — or A could watch B work —
+  // and must move B's own, or the first check proves nothing.
+  const kamp = async (vem) => (await anrop(vem.cookie, 'GET', '/api/pulse?delar=kampanjer')).data?.kampanjer;
+  const [kampA1, kampB1] = [await kamp(A), await kamp(B)];
+  await pool.query(
+    `UPDATE searches SET auto_apply_paused_reason = 'B pausade', auto_apply_min_score = 61 WHERE id = $1`, [S]);
+  const [kampA2, kampB2] = [await kamp(A), await kamp(B)];
+  kolla('B:s kampanjändring flyttar inte A:s kampanjpuls', Boolean(kampA1) && kampA1 === kampA2);
+  kolla('men flyttar B:s egen', Boolean(kampB1) && kampB1 !== kampB2);
 
   // ---- 5. B still reaches everything ----
   const egna = [
