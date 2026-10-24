@@ -2292,3 +2292,40 @@
 }
 .onb-intro{font-size:15px;line-height:var(--lh-loose);max-width:640px;margin:0 0 18px;
   border-left:3px solid var(--flag);padding:4px 0 4px 14px;}
+
+/* ================= ADMIN PAGE ================= */
+/* /admin sits straight in body, which is the app shell and never
+   scrolls — so the page scrolls in this container, or nothing below
+   the first screen can be reached. */
+.admin-page{flex:1;min-height:0;overflow-y:auto;}
+.dash.admin{margin:0 auto;}
+.adm-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.adm-note{margin:10px 0 0!important;}
+.adm-howto{margin-top:8px;font-size:13px;line-height:var(--lh-body);}
+.adm-howto summary{cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--ink);padding:6px 0;}
+.adm-howto ol{padding-left:20px;display:grid;gap:5px;margin-top:6px;}
+.adm-howto code,.adm-stack code{font-size:11.5px;}
+.adm-act{text-align:right;}
+@media (max-width:640px){
+  .dash.admin{padding:18px 16px 48px;}
+  .dash.admin h2{font-size:20px;}
+  .dash.admin .dash-stat b{font-size:22px;}
+  /* tables become one card per row, each cell labelled */
+  .adm-stack thead{display:none;}
+  .adm-stack,.adm-stack tbody,.adm-stack tr,.adm-stack td{display:block;width:100%;}
+  .adm-stack tr{border:1px solid var(--line);background:var(--panel);padding:6px 12px;margin-bottom:10px;}
+  .adm-stack td{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+    border-bottom:1px solid var(--tag-border);text-align:right;overflow-wrap:anywhere;}
+  .adm-stack td:last-child{border-bottom:none;}
+  .adm-stack td[data-label]::before{content:attr(data-label);font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);text-align:left;flex-shrink:0;}
+  .adm-stack td.adm-konto{display:block;text-align:left;font-weight:600;}
+  .adm-stack td.adm-konto::before{display:block;margin-bottom:4px;}
+  .adm-act{text-align:left;}
+  .adm-act:empty{display:none!important;}
+  .adm-modeller li{gap:6px;}
+  .adm-modeller li code{overflow-wrap:anywhere;}
+  .adm-modeller li .btn{margin-left:0;}
+  .adm-ny{flex-wrap:wrap;}
+}

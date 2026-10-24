@@ -86,6 +86,59 @@ function Modellista({ modeller, onSpara, busy }) {
   );
 }
 
+// The platform's embedding key, as each host holds it. Entered in
+// Railway and Vercel, never here: a key typed into this page would have
+// to be stored in the database, where a leak of the database — or of an
+// admin session — hands it over with everything else. The hosts keep it
+// encrypted and out of reach of the app's own queries. What this panel
+// adds is the check that both hosts got the same key after a rotation.
+function Plattformsnyckel({ n }) {
+  const a = n.appen;
+  const w = n.workern;
+  const olika = a?.avtryck && w?.avtryck && a.avtryck !== w.avtryck;
+  const rad = (namn, s) => (
+    <tr>
+      <td data-label="Var">{namn}</td>
+      <td data-label="Nyckel" className={s?.satt ? '' : 'good'}>{s ? (s.satt ? 'satt' : 'saknas') : 'har inte rapporterat'}</td>
+      <td data-label="Variabel" className="dim">{s?.källa || '—'}</td>
+      <td data-label="Avtryck"><code>{s?.avtryck || '—'}</code></td>
+    </tr>
+  );
+  return (
+    <section className="dash-block">
+      <div className="dash-stat-label">Plattformsnyckeln — embeddings</div>
+      <div className="adm-scroll">
+        <table className="dash-table adm-stack">
+          <thead><tr><th>Var</th><th>Nyckel</th><th>Variabel</th><th>Avtryck</th></tr></thead>
+          <tbody>
+            {rad('Appen (Vercel)', a)}
+            {rad('Workern (Railway)', w)}
+          </tbody>
+        </table>
+      </div>
+      {olika && <div className="err-note adm-note">Appen och workern har olika nycklar. Efter ett byte måste båda få den nya.</div>}
+      <p className="hint">
+        {n.senastFel && (!n.senastOk || new Date(n.senastFel.senast) > new Date(n.senastOk))
+          ? <>Senaste indexeringen misslyckades {fmtDate(n.senastFel.senast)}: <i>{n.senastFel.not}</i>. </>
+          : n.senastOk ? <>Senaste lyckade indexering {fmtDate(n.senastOk)}. </> : null}
+        Avtrycket är början av nyckelns hash, så du ser om två ställen har samma nyckel utan att
+        nyckeln visas. Nyckeln skrivs in i Railway och Vercel, inte här — då hamnar den aldrig i
+        databasen.
+      </p>
+      <details className="adm-howto">
+        <summary>Så byter du nyckeln</summary>
+        <ol>
+          <li>OpenRouter → Keys → skapa en ny nyckel, med en kreditgräns.</li>
+          <li>Railway → <b>worker</b> → Variables → <code>PLATFORM_OPENROUTER_API_KEY</code> → klistra in → Deploy.</li>
+          <li>Vercel → Settings → Environment Variables → samma namn, för Production → spara → Redeploy.</li>
+          <li>Kontrollera här att avtrycken är lika och att indexeringen lyckas.</li>
+          <li>Stäng av den gamla nyckeln hos OpenRouter.</li>
+        </ol>
+      </details>
+    </section>
+  );
+}
+
 export default function AdminView() {
   const [ö, setÖ] = useState(null);
   const [users, setUsers] = useState(null);
@@ -122,13 +175,17 @@ export default function AdminView() {
     setBusy(null);
   }
 
-  if (!ö || !users) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
+  if (!ö || !users) return <div className="admin-page"><div className="loading-note">{error || <>Laddar<Dots /></>}</div></div>;
   const e = ö.embeddings;
   const w = ö.worker;
   const workerDöd = w.sekunderSedan == null || w.sekunderSedan > 120;
 
+  // The page scrolls in its own container: body is the app shell and
+  // does not scroll, which left everything below the first screen of
+  // this page out of reach.
   return (
-    <div className="dash">
+    <div className="admin-page">
+    <div className="dash admin">
       <a className="llm-link" href="/">← Till appen</a>
       <div className="idx" style={{ marginTop: 14 }}>Admin</div>
       <h2>Plattformen</h2>
@@ -143,6 +200,8 @@ export default function AdminView() {
         <Stat label="Användare" value={ö.användare.totalt} sub={`${ö.användare.nya_veckan} nya i veckan · ${ö.användare.spärrade} spärrade`} />
         <Stat label="Användarnas AI, 30 d" value={kr(ö.användarnasKostnad30d.usd)} sub="på deras egna nycklar" />
       </div>
+
+      <Plattformsnyckel n={ö.plattformsnyckel} />
 
       <section className="dash-block">
         <div className="dash-stat-label">Vektorindex för annonspoolen — plattformens kostnad</div>
@@ -166,6 +225,7 @@ export default function AdminView() {
 
       <section className="dash-block">
         <div className="dash-stat-label">Bakgrundsjobb</div>
+        <div className="adm-scroll">
         <table className="dash-table">
           <tbody>
             <tr><td>JobStream (nya annonser)</td><td>{ålder(w.jobstream.sekunderSedan)}</td><td className="dim" /></tr>
@@ -179,30 +239,34 @@ export default function AdminView() {
             )}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="dash-block">
         <div className="dash-stat-label">Fel som ingen fångade, senaste 7 dygnen</div>
         {ö.fel.length === 0 ? <p className="hint">Inga.</p> : (
-          <table className="dash-table">
+          <div className="adm-scroll">
+          <table className="dash-table adm-stack">
             <thead><tr><th>Var</th><th>Fel</th><th>Antal</th><th>Senast</th></tr></thead>
             <tbody>
               {ö.fel.map((f) => (
                 <tr key={`${f.källa}${f.väg}${f.meddelande}`}>
-                  <td>{f.källa}{f.väg ? ` ${f.metod || ''} ${f.väg}` : ''}</td>
-                  <td className="dim">{f.meddelande}</td>
-                  <td>{f.antal}</td>
-                  <td className="dim">{fmtDate(f.senast)}</td>
+                  <td data-label="Var">{f.källa}{f.väg ? ` ${f.metod || ''} ${f.väg}` : ''}</td>
+                  <td data-label="Fel" className="dim">{f.meddelande}</td>
+                  <td data-label="Antal">{f.antal}</td>
+                  <td data-label="Senast" className="dim">{fmtDate(f.senast)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
       <section className="dash-block">
         <div className="dash-stat-label">Användare</div>
-        <table className="dash-table">
+        <div className="adm-scroll">
+        <table className="dash-table adm-stack">
           <thead>
             <tr>
               <th>Konto</th><th>Skapat</th><th>Senast aktiv</th><th>AI 30 d</th>
@@ -212,22 +276,22 @@ export default function AdminView() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td>
+                <td data-label="Konto" className="adm-konto">
                   {u.email}
                   {u.du && <span className="dash-tag">du</span>}
                   {u.role === 'admin' && <span className="dash-tag">admin</span>}
                   {u.disabled_at && <span className="dash-tag gone">spärrad</span>}
                   {!u.google && <span className="dash-tag">lösenord</span>}
                 </td>
-                <td className="dim">{fmtDate(u.created_at)}</td>
-                <td className="dim">{u.senast_aktiv ? fmtDate(u.senast_aktiv) : '—'}</td>
-                <td>{kr(u.kostnad_30d)}</td>
-                <td>{u.skickade}</td>
-                <td>{u.aktiva_kampanjer}</td>
-                <td className={u.gmail_error ? 'good' : 'dim'} title={u.gmail_error || ''}>
+                <td data-label="Skapat" className="dim">{fmtDate(u.created_at)}</td>
+                <td data-label="Senast aktiv" className="dim">{u.senast_aktiv ? fmtDate(u.senast_aktiv) : '—'}</td>
+                <td data-label="AI 30 d">{kr(u.kostnad_30d)}</td>
+                <td data-label="Skickade">{u.skickade}</td>
+                <td data-label="Kampanjer">{u.aktiva_kampanjer}</td>
+                <td data-label="Gmail" className={u.gmail_error ? 'good' : 'dim'} title={u.gmail_error || ''}>
                   {u.gmail ? 'kopplat' : u.gmail_error ? 'fel' : '—'}
                 </td>
-                <td>
+                <td className="adm-act">
                   {u.role !== 'admin' && !u.du && (
                     <button className="btn" type="button" disabled={busy === u.id}
                       onClick={() => spärr(u, !u.disabled_at)}>
@@ -239,11 +303,13 @@ export default function AdminView() {
             ))}
           </tbody>
         </table>
+        </div>
         <p className="hint">
           Bara siffror. Användarnas CV, brev och mejl visas aldrig här. Admin sätts med
           {' '}<code>node scripts/make-admin.js &lt;e-post&gt;</code>.
         </p>
       </section>
+    </div>
     </div>
   );
 }

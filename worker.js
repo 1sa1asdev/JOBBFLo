@@ -23,7 +23,7 @@ import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången } from './src/ensam.js';
 
 fångaProcessfel('worker');
-import { embedPendingAds, embedSearchQuery } from './src/embed.js';
+import { embedPendingAds, embedSearchQuery, nyckelStatus } from './src/embed.js';
 import {
   embeddingCoverage, refreshQueryVectors, retireClosedAds,
 } from './src/refresh.js';
@@ -185,6 +185,19 @@ async function drainTick() {
 // switch governs the SCHEDULED spend specifically — a deliberate
 // backfill run by hand can still say otherwise.
 let embedQuiet = false;
+
+// What the admin page shows about the platform key on THIS host: set or
+// not, from which variable, and a fingerprint — never the key
+// (src/embed.js nyckelStatus). And how the last embedding round went:
+// a revoked or rotated-away key shows up there as a 401 within minutes.
+async function stämpla(nyckel, note) {
+  await pool.query(
+    `INSERT INTO poll_state (key, last_run_at, note) VALUES ($1, now(), $2)
+     ON CONFLICT (key) DO UPDATE SET last_run_at = now(), note = EXCLUDED.note`, [nyckel, note])
+    .catch((e) => console.error(`${nyckel}:`, e.message));
+}
+const rapporteraNyckel = () => stämpla('worker_plattformsnyckel', JSON.stringify(nyckelStatus()));
+
 async function embedTick() {
   try {
     // The platform's spend, switched on the admin page (src/platform.js).
@@ -210,8 +223,10 @@ async function embedTick() {
       const c = await embeddingCoverage();
       console.log(`embed: ${n} annonser (${c.embedded}/${c.total}, ${c.pct}%)`);
       embedQuiet = false;
+      await stämpla('embed_ok', `${n} annonser`);
     }
   } catch (err) {
+    await stämpla('embed_fel', err.message.slice(0, 200));
     if (!embedQuiet) {
       console.error('embed:', err.message.slice(0, 130));
       embedQuiet = true;   // say it once, not every minute
@@ -349,6 +364,8 @@ setInterval(score, SCORE_EVERY);
 setInterval(drain, DRAIN_EVERY);
 setInterval(followup, FOLLOWUP_EVERY);
 setInterval(embed, EMBED_EVERY);
+rapporteraNyckel();
+setInterval(rapporteraNyckel, 10 * 60 * 1000);
 setInterval(vectors, VECTORS_EVERY);
 setInterval(autoApply, AUTOAPPLY_EVERY);
 setInterval(leadScan, LEADSCAN_EVERY);

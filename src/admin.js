@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { embedConfig } from './embed.js';
+import { embedConfig, nyckelStatus } from './embed.js';
 import { embeddingCoverage } from './refresh.js';
 import { embeddingsPåslagna } from './platform.js';
 import { openrouterKredit } from './openrouterCredit.js';
@@ -56,7 +56,8 @@ export async function översikt() {
       `SELECT count(*)::int AS nya FROM ads WHERE created_at > now() - interval '24 hours'`),
     pool.query(
       `SELECT key, last_run_at, note FROM poll_state
-       WHERE key IN ('jobstream', 'janitor_snapshot', 'janitor_snapshot_fel', 'janitor_sweep', 'imap_worker_alive')`),
+       WHERE key IN ('jobstream', 'janitor_snapshot', 'janitor_snapshot_fel', 'janitor_sweep', 'imap_worker_alive',
+                     'worker_plattformsnyckel', 'embed_ok', 'embed_fel')`),
     pool.query(
       `SELECT count(*)::int AS totalt,
               count(*) FILTER (WHERE role = 'admin')::int AS admin,
@@ -76,7 +77,21 @@ export async function översikt() {
   const sedan = (k) => (st[k]?.last_run_at ? Math.round((Date.now() - new Date(st[k].last_run_at)) / 1000) : null);
   return {
     modeller: await modellöversikt(),
-    plattformsnyckel: { satt: Boolean(cfg.key), kredit },
+    // The platform's key lives in each host's settings (Vercel for the
+    // app, Railway for the worker), never in the database: this shows
+    // whether each has one and whether they are the same one, by
+    // fingerprint (src/embed.js nyckelStatus) — not the key.
+    plattformsnyckel: {
+      satt: Boolean(cfg.key),
+      kredit,
+      appen: nyckelStatus(),
+      workern: (() => {
+        try { return st.worker_plattformsnyckel ? { ...JSON.parse(st.worker_plattformsnyckel.note), sedan: st.worker_plattformsnyckel.last_run_at } : null; }
+        catch { return null; }
+      })(),
+      senastOk: st.embed_ok?.last_run_at || null,
+      senastFel: st.embed_fel ? { senast: st.embed_fel.last_run_at, not: st.embed_fel.note } : null,
+    },
     embeddings: {
       påslagna,
       leverantör: cfg.provider,
