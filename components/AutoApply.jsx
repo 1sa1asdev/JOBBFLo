@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, timeAgo } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import Inbox from './Inbox.jsx';
 import CampaignLetter from './CampaignLetter.jsx';
 import Dots from './Dots';
@@ -359,7 +360,14 @@ export default function AutoApply({ onFindSimilar }) {
     didAutoOpen.current = true;
     if (kampanjer.length === 1) setExpanded(new Set([kampanjer[0].id]));
   }, [data?.searches]);
-  usePoll(load, { interval: 8000, enabled: view === 'campaigns' });
+  // The cards cost a second or more to build (candidatesFor, whyNothing)
+  // and used to be rebuilt every 8 s whether or not anything had moved.
+  // Now only when the campaigns' part of the shared beacon moves, and on
+  // a slow fallback for what no beacon sees: an ad closing, a deadline
+  // passing.
+  useBeacon('kampanjer', (v, { first }) => (first ? undefined : load()),
+    { interval: 5000, enabled: view === 'campaigns' });
+  usePoll(load, { interval: 60_000, enabled: view === 'campaigns' });
 
   async function update(searchId, patch) {
     setBusy(searchId); setError(null);

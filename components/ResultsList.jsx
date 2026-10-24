@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, fmtDate, daysUntil, timeAgo } from '../lib/api.js';
-import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import { sparaScroll, läsScroll } from '../lib/useUrlState.js';
 import Dots from './Dots';
 import ApplyFilterSeg from './ApplyFilterSeg.jsx';
@@ -112,21 +112,15 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     return () => box.removeEventListener('scroll', spara);
   }, [search?.id, rows?.length]);
 
-  // Scoring writes rows one ad at a time, so watch the per-search
-  // beacon and pull the list only when the count actually moves.
-  const version = useRef(null);
-  usePoll(async () => {
-    if (!search?.id) return;
-    const { search: v } = await api(`/api/pulse?search=${search.id}`);
-    if (v === version.current) return;
-    const first = version.current === null;
-    version.current = v;
+  // Scoring writes rows one ad at a time, so watch this search's part of
+  // the shared beacon (lib/beacon.jsx) and pull the list only when it
+  // actually moves. A new search starts from no version, and its first
+  // answer is where the list already stands — loaded by the effect above.
+  useBeacon('search', async (v, { first }) => {
+    if (first) return;
     await load();
-    if (!first) setFreshAt(Date.now());
-  }, { interval: 3000, enabled: Boolean(search?.id) });
-
-  // reset the beacon when switching searches
-  useEffect(() => { version.current = null; }, [search?.id]);
+    setFreshAt(Date.now());
+  }, { param: search?.id || null, interval: 3000 });
 
   const loadMore = useCallback(async () => {
     if (!search?.id || loadingMore || !hasMore) return;

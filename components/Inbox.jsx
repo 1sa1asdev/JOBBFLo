@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
-import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import { useNotify } from '../lib/useNotify.js';
 import Dots from './Dots';
@@ -260,20 +260,17 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   // refetch the list AND the open thread — the open thread used to
   // never refresh, so a reply arriving while you read it stayed
   // invisible until you clicked away and back.
-  const version = useRef(null);
-  usePoll(async () => {
-    const { version: v } = await api('/api/pulse');
-    // Stamped on every successful poll, not only on a change: the point
-    // of the clock is to show the connection is alive, and a beacon
-    // that has not moved is the normal case.
-    setChecked(Date.now());
-    if (v === version.current) return;
-    const first = version.current === null;
-    version.current = v;
+  // The shared beacon (lib/beacon.jsx), asked every 3 s while this view
+  // is open. The clock is stamped on every answer, not only on a change:
+  // its point is to show the connection is alive, and a beacon that has
+  // not moved is the normal case. The first answer is where things
+  // already stand — the mount above loaded that.
+  useBeacon('global', async (v, { first }) => {
+    if (first) return;
     await load();
     if (activeId) await loadThread(activeId);
-    if (!first) setPulsed(Date.now());
-  }, { interval: 3000 });
+    setPulsed(Date.now());
+  }, { interval: 3000, onTick: () => setChecked(Date.now()) });
 
   // Says what it found, including when that is nothing — "0 nya" is the
   // answer to "is it stuck?", and silence is not.

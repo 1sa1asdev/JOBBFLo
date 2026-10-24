@@ -10,8 +10,20 @@ export const dynamic = 'force-dynamic';
 // actually moves. Keeps "reply lands -> user sees it" inside
 // CLAUDE.md's 15-30s budget without hammering Postgres.
 // ------------------------------------------------------------
+//
+// One request answers every part of the screen (lib/beacon.js): the
+// global version always, and an area only when a mounted view asks for
+// it —
+//   ?search=<id>     the result list of that search
+//   ?delar=kampanjer the campaign cards (Auto-ansökan)
+//   ?adresser=<id>   the address finder for that campaign
+// so the campaign hash, which reads several tables, is not paid for by
+// someone looking at their inbox.
 export async function GET(req) {
-  const searchId = new URL(req.url).searchParams.get('search');
+  const params = new URL(req.url).searchParams;
+  const searchId = params.get('search');
+  const delar = new Set((params.get('delar') || '').split(',').filter(Boolean));
+  const adresserFör = params.get('adresser');
   const profileId = await aktivProfilId();
 
   const { rows: [v] } = await pool.query(
@@ -84,13 +96,57 @@ export async function GET(req) {
     ].join(':') : null;
   }
 
+  // The campaign cards (GET /api/autoapply) read the campaign's settings,
+  // its grades, what it sent, the address hunt and the date ("skickade
+  // i dag"). That route costs a second or more — whyNothing alone is
+  // most of it — and Auto-ansökan used to call it every 8 s whether or
+  // not anything had moved. This hash moves when any of those inputs do.
+  // What it cannot see — an ad closing, a deadline passing — the view
+  // picks up on its slow fallback refresh.
+  let kampanjer = null;
+  if (delar.has('kampanjer')) {
+    const { rows: [k] } = await pool.query(
+      `WITH c AS (
+         SELECT s.id, md5((to_jsonb(s) - 'query_embedding')::text) AS rad
+         FROM searches s
+         WHERE s.profile_id = $1 AND s.deleted_at IS NULL AND s.campaign_created_at IS NOT NULL)
+       SELECT md5(concat_ws('|',
+         current_date,
+         (SELECT string_agg(c.rad, ',' ORDER BY c.id) FROM c),
+         (SELECT concat_ws(':', count(*), count(m.score), count(m.score_requested_at),
+                           max(m.scored_at), max(ls.scanned_at), count(ls.ad_id))
+            FROM match_results m LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
+           WHERE m.search_id IN (SELECT id FROM c)),
+         (SELECT concat_ws(':', count(*), max(a.updated_at)) FROM applications a
+           WHERE a.origin_search_id IN (SELECT id FROM c)),
+         (SELECT concat_ws(':', count(*), max(created_at)) FROM ad_contacts WHERE profile_id = $1)
+       )) AS v`, [profileId]);
+    kampanjer = k.v;
+  }
+
+  // The address finder (components/LeadFinder.jsx) lists one campaign's
+  // ads with what the scan found and what the user typed in.
+  let adresser = null;
+  if (adresserFör && await ägareAvSökning(adresserFör)) {
+    const { rows: [a] } = await pool.query(
+      `SELECT md5(concat_ws('|',
+         (SELECT concat_ws(':', count(*), count(m.score), max(ls.scanned_at), count(ls.ad_id))
+            FROM match_results m LEFT JOIN lead_scans ls ON ls.ad_id = m.ad_id
+           WHERE m.search_id = $1),
+         (SELECT concat_ws(':', count(*), max(created_at)) FROM ad_contacts WHERE profile_id = $2),
+         (SELECT concat_ws(':', count(*), max(updated_at)) FROM applications
+           WHERE origin_search_id = $1)
+       )) AS v`, [adresserFör, profileId]);
+    adresser = a.v;
+  }
+
   // one opaque string — the client only cares whether it changed
   const version = [
     v.msgs, Math.round(Number(v.last_msg) || 0),
     v.suggestions, Math.round(Number(v.last_app) || 0), v.sent_apps,
   ].join(':');
 
-  return NextResponse.json({ version, search }, {
+  return NextResponse.json({ version, search, kampanjer, adresser }, {
     headers: { 'cache-control': 'no-store' },
   });
 }

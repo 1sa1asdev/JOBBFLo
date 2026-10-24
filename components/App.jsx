@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
-import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import { useUrlState } from '../lib/useUrlState.js';
 import Dashboard from './Dashboard';
 import { useRowAlign } from '../lib/useRowAlign.js';
@@ -79,15 +79,15 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadSearches(); loadInboxCount(); }, [loadSearches, loadInboxCount]);
-  useEffect(() => { api('/api/profile').then(setProfile).catch(() => {}); }, [showProfile]);
+  // Once; after that the profile panel reports what it loads and saves.
+  useEffect(() => { api('/api/profile').then(setProfile).catch(() => {}); }, []);
 
-  // sidebar counts + inbox badge follow the same beacon, so the
-  // badge appears as soon as a reply is classified
-  const version = useRef(null);
-  usePoll(async () => {
-    const { version: v } = await api('/api/pulse');
-    if (v === version.current) return;
-    version.current = v;
+  // sidebar counts + inbox badge follow the shared beacon (lib/beacon.jsx),
+  // so the badge appears as soon as a reply is classified. The first
+  // answer only says where things stand, and the mount above already
+  // loaded that.
+  useBeacon('global', async (v, { first }) => {
+    if (first) return;
     await Promise.all([loadSearches(), loadInboxCount()]);
   }, { interval: 5000 });
 
@@ -209,7 +209,7 @@ export default function App() {
 
       {showProfile ? (
         <div className="profile-shell">
-          <ProfileView onClose={() => setShowProfile(false)} />
+          <ProfileView onClose={() => setShowProfile(false)} onProfile={setProfile} />
         </div>
       ) : workspace === 'search' ? (
         <div className="app" data-mobile-panel={mobilePanel}>

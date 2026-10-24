@@ -199,6 +199,11 @@ try {
     `A ${pulsA.data?.version} · B ${pulsB.data?.version}`);
   const pulsAmedSök = await anrop(A.cookie, 'GET', `/api/pulse?search=${S}`);
   kolla('pulsen ger inget om B:s sökning', pulsAmedSök.data?.search === null);
+  // The address finder's part of the shared beacon (lib/beacon.jsx) takes
+  // a search id too, and must answer nothing about one that is not A's.
+  const pulsAmedAdresser = await anrop(A.cookie, 'GET', `/api/pulse?adresser=${S}&delar=kampanjer`);
+  kolla('pulsen ger inget om B:s adressökning', pulsAmedAdresser.data?.adresser === null,
+    String(pulsAmedAdresser.data?.adresser));
 
   // ---- 5. B still reaches everything ----
   const egna = [

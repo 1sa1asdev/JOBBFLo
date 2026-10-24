@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import Dots from './Dots';
 import LiveDot from './LiveDot';
 
@@ -56,7 +57,12 @@ export default function LeadFinder({ campaigns, onChanged }) {
   // work happening elsewhere. Slower than the inbox's 4s because each
   // pass is a full ranked list, and the underlying scan moves twelve
   // pages every four minutes.
-  usePoll(load, { interval: 10000, enabled: Boolean(searchId) });
+  // On this campaign's part of the shared beacon (lib/beacon.jsx): the
+  // scan's results and typed-in addresses move it. The clock shows the
+  // beacon answered, not that the list was rebuilt.
+  useBeacon('adresser', (v, { first }) => (first ? undefined : load()),
+    { param: searchId, interval: 10000, onTick: () => setChecked(Date.now()) });
+  usePoll(load, { interval: 60_000, enabled: Boolean(searchId) });
 
   async function runScan(adId) {
     setBusy(adId); setErr(null);

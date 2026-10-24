@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import Dots from './Dots';
 import KomIgang from './KomIgang';
@@ -74,7 +75,12 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
   }, [dagar]);
 
   useEffect(() => { load(); }, [load]);
-  usePoll(load, { interval: 15000 });
+  // Rebuilt when letters or replies move the shared beacon, instead of
+  // every 15 s; the slow fallback keeps the AI cost line current, which
+  // no beacon tracks.
+  useBeacon('global', (v, { first }) => (first ? undefined : load()),
+    { interval: 5000, onTick: () => setChecked(Date.now()) });
+  usePoll(load, { interval: 60_000 });
 
   if (!data) return <div className="loading-note">{err || <>Laddar<Dots /></>}</div>;
 
