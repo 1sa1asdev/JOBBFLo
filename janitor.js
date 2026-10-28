@@ -3,7 +3,7 @@ import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { fångaProcessfel } from './src/fellogg.js';
-import { väntaPåLås, enÅtGången } from './src/ensam.js';
+import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 import { version } from './src/version.js';
 
 fångaProcessfel('janitor');
@@ -105,15 +105,36 @@ const varv = enÅtGången(async () => {
 const LÅS = 8123475;
 // Waited for, not given up on: a deploy starts the new container before
 // it stops the old one (src/ensam.js).
-const låskoppling = await pool.connect();
 const avbryt = new AbortController();
 process.once('SIGTERM', () => avbryt.abort());
 process.once('SIGINT', () => avbryt.abort());
+const låskoppling = await anslutMedTålamod(pool, 'janitor', { signal: avbryt.signal });
+if (!låskoppling) process.exit(0);
 if (!(await väntaPåLås(låskoppling, LÅS, 'janitor', { signal: avbryt.signal }))) {
   låskoppling.release();
   await pool.end();
   process.exit(0);
 }
+
+// Timers and shutdown first, so the lock watch below can stop the
+// janitor at any moment — including in the middle of its first round.
+let timer = null;
+let pulsTimer = null;
+let avväpnaLås = () => {};
+async function stäng(utkod = 0) {
+  avväpnaLås();
+  clearInterval(timer);
+  clearInterval(pulsTimer);
+  låskoppling.release();
+  await pool.end().catch(() => {});
+  process.exit(utkod);
+}
+process.on('SIGINT', () => stäng(0));
+process.on('SIGTERM', () => stäng(0));
+
+// If the lock's connection breaks, Postgres has released the lock and
+// another janitor may hold it: stop, and let the host start this again.
+avväpnaLås = bevakaLås(låskoppling, 'janitor', () => { stäng(1); });
 
 console.log('jobbflo janitor startar');
 
@@ -128,17 +149,7 @@ const puls = async () => {
     .catch((e) => console.error('janitor-puls:', e.message));
 };
 await puls();
-const pulsTimer = setInterval(puls, 60_000);
+pulsTimer = setInterval(puls, 60_000);
 
 await varv();
-const timer = setInterval(varv, STÄD_VARJE);
-
-const stäng = async () => {
-  clearInterval(timer);
-  clearInterval(pulsTimer);
-  låskoppling.release();
-  await pool.end();
-  process.exit(0);
-};
-process.on('SIGINT', stäng);
-process.on('SIGTERM', stäng);
+timer = setInterval(varv, STÄD_VARJE);
