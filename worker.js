@@ -20,7 +20,7 @@ import { scanCampaignLeads } from './src/leadqueue.js';
 import { postansvarig } from './src/imapManager.js';
 import { embeddingsPåslagna } from './src/platform.js';
 import { fångaProcessfel } from './src/fellogg.js';
-import { väntaPåLås, enÅtGången } from './src/ensam.js';
+import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 
 fångaProcessfel('worker');
 import { embedPendingAds, embedSearchQuery } from './src/embed.js';
@@ -310,6 +310,9 @@ async function followupTick() {
 const abort = new AbortController();
 process.on('SIGINT', () => abort.abort());
 process.on('SIGTERM', () => abort.abort());
+// 1 when the worker stops because it lost its lock, so the host sees a
+// failure and starts it again (src/ensam.js bevakaLås).
+let utkod = 0;
 
 // ------------------------------------------------------------
 // Exactly one worker, enforced by Postgres rather than by whoever
@@ -323,11 +326,15 @@ process.on('SIGTERM', () => abort.abort());
 const WORKER_LOCK = 8123472;
 // Waited for, not given up on: a deploy starts the new container before
 // it stops the old one (src/ensam.js).
-const lockClient = await pool.connect();
+const lockClient = await anslutMedTålamod(pool, 'worker', { signal: abort.signal });
+if (!lockClient) process.exit(0);
 if (!(await väntaPåLås(lockClient, WORKER_LOCK, 'worker', { signal: abort.signal }))) {
   lockClient.release();
   process.exit(0);
 }
+// The lock is only as alive as this connection: if it breaks, Postgres
+// has released the lock and another worker may already hold it.
+const avväpnaLås = bevakaLås(lockClient, 'worker', () => { utkod = 1; abort.abort(); });
 
 console.log('jobbflo worker starting');
 // Each tick runs one at a time: one still running when its timer fires
@@ -364,8 +371,16 @@ setInterval(judge, JUDGE_EVERY);
 // One mailbox per user with Gmail and a letter sent (src/imapManager.js).
 const post = postansvarig();
 post.start();
-abort.signal.addEventListener('abort', async () => {
+const stanna = async () => {
+  avväpnaLås();
+  // a mailbox that will not say goodbye must not keep an unlocked
+  // worker alive
+  setTimeout(() => process.exit(utkod), 10_000).unref?.();
   await post.stoppa();
   console.log('worker stopped');
-  process.exit(0);
-}, { once: true });
+  process.exit(utkod);
+};
+// A stop asked for before this line (a lost lock during startup) has
+// already fired its event; run it now rather than never.
+if (abort.signal.aborted) stanna();
+else abort.signal.addEventListener('abort', stanna, { once: true });
