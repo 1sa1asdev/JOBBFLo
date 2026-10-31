@@ -3,7 +3,7 @@ import { chain } from 'stream-chain';
 import { parser } from 'stream-json';
 import { streamArray } from 'stream-json/streamers/stream-array.js';
 import { pool } from './db.js';
-import { mapAd, upsertAd } from './fetchJobs.js';
+import { mapAd, upsertAds, ANNONSER_PER_SATS } from './fetchJobs.js';
 
 // ------------------------------------------------------------
 // The full picture of what is published right now.
@@ -69,6 +69,16 @@ export async function importSnapshot({ dryRun = false, signal = null } = {}) {
 
   const client = await pool.connect();
   const rör = chain([Readable.fromWeb(res.body), parser(), streamArray()]);
+  // Written a batch at a time as the download streams in, so memory
+  // holds one batch of ads, never the whole snapshot.
+  let klump = [];
+  const skriv = async () => {
+    for (const r of await upsertAds(client, klump)) {
+      if (r?.inserted) nya += 1;
+      else if (r && !r.unchanged) ändrade += 1;
+    }
+    klump = [];
+  };
   try {
     for await (const { value } of rör) {
       lästa += 1;
@@ -77,13 +87,13 @@ export async function importSnapshot({ dryRun = false, signal = null } = {}) {
       // An ad that is in the snapshot is published, whatever the stream
       // said earlier: removed comes back as false and the upsert clears
       // removed_at with it.
-      const r = await upsertAd(client, mapAd(value));
-      if (r?.inserted) nya += 1;
-      else if (r && !r.unchanged) ändrade += 1;
+      klump.push(mapAd(value));
+      if (klump.length >= ANNONSER_PER_SATS) await skriv();
       if (lästa % 5000 === 0) {
         console.log(`  snapshot: ${lästa} lästa, ${nya} nya, ${ändrade} ändrade`);
       }
     }
+    if (klump.length) await skriv();
   } finally {
     client.release();
   }

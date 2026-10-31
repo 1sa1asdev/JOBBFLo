@@ -76,9 +76,31 @@ export function employerType(name = '') {
 // ------------------------------------------------------------
 // normalize a JobTech ad into our shape
 // ------------------------------------------------------------
+// Values Postgres would refuse, caught here instead: one refused ad
+// fails the statement it is in, and that statement is now a batch.
+// A date that cannot be read becomes no date, the same as an ad that
+// gives none. Feb 30 passes Date.parse but not Postgres, so the day is
+// checked against the calendar.
+const ISO_TID = /^(\d{4})-(\d{2})-(\d{2})([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}(:?\d{2})?)?)?$/;
+export function tidpunkt(v) {
+  const m = typeof v === 'string' ? ISO_TID.exec(v) : null;
+  if (!m || Number.isNaN(Date.parse(v))) return null;
+  const dag = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return dag.getUTCMonth() === +m[2] - 1 && dag.getUTCDate() === +m[3] ? v : null;
+}
+
+// lat and lon are generated from raw by a cast to a number, so a
+// coordinate that is not one refuses the whole row.
+function medKoordinater(ad) {
+  const k = ad.workplace_address?.coordinates;
+  if (k == null || (Array.isArray(k) && k.every((x) => x == null || Number.isFinite(x)))) return ad;
+  return { ...ad, workplace_address: { ...ad.workplace_address, coordinates: null } };
+}
+
 export function mapAd(ad) {
   const employer = ad.employer?.name || ad.employer?.workplace || 'Okänd arbetsgivare';
   const municipality = ad.workplace_address?.municipality || null;
+  const deadline = ad.application_deadline ? tidpunkt(String(ad.application_deadline).slice(0, 10)) : null;
 
   return {
     source: 'platsbanken',
@@ -93,10 +115,10 @@ export function mapAd(ad) {
     apply_email: ad.application_details?.email || null,
     apply_url: ad.application_details?.url || null,
     ats_vendor: detectAts(ad),
-    published_at: ad.publication_date || null,
-    deadline: ad.application_deadline ? ad.application_deadline.slice(0, 10) : null,
-    removed_at: ad.removed ? ad.removed_date || new Date().toISOString() : null,
-    raw: ad,
+    published_at: tidpunkt(ad.publication_date),
+    deadline,
+    removed_at: ad.removed ? tidpunkt(ad.removed_date) || new Date().toISOString() : null,
+    raw: medKoordinater(ad),
   };
 }
 
@@ -152,6 +174,125 @@ export async function upsertAd(client, a) {
   return fanns ? { id: fanns.id, inserted: false, unchanged: true } : null;
 }
 
+// Per statement. Measured on 11 506 real ads (PR description): from
+// one at a time to 25 per statement is 24.6 → 2.6 ms an ad, by 250 it
+// is 2.0, and past that it hardly moves — 1000 is 3% faster than 400
+// for twice the memory, and a batch that has to fall back to one at a
+// time (below) costs more the bigger it is. 400 is also about one
+// minute of the feed.
+export const ANNONSER_PER_SATS = 400;
+
+// What a row needs before it is worth sending. mapAd already gives
+// every one of these, so this is for ads that did not come through it.
+const KÄLLOR = new Set(['platsbanken', 'linkedin', 'academicwork', 'manual']);
+const SKRIVBAR = [
+  ['okänd källa', (a) => KÄLLOR.has(a.source)],
+  ['saknar rubrik', (a) => typeof a.title === 'string' && a.title.length > 0],
+  ['saknar arbetsgivare', (a) => typeof a.employer === 'string' && a.employer.length > 0],
+  ['saknar fingeravtryck', (a) => typeof a.fingerprint === 'string' && a.fingerprint.length > 0],
+  ['saknar beskrivning', (a) => typeof a.description === 'string'],
+];
+
+// Text Postgres refuses inside jsonb: the NUL character, and half of
+// an emoji (a lone surrogate, which JSON.stringify writes as \udXXX).
+// The loop sent text as bytes and never met the second one; the batch
+// sends JSON and would.
+const rensadText = (_k, v) => (typeof v === 'string' ? v.replace(/\u0000/g, '').toWellFormed() : v);
+
+// The same write as upsertAd for many ads at once: one statement and
+// one round trip, where the loop paid one or two per ad. Nearly every
+// ad the feed and the snapshot send is unchanged, so the round trips
+// were the cost — 1.6 million statements in production's first nine
+// days.
+//
+// One result per ad, in the order given, shaped as upsertAd's
+// ({id, inserted, unchanged}), or null for an ad that could not be
+// written. The WHERE on the update is upsertAd's word for word, and
+// prove-ad-raw.js holds the two to the same rows.
+export async function upsertAds(client, ads) {
+  // The last copy of an ad wins, as it did when the loop wrote them in
+  // order — and ON CONFLICT refuses to touch one row twice in one
+  // statement, so a repeat would fail the whole batch.
+  const nyckel = (a) => `${a.source}|${a.external_id}`;
+  const sist = new Map();
+  ads.forEach((a, i) => {
+    if (a?.external_id == null) return;
+    const saknas = SKRIVBAR.find(([, ok]) => !ok(a));
+    if (saknas) console.error(`  !! ad ${a.external_id}: ${saknas[0]}`);
+    else sist.set(nyckel(a), i);
+  });
+  const unika = [...sist.values()].map((i) => ({ ...ads[i], external_id: String(ads[i].external_id) }));
+
+  const utfall = new Map();
+  if (unika.length) {
+    try {
+      const { rows } = await client.query(
+        `WITH inn AS (
+           SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
+             source text, external_id text, fingerprint text, title text, employer text,
+             employer_type text, municipality text, region text, description text,
+             apply_email text, apply_url text, ats_vendor text, published_at timestamptz,
+             deadline date, removed_at timestamptz, raw jsonb)
+         ), skrivna AS (
+           INSERT INTO ads (source, external_id, fingerprint, title, employer, employer_type,
+                            municipality, region, description, apply_email, apply_url,
+                            ats_vendor, published_at, deadline, removed_at, raw)
+           SELECT source, external_id, fingerprint, title, employer, employer_type,
+                  municipality, region, description, apply_email, apply_url,
+                  ats_vendor, published_at, deadline, removed_at, raw
+           FROM inn
+           ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
+           DO UPDATE SET
+             title = EXCLUDED.title,
+             description = EXCLUDED.description,
+             deadline = EXCLUDED.deadline,
+             removed_at = EXCLUDED.removed_at,
+             ats_vendor = EXCLUDED.ats_vendor,
+             raw = EXCLUDED.raw
+           WHERE ads.raw IS DISTINCT FROM EXCLUDED.raw
+              OR ads.removed_at IS DISTINCT FROM EXCLUDED.removed_at
+              OR (ads.title, ads.description, ads.deadline, ads.ats_vendor)
+                 IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.description, EXCLUDED.deadline, EXCLUDED.ats_vendor)
+           RETURNING id, source, external_id, (xmax = 0) AS inserted
+         )
+         SELECT id, source, external_id, inserted, false AS unchanged FROM skrivna
+         UNION ALL
+         -- The unchanged ones, which the update skipped and so did not
+         -- return. Every part of one statement reads the table as it
+         -- stood before the statement, so these are the rows as they were.
+         SELECT a.id, a.source, a.external_id, false, true
+         FROM inn JOIN ads a ON a.source = inn.source AND a.external_id = inn.external_id
+         WHERE NOT EXISTS (SELECT 1 FROM skrivna s
+                           WHERE s.source = inn.source AND s.external_id = inn.external_id)`,
+        [JSON.stringify(unika, rensadText)]
+      );
+      for (const r of rows) {
+        utfall.set(`${r.source}|${r.external_id}`, { id: r.id, inserted: r.inserted, unchanged: r.unchanged });
+      }
+    } catch (err) {
+      // One bad ad must not cost the rest of the batch their write,
+      // which the loop's per-ad catch never did. Alone, each one either
+      // goes in or is the one named. Called outside a transaction, as
+      // its callers do — inside one, the failed statement has already
+      // aborted it.
+      if (unika.length === 1) console.error(`  !! ad ${unika[0].external_id}: ${err.message}`);
+      else {
+        for (const a of unika) {
+          const [r] = await upsertAds(client, [a]);
+          if (r) utfall.set(nyckel(a), r);
+        }
+      }
+    }
+  }
+
+  return ads.map((a, i) => {
+    const r = a?.external_id != null ? utfall.get(nyckel(a)) : null;
+    if (!r) return null;
+    // an earlier copy of an ad the batch carries again further on
+    return sist.get(nyckel(a)) === i ? r : { id: r.id, inserted: false, unchanged: true };
+  });
+}
+
 // ------------------------------------------------------------
 // JobStream poll: ONE global fetch, shared by every search.
 // Never one fetch per search — five hourly searches would
@@ -183,35 +324,57 @@ export async function pollJobStream({ occupationConceptIds = [] } = {}) {
     console.log(`  ${ads.length} ads in stream`);
 
     let created = 0, updated = 0, removed = 0, skipped = 0, unchanged = 0;
+
+    // Two statements per poll, where there was one or two per ad. Only
+    // the last event for an ad counts, as when the loop wrote them in
+    // order: an ad withdrawn and then republished in one window ends
+    // up published. That also keeps the two sets apart, so the order
+    // of the two statements cannot matter.
+    const sist = new Map();
     for (const raw of ads) {
+      if (raw?.id == null) skipped++;
+      else sist.set(String(raw.id), raw);
+    }
+    const tillbakadragna = [];
+    const publicerade = [];
+    for (const raw of sist.values()) {
+      // removed ads come through the stream stripped of everything but
+      // id + removed flag — never upsert those, just mark ours removed
+      if (raw.removed) tillbakadragna.push(raw);
+      else if (!raw.headline) skipped++;
+      else publicerade.push(mapAd(raw));
+    }
+
+    if (tillbakadragna.length) {
+      // Only the ones not already marked. COALESCE made this idempotent
+      // in its effect but not in its cost: the stream re-sends the same
+      // withdrawn ads on every poll, so this rewrote 191 rows a minute
+      // to set them to the value they already held. The count now means
+      // "newly withdrawn", which is also the only number worth printing.
       try {
-        // removed ads come through the stream stripped of everything but
-        // id + removed flag — never upsert those, just mark ours removed
-        if (raw.removed) {
-          // Only the ones not already marked. COALESCE made this
-          // idempotent in its effect but not in its cost: the stream
-          // re-sends the same withdrawn ads on every poll, so this
-          // rewrote 191 rows a minute to set them to the value they
-          // already held. The count now means "newly withdrawn", which
-          // is also the only number worth printing.
-          const { rowCount } = await client.query(
-            `UPDATE ads SET removed_at = $2
-             WHERE source = 'platsbanken' AND external_id = $1
-               AND removed_at IS NULL`,
-            [String(raw.id), raw.removed_date || new Date().toISOString()]
-          );
-          removed += rowCount;
-          continue;
-        }
-        if (!raw.headline) { skipped++; continue; }
-        const r = await upsertAd(client, mapAd(raw));
+        const { rowCount } = await client.query(
+          `UPDATE ads SET removed_at = v.removed_at
+           FROM unnest($1::text[], $2::timestamptz[]) AS v(external_id, removed_at)
+           WHERE ads.source = 'platsbanken' AND ads.external_id = v.external_id
+             AND ads.removed_at IS NULL`,
+          [tillbakadragna.map((r) => String(r.id)),
+           tillbakadragna.map((r) => tidpunkt(r.removed_date) || new Date().toISOString())]
+        );
+        removed = rowCount;
+      } catch (err) {
+        // The snapshot closes whatever stopped being published, so a
+        // poll that cannot mark these loses a day at most.
+        skipped += tillbakadragna.length;
+        console.error(`  !! ${tillbakadragna.length} tillbakadragna: ${err.message}`);
+      }
+    }
+
+    for (let i = 0; i < publicerade.length; i += ANNONSER_PER_SATS) {
+      for (const r of await upsertAds(client, publicerade.slice(i, i + ANNONSER_PER_SATS))) {
         if (!r) skipped++;
         else if (r.unchanged) unchanged++;
         else if (r.inserted) created++;
         else updated++;
-      } catch (err) {
-        skipped++;
-        console.error(`  !! ad ${raw?.id}: ${err.message}`);
       }
     }
 
@@ -392,7 +555,7 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
 
   const client = await pool.connect();
   try {
-    const ids = [];
+    const behållna = [];
     let skipped = 0;
     for (const raw of body.hits || []) {
       // Drop only an explicit contradiction. An ad with no concept on
@@ -401,9 +564,9 @@ export async function backfillSearch(rawFilters = {}, limit = 100, offset = 0) {
         const got = raw.working_hours_type?.concept_id;
         if (got && !softWorktime.has(got)) { skipped += 1; continue; }
       }
-      const r = await upsertAd(client, mapAd(raw));
-      if (r?.id) ids.push(r.id);
+      behållna.push(mapAd(raw));
     }
+    const ids = (await upsertAds(client, behållna)).filter((r) => r?.id).map((r) => r.id);
     const total = body.total?.value ?? null;
     console.log(`  ${ids.length} ads stored @ offset ${offset} (${total ?? '?'} total matches`
       + `${skipped ? `, ${skipped} med annan omfattning överhoppade` : ''})`);

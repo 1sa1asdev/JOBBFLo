@@ -239,7 +239,7 @@ node scripts/prove-history-move.js       # a user's local history moves into the
 node scripts/prove-single-instance.js    # a deploy leaves exactly one worker and one janitor, never none
 node scripts/prove-ai-matning.js         # every AI call is measured by task and link, at the price actually charged
 node scripts/prove-deploy-verify.js      # a deploy is green only when app, worker and janitor run the released commit
-node scripts/prove-ad-raw.js             # ads.raw keeps every path the code reads, the description only once
+node scripts/prove-ad-raw.js             # ads.raw keeps every path the code reads, the description only once; a batch writes what one at a time would
 node scripts/prove-llm-val.js            # OpenRouter (the operator's models), LM Studio, Ollama — and no internal addresses
 ```
 
