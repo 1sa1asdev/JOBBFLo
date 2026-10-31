@@ -30,11 +30,24 @@ export async function extractCvText(buffer, filename = '') {
     // NOTE: pdf-parse/pdfjs must stay OUT of the Next bundle
     // (serverExternalPackages) — bundling breaks them at runtime with
     // "Object.defineProperty called on non-object".
+    //
+    // pdfjs 5 needs DOMMatrix, Path2D and ImageData, which Node lacks. It
+    // looks for @napi-rs/canvas on its own, by a path the build cannot
+    // see — so on Vercel the canvas package was never shipped with the
+    // route, and every PDF upload failed with "DOMMatrix is not defined"
+    // (it worked locally, where all of node_modules is present).
+    // pdf-parse/worker imports them from @napi-rs/canvas by name, which
+    // the build does follow, and sets them as globals: so it is imported
+    // first. Its getData() is pdfjs's worker as a data URL, so no worker
+    // file has to survive the bundle either.
     let raw;
+    let parser;
     try {
+      const { CanvasFactory, getData } = await import('pdf-parse/worker');
       // pdf-parse v2 exposes a PDFParse class, not a default function
       const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: buffer });
+      PDFParse.setWorker(getData());
+      parser = new PDFParse({ data: buffer, CanvasFactory });
       ({ text: raw } = await parser.getText());
     } catch (err) {
       const m = err.message || '';
@@ -45,6 +58,8 @@ export async function extractCvText(buffer, filename = '') {
         throw new Error('filen ser inte ut som en giltig PDF — är den helt nedladdad? Prova att spara om den, eller klistra in texten.');
       }
       throw new Error(`kunde inte läsa PDF:en (${m.slice(0, 80)}) — klistra in texten istället.`);
+    } finally {
+      await parser?.destroy().catch(() => {});
     }
     // it appends per-page markers like "-- 1 of 3 --"
     const text = tidy(String(raw || '').replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, ''));

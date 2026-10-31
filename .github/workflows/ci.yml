@@ -168,6 +168,11 @@ jobs:
       - name: Production build
         run: time npm run build
 
+      # The routes that read PDFs must ship the canvas package pdfjs needs
+      # for DOMMatrix — without it every PDF upload on Vercel failed.
+      - name: PDF routes ship their native canvas binary
+        run: node scripts/check-pdf-trace.js
+
       - run: npm run db:init && npm run db:seed
 
       # Two real users, a real server with login on: every route that is

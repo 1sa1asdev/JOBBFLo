@@ -9,7 +9,9 @@ const nextConfig = {
   // pdf-parse/pdfjs-dist: bundling mangles their internals and PDF
   //   parsing dies with "Object.defineProperty called on non-object".
   // mammoth: same class of problem (DOCX/zip internals).
-  serverExternalPackages: ['pg', 'pdf-parse', 'pdfjs-dist', 'mammoth'],
+  // @napi-rs/canvas: a native binary (DOMMatrix for pdfjs, src/cv.js) —
+  //   loaded per platform at runtime, so it must be traced, not bundled.
+  serverExternalPackages: ['pg', 'pdf-parse', 'pdfjs-dist', 'mammoth', '@napi-rs/canvas'],
   // forbidden() and unauthorized() (src/auth.js): one place decides that
   // a blocked account gets 403 and a lost session 401, in every route
   // and page, instead of each of eighty handlers catching it.
