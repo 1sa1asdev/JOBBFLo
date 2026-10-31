@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 063.
+-- Baseline covers migrations up to 043; latest migration 064.
 -- ============================================================
 
 --
@@ -1637,16 +1637,22 @@ CREATE INDEX ads_closed_with_vector_idx ON public.ads USING btree (id) WHERE ((e
 CREATE INDEX ads_deadline ON public.ads USING btree (deadline) WHERE (removed_at IS NULL);
 
 --
+-- Name: INDEX ads_deadline; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.ads_deadline IS 'Open ads by deadline: retirement and the pool''s deadline filters. The only one; an identical ads_open_deadline_idx from 039 was dropped in 064.';
+
+--
 -- Name: ads_fingerprint; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ads_fingerprint ON public.ads USING btree (fingerprint);
 
 --
--- Name: ads_fingerprint_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: INDEX ads_fingerprint; Type: COMMENT; Schema: public; Owner: -
 --
 
-CREATE INDEX ads_fingerprint_idx ON public.ads USING btree (fingerprint);
+COMMENT ON INDEX public.ads_fingerprint IS 'Same posting under another id: the soft dedupe flag (CLAUDE.md invariant 4), verdict reuse and never_apply. The only fingerprint index; a second identical one from 037 was dropped in 064.';
 
 --
 -- Name: ads_latlon; Type: INDEX; Schema: public; Owner: -
@@ -1659,12 +1665,6 @@ CREATE INDEX ads_latlon ON public.ads USING btree (lat, lon) WHERE (lat IS NOT N
 --
 
 CREATE INDEX ads_needs_embedding ON public.ads USING btree (published_at DESC NULLS LAST) WHERE ((embedding IS NULL) AND (removed_at IS NULL));
-
---
--- Name: ads_open_deadline_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ads_open_deadline_idx ON public.ads USING btree (deadline) WHERE (removed_at IS NULL);
 
 --
 -- Name: ads_open_employment_c_idx; Type: INDEX; Schema: public; Owner: -
