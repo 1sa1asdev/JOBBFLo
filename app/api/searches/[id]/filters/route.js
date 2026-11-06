@@ -4,6 +4,7 @@ import { pool } from '../../../../../src/db.js';
 import { suggestFilters } from '../../../../../src/filterSuggest.js';
 import { inomTakt, klientAdress, förMånga } from '../../../../../src/takt.js';
 import { scanSearch } from '../../../../../src/score.js';
+import { rensaTyper } from '../../../../../lib/arbetsgivartyp.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -41,7 +42,7 @@ export async function GET(_req, { params }) {
 // ------------------------------------------------------------
 const TILLÅTNA = new Set(['occupation-field', 'occupation-group', 'occupation-name',
   'municipality', 'region', 'employment-type', 'worktime-extent',
-  'experience', 'trainee', 'larling', 'remote', 'q']);
+  'experience', 'trainee', 'larling', 'remote', 'q', 'arbetsgivartyp']);
 
 export async function PATCH(req, { params }) {
   const { id } = await params;
@@ -59,7 +60,13 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: `okänt filter: ${add.key}` }, { status: 400 });
     }
     for (const k of add.ersätter || []) delete filter[k];
-    filter[add.key] = add.value;
+    if (add.key === 'arbetsgivartyp') {
+      // all types, or none, is no filter at all
+      const typer = rensaTyper(add.value);
+      if (typer) filter.arbetsgivartyp = typer; else delete filter.arbetsgivartyp;
+    } else {
+      filter[add.key] = add.value;
+    }
   } else if (remove) {
     if (!(remove in filter)) {
       return NextResponse.json({ error: `filtret är inte på: ${remove}` }, { status: 400 });

@@ -3045,6 +3045,11 @@
   .dash.admin .dash-stat b{font-size:1.375rem;}
   /* tables become one card per row, each cell labelled */
   .adm-stack thead{display:none;}
+  /* stacked rows are cards, not columns: the scroll box's minimum width
+     would push every card's numbers off the right edge */
+  .table-scroll .adm-stack{min-width:0;}
+  .adm-stack tr{box-sizing:border-box;}
+  .mk-tabell td[data-label]::before{flex-shrink:1;min-width:0;}
   .adm-stack,.adm-stack tbody,.adm-stack tr,.adm-stack td{display:block;width:100%;}
   .adm-stack tr{border:1px solid var(--line);background:var(--panel);padding:6px 12px;margin-bottom:10px;}
   .adm-stack td{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
@@ -3076,3 +3081,104 @@
 /* the overview scrolls in its own container (Dashboard.jsx): body is
    the app shell and never scrolls */
 .dash-page{flex:1;min-height:0;overflow-y:auto;}
+
+/* ================= ÖVERSIKT: TABS AND THE MARKET ================= */
+.dash-flikar{display:flex;border-bottom:2px solid var(--line);background:var(--sidebar);position:sticky;top:0;z-index:5;}
+.dash-flikar button{flex:1 1 0;min-width:0;min-height:44px;padding:10px 8px;border:none;border-right:1px solid var(--line);
+  background:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:var(--fs-small);font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
+.dash-flikar button:last-child{border-right:none;}
+.dash-flikar button[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+.dash-flikar button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+@media (min-width:761px){ .dash-flikar button{flex:0 0 auto;padding:10px 22px;} }
+.mk-filter{display:flex;align-items:center;gap:10px;margin:4px 0 14px;}
+.mk-etikett{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--mute);}
+.mk-filter select{max-width:260px;}
+.mk-trend{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);font-weight:700;margin-left:4px;white-space:nowrap;}
+.mk-trend.upp{color:var(--ok);}
+.mk-trend.ned{color:var(--flag);}
+.mk-av{font-size:var(--fs-label);color:var(--mute);}
+.mk-svar{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;}
+.mk-svar b{font-weight:600;}
+@media (min-width:641px){ .mk-svar{align-items:flex-start;} }
+/* jump buttons under the overview tabs: one swipeable row on a phone,
+   wrapped on a wider screen; sticky so they are there wherever you are */
+.hopp{position:sticky;top:46px;z-index:4;display:flex;gap:2px 18px;overflow-x:auto;scrollbar-width:none;
+  margin:0 0 12px;padding:2px 0;background:var(--paper);border-bottom:1px solid var(--tag-border);}
+.hopp::-webkit-scrollbar{display:none;}
+/* a fade at the right edge says the row goes on */
+.hopp{-webkit-mask-image:linear-gradient(to right,#000 85%,transparent);mask-image:linear-gradient(to right,#000 85%,transparent);}
+@media (min-width:761px){ .hopp{-webkit-mask-image:none;mask-image:none;} }
+.hopp button{flex:0 0 auto;min-height:36px;padding:6px 0;border:0;background:transparent;
+  font-family:'IBM Plex Mono',monospace;font-size:var(--fs-small);font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--ink);cursor:pointer;white-space:nowrap;}
+.hopp button:hover{text-decoration:underline;text-underline-offset:4px;}
+.hopp button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+@media (min-width:761px){ .hopp{flex-wrap:wrap;overflow-x:visible;} }
+.hopp-mal{scroll-margin-top:110px;}
+.hopp-mal:focus{outline:none;}
+.hopp-mal:focus-visible{outline:2px solid var(--flag);outline-offset:4px;}
+/* the user's own letters, per employer type and occupation field */
+.dash-fordelning{list-style:none;margin:10px 0 6px;padding:0;display:grid;gap:10px;}
+.dash-fordelning li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;}
+.df-namn{font-weight:600;overflow-wrap:anywhere;}
+.df-tal{font-size:var(--fs-meta);color:var(--mute);font-variant-numeric:tabular-nums;text-align:right;}
+.df-tal b{color:var(--ink);}
+.df-stapel{grid-column:1 / -1;display:block;height:6px;background:var(--tag-border);}
+.df-stapel span{display:block;height:100%;background:var(--ok);}
+/* best and worst placed occupations (Arbetsförmedlingen's assessment) */
+.mk-vaxel{display:flex;gap:0;border:1px solid var(--line);margin-bottom:6px;}
+.mk-vaxel button{flex:1 1 0;min-height:40px;background:transparent;border:0;font-family:'IBM Plex Mono',monospace;
+  font-size:var(--fs-small);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);cursor:pointer;}
+.mk-vaxel button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
+.mk-vaxel button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.mk-topp{list-style:none;margin:0 0 8px;padding:0;}
+.mk-topp li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:start;
+  padding:10px 0;border-bottom:1px solid var(--tag-border);}
+.mk-plats{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--mute);padding-top:1px;}
+.mk-yrke{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.mk-yrke b{font-weight:600;font-size:var(--fs-read);overflow-wrap:anywhere;}
+.mk-antal{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums;}
+.mk-antal b{font-weight:600;}
+.mk-andring{font-size:var(--fs-label);font-weight:700;}
+.mk-andring.bättre{color:var(--ok);}
+.mk-andring.sämre{color:var(--flag);}
+.mk-mer{margin-top:14px;border-top:1px solid var(--line);}
+.mk-mer>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;
+  font-size:var(--fs-small);font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+.mk-mer>summary:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+/* the search chat's market card */
+.msg.sl-kort{border-left:3px solid var(--ok);}
+.sl-rubrik{font-weight:600;margin-bottom:4px;}
+.sl-kort p{margin:0 0 4px;}
+.sl-huvud b{font-weight:600;}
+.sl-ovrig,.sl-tal{font-size:var(--fs-meta);color:var(--mute);}
+.sl-kalla{font-size:var(--fs-label);color:var(--mute);margin-top:6px!important;}
+/* per employer type: one card each, stacked on a phone, side by side when there is room */
+.mk-typer{list-style:none;margin:10px 0 8px;padding:0;display:grid;gap:10px;grid-template-columns:minmax(0,1fr);}
+@media (min-width:561px){ .mk-typer{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media (min-width:1101px){ .mk-typer{grid-template-columns:repeat(4,minmax(0,1fr));} }
+.mk-typ{border:1px solid var(--tag-border);background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;}
+.mk-typ-namn{font-weight:600;font-size:var(--fs-read);}
+.mk-typ-tal{font-size:var(--fs-meta);color:var(--mute);font-variant-numeric:tabular-nums;}
+.mk-typ-tal b{font-size:1.375rem;color:var(--ink);font-weight:600;margin-right:2px;}
+.mk-stapel{display:block;height:5px;background:var(--tag-border);}
+.mk-stapel span{display:block;height:100%;background:var(--ok);min-width:2px;}
+.mk-typ-rader{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:4px 0 0;font-size:var(--fs-meta);}
+.mk-typ-rader dt{color:var(--mute);}
+.mk-typ-rader dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.mk-typ-om{font-size:var(--fs-small);color:var(--mute);border-top:1px solid var(--tag-border);padding-top:6px;}
+.mk-forklaring{margin-top:18px;display:grid;gap:8px;font-size:var(--fs-small);line-height:var(--lh-body);color:var(--mute);max-width:70ch;}
+.mk-forklaring b{color:var(--ink);}
+.mk-kalla{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);}
+
+/* employer types a search or campaign reaches (ArbetsgivarFilter) */
+.ag-filter{flex-wrap:wrap;row-gap:6px;}
+.ag-filter .ct-seg{flex:1 1 100%;min-width:0;}
+.ag-filter .ct-seg button{flex:1 1 auto;min-width:0;min-height:36px;padding-left:4px;padding-right:4px;font-size:var(--fs-label);letter-spacing:.02em;white-space:nowrap;}
+@media (min-width:561px){ .ag-filter .ct-seg{flex:0 1 auto;} .ag-filter .ct-seg button{flex:0 0 auto;padding-left:10px;padding-right:10px;} }
+.ag-direkt{background:none;border:0;padding:4px 0;font-size:var(--fs-meta);color:var(--ok);text-decoration:underline;
+  text-underline-offset:3px;cursor:pointer;}
+.ag-direkt:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.auto-ag{margin:12px 0;}

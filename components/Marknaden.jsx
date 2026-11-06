@@ -1,0 +1,212 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { api } from '../lib/api.js';
+import Dots from './Dots';
+import Hopp from './Hopp';
+import { kortLäge, ÄNDRING } from '../lib/yrkesord.js';
+
+// ------------------------------------------------------------
+// Marknaden: the shared market, the same for every user (src/marknad.js).
+// Platsbanken's ads by occupation field — who is hiring, how many
+// openings, how fast ads close — and, where enough users stand behind
+// it, how many applied through the app and how often employers answer.
+// ------------------------------------------------------------
+const tal = (n) => (n == null ? '—' : n.toLocaleString('sv-SE'));
+const TYPNAMN = { foretag: 'Företag', offentlig: 'Offentlig sektor', bemanning: 'Bemanning', rekrytering: 'Rekrytering' };
+const TYPOM = {
+  foretag: 'Anställer själva.',
+  offentlig: 'Stat, regioner och kommuner.',
+  bemanning: 'Anställer dig och hyr ut dig till kunder.',
+  rekrytering: 'Söker åt en kund som anställer.',
+};
+
+function Trend({ v }) {
+  if (v == null) return null;
+  const upp = v > 0;
+  return (
+    <span className={`mk-trend ${v === 0 ? '' : upp ? 'upp' : 'ned'}`}
+      title="Nya annonser de senaste 14 dagarna mot de 14 före">
+      {v === 0 ? '±0 %' : `${upp ? '▲' : '▼'} ${Math.abs(v)} %`}
+    </span>
+  );
+}
+
+// The best and worst placed occupations: Arbetsförmedlingen's chances
+// of work first, open ads now second (src/yrkesbarometer.js yrkesläge).
+function Yrkesläge({ yrken, vy, setVy }) {
+  if (!yrken) return null;
+  const lista = vy === 'bast' ? yrken.bast : yrken.samst;
+  return (
+    <div className="dash-block mk-yrken hopp-mal" id="mk-yrken" tabIndex={-1}>
+      <div className="mk-vaxel" role="group" aria-label="Visa yrken">
+        <button type="button" aria-pressed={vy === 'bast'} onClick={() => setVy('bast')}>▲ Bäst läge</button>
+        <button type="button" aria-pressed={vy === 'samst'} onClick={() => setVy('samst')}>▼ Sämst läge</button>
+      </div>
+      <ol className="mk-topp">
+        {lista.map((y, i) => (
+          <li key={y.yb_id}>
+            <span className="mk-plats">{i + 1}</span>
+            <span className="mk-yrke">
+              <b>{y.yrke}</b>
+              <span className="mk-av">{kortLäge(y)}</span>
+              {y.andring && <span className={`mk-andring ${y.andring}`}>{ÄNDRING[y.andring]}</span>}
+            </span>
+            <span className="mk-antal"><b>{tal(y.oppna)}</b><span className="mk-av">annonser</span></span>
+          </li>
+        ))}
+      </ol>
+      <p className="mk-av">
+        {vy === 'bast'
+          ? `${yrken.antal.stora} yrken bedöms ha stora möjligheter till arbete — här de med flest öppna annonser.`
+          : `${yrken.antal.sma} yrken bedöms ha små möjligheter till arbete — här de med flest öppna annonser.`}
+        {' '}Bedömning: Arbetsförmedlingens yrkesbarometer {yrken.omgang}
+        {yrken.lan !== '00' ? ', länets egen där den finns.' : '.'}
+      </p>
+    </div>
+  );
+}
+
+export default function Marknaden() {
+  const [region, setRegion] = useState('');
+  const [data, setData] = useState(null);
+  const [fel, setFel] = useState(null);
+  const [vy, setVy] = useState('bast');
+  const [merÖppen, setMerÖppen] = useState(false);
+  const öppnaMer = () => setMerÖppen(true);
+
+  useEffect(() => {
+    let aktuell = true;
+    setFel(null);
+    api(`/api/marknad${region ? `?region=${encodeURIComponent(region)}` : ''}`)
+      .then((d) => { if (aktuell) setData(d); })
+      .catch((e) => { if (aktuell) setFel(e.message); });
+    return () => { aktuell = false; };
+  }, [region]);
+
+  if (!data) return <div className="loading-note">{fel || <>Laddar marknaden<Dots /></>}</div>;
+  const regioner = [...data.regioner].sort((a, b) => a.region.localeCompare(b.region, 'sv'));
+  const kvarTillTrend = Math.max(0, data.historik.trendFrån - data.historik.dagar);
+
+  return (
+    <div className="dash">
+      <div className="auto-head">
+        <div className="idx">05 / Marknaden</div>
+        <h2>Var jobben finns</h2>
+        <p className="auto-lede">
+          Var möjligheterna är störst och minst, enligt Arbetsförmedlingen och Platsbankens
+          annonser just nu. Samma för alla som använder Jobbflo — inget här handlar om dig.
+        </p>
+      </div>
+
+      <Hopp etikett="Gå till" mål={[
+        data.yrken && { id: 'mk-yrken', label: 'Bäst & sämst läge' },
+        { id: 'mk-falt', label: 'Yrkesområden', före: öppnaMer },
+        { id: 'mk-typer', label: 'Arbetsgivartyper', före: öppnaMer },
+        { id: 'mk-om', label: 'Om siffrorna', före: öppnaMer },
+      ]} />
+
+      <div className="mk-filter">
+        <label htmlFor="mk-region" className="mk-etikett">Region</label>
+        <select id="mk-region" className="ct-input" value={region} onChange={(e) => { setData(null); setRegion(e.target.value); }}>
+          <option value="">Hela Sverige</option>
+          {regioner.map((r) => <option key={r.region_id} value={r.region_id}>{r.region}</option>)}
+        </select>
+      </div>
+      {fel && <div className="err-note" role="alert">{fel}</div>}
+
+      <div className="dash-stats">
+        <div className="dash-stat"><b>{tal(data.totalt.oppna)}</b><span className="dash-stat-label">Öppna annonser</span></div>
+        <div className="dash-stat"><b>{tal(data.totalt.platser)}</b><span className="dash-stat-label">Platser i dem</span></div>
+        <div className="dash-stat accent"><b>{tal(data.totalt.nya_7)}</b><span className="dash-stat-label">Nya senaste 7 dagarna</span></div>
+      </div>
+
+      <Yrkesläge yrken={data.yrken} vy={vy} setVy={setVy} />
+
+      <details className="mk-mer" open={merÖppen} onToggle={(e) => setMerÖppen(e.currentTarget.open)}>
+        <summary>Visa mer — alla yrkesområden och arbetsgivartyper</summary>
+      <div className="dash-block hopp-mal" id="mk-falt" tabIndex={-1}>
+        <span className="auto-queue-title">Per yrkesområde</span>
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Marknaden per yrkesområde">
+          <table className="dash-table adm-stack mk-tabell">
+            <thead>
+              <tr>
+                <th>Yrkesområde</th><th>Öppna</th><th>Nya 7 d</th><th>Platser</th>
+                <th>Dagar öppen</th><th>Sökt via Jobbflo</th><th>Svar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rader.map((r) => (
+                <tr key={r.falt_id}>
+                  <td className="adm-konto" data-label="Yrkesområde">{r.falt}</td>
+                  <td data-label="Öppna annonser">{tal(r.oppna)}</td>
+                  <td data-label="Nya senaste 7 dagarna">{tal(r.nya_7)} <Trend v={r.trend} /></td>
+                  <td data-label="Platser">{tal(r.platser)}</td>
+                  <td data-label="Dagar tills annonsen togs ned">{r.median_dagar == null ? '—' : `${r.median_dagar} d`}</td>
+                  <td data-label="Sökt via Jobbflo, 30 dagar">{tal(r.sokta_30)}</td>
+                  <td data-label="Svar från arbetsgivare">
+                    {r.svar ? (
+                      <span className="mk-svar">
+                        <b>{r.svar.andel} % svarade</b>
+                        <span className="mk-av">{r.svar.intervju} % intervju · {r.svar.nej} % nej · av {r.svar.av}</span>
+                      </span>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="dash-block hopp-mal" id="mk-typer" tabIndex={-1}>
+        <span className="auto-queue-title">Per arbetsgivartyp</span>
+        <ul className="mk-typer">
+          {data.arbetsgivartyp.typer.map((t) => (
+            <li key={t.typ} className="mk-typ">
+              <span className="mk-typ-namn">{TYPNAMN[t.typ]}</span>
+              <span className="mk-typ-tal"><b>{tal(t.oppna)}</b> öppna · {t.andel} %</span>
+              <span className="mk-stapel" aria-hidden="true"><span style={{ width: `${t.andel}%` }} /></span>
+              <dl className="mk-typ-rader">
+                <dt>Nya 7 d</dt><dd>{tal(t.nya_7)}</dd>
+                <dt>Dagar öppen</dt><dd>{t.median_dagar == null ? '—' : `${t.median_dagar} d`}</dd>
+                <dt>Svar</dt>
+                <dd>{t.svar ? <>{t.svar.andel} % <span className="mk-av">· {t.svar.intervju} % intervju · {t.svar.nej} % nej · av {t.svar.av}</span></> : '—'}</dd>
+              </dl>
+              <span className="mk-typ-om">{TYPOM[t.typ]}</span>
+            </li>
+          ))}
+        </ul>
+        {data.arbetsgivartyp.okanda > 0 && (
+          <p className="mk-av">{tal(data.arbetsgivartyp.okanda)} öppna annonser saknar organisationsnummer och räknas inte här.</p>
+        )}
+      </div>
+
+      <div className="mk-forklaring hopp-mal" id="mk-om" tabIndex={-1}>
+        <p><b>Platser</b> — en annons kan söka flera personer; räknas från och med nu, äldre annonser räknas som en.</p>
+        <p><b>Dagar öppen</b> — mediantiden från publicering tills annonser togs ned den senaste veckan. Det närmaste
+          man kommer hur snabbt tjänster tillsätts. Visas när minst {data.gränser.användare} annonser stängts.</p>
+        <p><b>Sökt via Jobbflo</b> och <b>Svar</b> bygger på vad användarna gjort, och visas först när minst
+          {' '}{data.gränser.användare} olika användare står bakom en siffra — och för svar minst {data.gränser.svar} skickade
+          ansökningar — så att ingen enskild kan pekas ut.</p>
+        <p><b>Svar</b> — andelen ansökningar som arbetsgivaren svarade på alls, och hur många av dem som blev
+          intervju eller nej. Räknar brev skickade via Jobbflo de senaste 90 dagarna som kommit fram och fått
+          minst {data.gränser.svarstid} dagar på sig. Studsade och återkallade ansökningar räknas inte, och
+          inte heller de du sökt på arbetsgivarens egen sida — svaren på dem syns inte i appen.</p>
+        <p><b>Trend</b> — {kvarTillTrend > 0
+          ? `visas när 4 veckors historik samlats, om ${kvarTillTrend} dagar.`
+          : 'nya annonser de senaste 14 dagarna mot de 14 före.'}</p>
+        <p><b>Arbetsgivartyp</b> — {data.arbetsgivartyp.fran_scb > 0
+          ? `${data.arbetsgivartyp.fran_scb} % av annonserna efter näringsgren och sektor i SCB:s företagsregister, resten gissat efter arbetsgivarens namn.`
+          : 'gissat efter arbetsgivarens namn tills SCB:s företagsregister är kopplat.'}{' '}
+          Bemanning hyr ut personal till kunder och är själva arbetsgivaren; rekrytering söker åt en kund som sedan anställer.</p>
+        <p><b>Bäst och sämst läge</b> — Arbetsförmedlingens bedömning av möjligheterna till arbete det närmaste året
+          och efterfrågan på fem års sikt, per yrke och län. Bland yrkena med stora respektive små möjligheter visas de
+          med flest öppna annonser just nu. En pil visar om bedömningen ändrats sedan förra omgången.</p>
+        <p className="mk-kalla">Källa: Platsbanken via Arbetsförmedlingens JobStream och Arbetsförmedlingens yrkesbarometer
+          (öppna data). Uppdateras löpande; historiken sparas dagligen.
+          {data.arbetsgivartyp.fran_scb > 0 && <> Arbetsgivartyp: SCB:s företagsregister, bearbetat av Jobbflo.</>}</p>
+      </div>
+      </details>
+    </div>
+  );
+}

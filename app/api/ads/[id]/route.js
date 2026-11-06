@@ -3,6 +3,7 @@ import { pool } from '../../../../src/db.js';
 import { findDuplicates } from '../../../../src/fetchJobs.js';
 import { ägareAvAnnons, inteHittad } from '../../../../src/auth.js';
 import { adressFör } from '../../../../src/addresses.js';
+import { antalSökande } from '../../../../src/marknad.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,5 +68,8 @@ export async function GET(req, { params }) {
     match?.check_cv_key ? [id, match.check_cv_key, profileId] : [id, profileId]
   );
 
-  return NextResponse.json({ ad, match, duplicates, application, check });
+  // how many of the app's users have applied, or null below the threshold
+  const sokande = await antalSökande(id);
+
+  return NextResponse.json({ ad, match, duplicates, application, check, sokande });
 }

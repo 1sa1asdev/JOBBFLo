@@ -5,6 +5,7 @@ import { useBeacon } from '../lib/beacon.jsx';
 import { sparaScroll, läsScroll } from '../lib/useUrlState.js';
 import Dots from './Dots';
 import ApplyFilterSeg from './ApplyFilterSeg.jsx';
+import ArbetsgivarFilter from './ArbetsgivarFilter.jsx';
 import ChatTools from './ChatTools.jsx';
 import { useSmal } from '../lib/useSmal.js';
 import Checklist from './Checklist.jsx';
@@ -46,8 +47,10 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   // column on a wide screen.
   const smal = useSmal();
   const [filterÖppen, setFilterÖppen] = useState(false);
+  const [agBusy, setAgBusy] = useState(false);
   // what the menu narrows by beyond the defaults ('any' is no filter)
-  const aktivaFilter = (search?.apply_filter && search.apply_filter !== 'any' ? 1 : 0) + (maxKm ? 1 : 0);
+  const aktivaFilter = (search?.apply_filter && search.apply_filter !== 'any' ? 1 : 0) + (maxKm ? 1 : 0)
+    + (search?.api_filters?.arbetsgivartyp ? 1 : 0);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -369,6 +372,25 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 onCvChanged={(d) => window.dispatchEvent(new CustomEvent('jobbflo:cv', { detail: d }))} />
             </section>
           )}
+          <section className="rf-group">
+          <h3 className="rf-head">Arbetsgivare</h3>
+          <ArbetsgivarFilter
+            etikett="Ta med"
+            value={search.api_filters?.arbetsgivartyp}
+            busy={agBusy}
+            onChange={async (v) => {
+              setAgBusy(true);
+              try {
+                await api(`/api/searches/${search.id}/filters`, {
+                  method: 'PATCH',
+                  body: v ? { add: { key: 'arbetsgivartyp', value: v } } : { remove: 'arbetsgivartyp' },
+                });
+                await onSearchChanged?.();
+              } catch { /* the list shows failures on its next poll */ }
+              setAgBusy(false);
+            }}
+          />
+          </section>
           <section className="rf-group">
           <h3 className="rf-head">Ansökan och avstånd</h3>
           <ApplyFilterSeg search={search} onChanged={onSearchChanged} />

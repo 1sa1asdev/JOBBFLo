@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { loadTaxonomy } from './taxonomy.js';
+import { TYPNAMN } from '../lib/arbetsgivartyp.js';
 import { countLocal, countLocalMany } from './localsearch.js';
 import { nearestOccupations } from './taxonomyVectors.js';
 
@@ -150,8 +151,11 @@ const etikett = (key, value) => {
     'occupation-name': 'Yrke', 'municipality': 'Ort', 'region': 'Län',
     'employment-type': 'Anställningsform', 'worktime-extent': 'Omfattning',
     experience: 'Erfarenhet', trainee: 'Trainee/praktik', larling: 'Lärling',
-    remote: 'Distans', q: 'Fritext',
+    remote: 'Distans', q: 'Fritext', arbetsgivartyp: 'Arbetsgivare',
   }[key] || key;
+  if (key === 'arbetsgivartyp') {
+    return { namn, varde: [].concat(value).map((t) => TYPNAMN[t] || t).join(', ') };
+  }
   const varde = value === false ? (key === 'experience' ? 'krävs inte' : 'nej')
     : value === true ? 'ja'
     : Array.isArray(value) ? value.join(', ') : String(value);

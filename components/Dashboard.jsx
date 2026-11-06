@@ -6,6 +6,8 @@ import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import Dots from './Dots';
 import KomIgang from './KomIgang';
+import Marknaden from './Marknaden.jsx';
+import Hopp from './Hopp';
 
 // ------------------------------------------------------------
 // Did any of this work?
@@ -61,7 +63,45 @@ function PerDay({ rows }) {
   );
 }
 
+// Where the letters went — per employer type or occupation field: how
+// many, and how often they were answered (a rate only from the floor up).
+const TYPNAMN = {
+  foretag: 'Företag', offentlig: 'Offentlig sektor', bemanning: 'Bemanning',
+  rekrytering: 'Rekrytering', okand: 'Okänd typ',
+};
+function Fördelning({ id, titel, rader, namn, fot }) {
+  if (!rader?.length) return null;
+  const max = Math.max(...rader.map((r) => Number(r.skickade)));
+  return (
+    <div className="dash-block hopp-mal" id={id} tabIndex={-1}>
+      <span className="auto-queue-title">{titel}</span>
+      <ul className="dash-fordelning">
+        {rader.map((r) => (
+          <li key={namn(r)}>
+            <span className="df-namn">{namn(r)}</span>
+            <span className="df-tal"><b>{n(r.skickade)}</b> skickade · {r.replyRate == null ? `${n(r.svar)} svar` : `${r.replyRate} % svar`}</span>
+            <span className="df-stapel" aria-hidden="true">
+              <span style={{ width: `${Math.max(2, Math.round((Number(r.skickade) / max) * 100))}%` }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      {fot && <p className="hint">{fot}</p>}
+    </div>
+  );
+}
+
 export default function Dashboard({ onProfil, onNySökning, onSök }) {
+  // Two tabs: what the app did for you, and the market everyone shares.
+  // The choice is remembered in this browser.
+  const [flik, setFlik] = useState('din');
+  useEffect(() => {
+    try { if (localStorage.getItem('jobbflo-oversikt-flik') === 'marknad') setFlik('marknad'); } catch { /* storage may be off */ }
+  }, []);
+  const väljFlik = (f) => {
+    setFlik(f);
+    try { localStorage.setItem('jobbflo-oversikt-flik', f); } catch { /* storage may be off */ }
+  };
   const [data, setData] = useState(null);
   const [dagar, setDagar] = useState(0);
   const [checked, setChecked] = useState(null);
@@ -84,13 +124,21 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
 
   // In its own scroll container: the app shell (body) never scrolls, so
   // without one nothing below the first screen could be reached.
-  if (!data) return <div className="dash-page"><div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
+  const flikar = (
+    <div className="dash-flikar" role="tablist" aria-label="Översikt">
+      <button role="tab" aria-selected={flik === 'din'} onClick={() => väljFlik('din')}>Din översikt</button>
+      <button role="tab" aria-selected={flik === 'marknad'} onClick={() => väljFlik('marknad')}>Marknaden</button>
+    </div>
+  );
+  if (flik === 'marknad') return <div className="dash-page">{flikar}<Marknaden /></div>;
+  if (!data) return <div className="dash-page">{flikar}<div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
 
   const t = data.total;
   const pct = (v) => (v == null ? '—' : `${v}%`);
 
   return (
     <div className="dash-page">
+    {flikar}
     <div className="dash">
       <div className="auto-head">
         <div className="idx">05 / Översikt</div>
@@ -103,9 +151,18 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
         </p>
       </div>
 
+      <Hopp etikett="Gå till" mål={[
+        { id: 'dash-resultat', label: 'Resultat' },
+        data.perTyp?.length > 0 && { id: 'dash-typer', label: 'Arbetsgivartyper' },
+        data.perFalt?.length > 0 && { id: 'dash-falt', label: 'Yrkesområden' },
+        data.perDay?.length > 1 && { id: 'dash-perday', label: 'Brev per dag' },
+        { id: 'dash-kallor', label: 'Kampanjer' },
+        data.funnel?.length > 0 && { id: 'dash-tratt', label: 'Kandidater' },
+      ]} />
+
       <KomIgang onProfil={onProfil} onNySökning={onNySökning} onSök={onSök} />
 
-      <div className="dash-period">
+      <div className="dash-period hopp-mal" id="dash-resultat" tabIndex={-1}>
         {[[0, 'Hela tiden'], [30, '30 dagar'], [7, '7 dagar']].map(([d, l]) => (
           <button key={d} className={`cl-pick${dagar === d ? ' active' : ''}`}
             onClick={() => setDagar(d)}>{l}</button>
@@ -121,15 +178,21 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
         <Stat label="Utkast" value={n(t.utkast)} />
       </div>
 
+      <Fördelning id="dash-typer" titel="Vilka arbetsgivare du sökt hos" rader={data.perTyp}
+        namn={(r) => TYPNAMN[r.typ] || r.typ}
+        fot="Samma indelning som under Marknaden. Okänd typ är annonser utan organisationsnummer, till exempel de du klistrat in." />
+      <Fördelning id="dash-falt" titel="Vilka yrkesområden du sökt inom" rader={data.perFalt}
+        namn={(r) => r.falt} />
+
       {data.perDay?.length > 1 && (
-        <div className="dash-block">
+        <div className="dash-block hopp-mal" id="dash-perday" tabIndex={-1}>
           <span className="auto-queue-title">Brev per dag — senaste 30</span>
           <PerDay rows={data.perDay} />
           <p className="hint">Mörkare del av stapeln är de som svarat.</p>
         </div>
       )}
 
-      <div className="dash-block">
+      <div className="dash-block hopp-mal" id="dash-kallor" tabIndex={-1}>
         <span className="auto-queue-title">Per kampanj och sökning</span>
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Per kampanj och sökning">
           <table className="dash-table">
@@ -164,7 +227,7 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
       </div>
 
       {data.funnel?.length > 0 && (
-        <div className="dash-block">
+        <div className="dash-block hopp-mal" id="dash-tratt" tabIndex={-1}>
           <span className="auto-queue-title">Var kandidaterna tar vägen</span>
           {data.funnel.map((f) => (
             <div className="dash-funnel" key={f.name}>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../src/db.js';
 import { aktivProfilId } from '../../../src/auth.js';
+import { TYP } from '../../../src/marknad.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,6 +112,31 @@ export async function GET(req) {
     [profileId]
   );
 
+  // Where the letters went: per employer type (src/arbetsgivare.js, the
+  // same classification as the Marknaden tab) and per occupation field.
+  // The caller's own applications only, so no user threshold applies —
+  // the rate floor does.
+  const MINA = `
+    SELECT ap.status, ads.raw->'employer'->>'organization_number' AS orgnr,
+           CASE WHEN ads.source = 'platsbanken'
+                THEN COALESCE(ads.raw->'occupation_field'->>'label', 'Okänt yrkesområde')
+                ELSE 'Inklistrade annonser' END AS falt
+    FROM applications ap JOIN ads ON ads.id = ap.ad_id
+    WHERE ap.profile_id = $2 AND ap.status <> 'drafted'
+      AND ($1::interval IS NULL OR ap.sent_at > now() - $1::interval)`;
+  const UTFALL = `count(*) AS skickade,
+       count(*) FILTER (WHERE a.status IN ('replied','interview','rejected')) AS svar,
+       count(*) FILTER (WHERE a.status = 'interview') AS intervjuer`;
+  const { rows: perTyp } = await pool.query(
+    `WITH a AS (${MINA})
+     SELECT ${TYP} AS typ, ${UTFALL}
+     FROM a LEFT JOIN arbetsgivare g ON g.orgnr = a.orgnr
+     GROUP BY 1 ORDER BY count(*) DESC`, [period, profileId]);
+  const { rows: perFalt } = await pool.query(
+    `WITH a AS (${MINA})
+     SELECT a.falt, ${UTFALL}
+     FROM a GROUP BY 1 ORDER BY count(*) DESC, 1`, [period, profileId]);
+
   // What it cost. Present only if anything has been recorded — an empty
   // spend table means the switch is off, not that the work was free.
   // This queried cost_usd and created_at, which llm_usage never had —
@@ -138,6 +164,8 @@ export async function GET(req) {
     })),
     perDay,
     funnel,
+    perTyp: perTyp.map((k) => ({ ...k, replyRate: rate(k.svar, k.skickade) })),
+    perFalt: perFalt.map((k) => ({ ...k, replyRate: rate(k.svar, k.skickade) })),
     cost: cost?.usd ? cost : null,
     minForRate: MIN_FOR_RATE,
   });

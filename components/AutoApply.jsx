@@ -9,6 +9,8 @@ import Dots from './Dots';
 import LocationPicker from './LocationPicker.jsx';
 import CampaignWizard from './CampaignWizard.jsx';
 import LeadFinder from './LeadFinder.jsx';
+import ArbetsgivarFilter from './ArbetsgivarFilter.jsx';
+import { DIREKT, TYPNAMN } from '../lib/arbetsgivartyp.js';
 import { parseContacts } from '../lib/parseContacts.js';
 
 // ------------------------------------------------------------
@@ -312,6 +314,10 @@ function settingsSummary(s) {
   delar.push(`max ${s.auto_apply_daily_limit}/dygn`);
   if (orter > 1 && s.location_ratio) delar.push('fördelat per ort');
   if (s.must_criteria) delar.push('fritextkrav');
+  if (s.arbetsgivartyp?.length) {
+    const direkt = s.arbetsgivartyp.length === DIREKT.length && DIREKT.every((t) => s.arbetsgivartyp.includes(t));
+    delar.push(direkt ? 'bara direkt hos arbetsgivaren' : `bara ${s.arbetsgivartyp.map((t) => TYPNAMN[t].toLowerCase()).join(' och ')}`);
+  }
   if (s.send_from && s.send_to) {
     delar.push(`${s.send_from.slice(0, 5)}–${s.send_to.slice(0, 5)}`);
   } else if (s.send_days) {
@@ -666,6 +672,27 @@ export default function AutoApply({ onFindSimilar }) {
                         await load();
                       }}
                     />
+                  </div>
+
+                  {/* Who the letters reach. Off for Bemanning and
+                      Rekrytering, a campaign writes only to the employer
+                      itself — not to a middleman between the user and it. */}
+                  <div className="auto-ag">
+                    <ArbetsgivarFilter
+                      etikett="Skriv till"
+                      value={s.arbetsgivartyp}
+                      onChange={async (v) => {
+                        await api(`/api/searches/${s.id}/filters`, {
+                          method: 'PATCH',
+                          body: v ? { add: { key: 'arbetsgivartyp', value: v } } : { remove: 'arbetsgivartyp' },
+                        });
+                        await load();
+                      }}
+                    />
+                    <p className="hint">
+                      Bemanning anställer dig och hyr ut dig; rekrytering söker åt en kund. Annonser
+                      utan organisationsnummer tas alltid med.
+                    </p>
                   </div>
 
                   <div className="auto-rules">

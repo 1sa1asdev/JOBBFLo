@@ -2,6 +2,7 @@ import { pool } from './db.js';
 import { renderCampaignLetter } from './campaign.js';
 import { sendApplication, attachmentsFor } from './mailer.js';
 import { adressFör, glömAdress } from './addresses.js';
+import { typTillåten } from './arbetsgivare.js';
 import { mejlfel, FÖRE_BREV, TILLFÄLLIGA } from './felkoder.js';
 
 // ------------------------------------------------------------
@@ -349,6 +350,11 @@ export async function candidatesFor(searchId, { limit = 10 } = {}) {
        -- ...and never a second letter to the same COMPANY within the
        -- month, whatever address this ad happens to give.
        AND NOT ${nyligenKontaktat('a', 'pr.id', ADRESS)}
+       -- the campaign's employer types, checked again at send time: a
+       -- candidate found while the employer was still a name guess may
+       -- since have been read from SCB as a staffing agency
+       AND (s.api_filters->'arbetsgivartyp' IS NULL
+            OR ${typTillåten('a', "ARRAY(SELECT jsonb_array_elements_text(s.api_filters->'arbetsgivartyp'))")})
      -- NULLS LAST is load-bearing now that unscored ads can appear here:
      -- a plain score DESC sorts NULLs FIRST in Postgres, which would put
      -- every unjudged ad ahead of every high-scoring one and spend the

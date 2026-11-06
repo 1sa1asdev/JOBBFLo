@@ -2,6 +2,9 @@ import 'dotenv/config';
 import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
+import { byggMarknad } from './src/marknad.js';
+import { klassaArbetsgivare } from './src/arbetsgivare.js';
+import { hämtaYrkesbarometer } from './src/yrkesbarometer.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 import { version } from './src/version.js';
@@ -56,7 +59,37 @@ const stämpla = async (key, note) => {
 // that notices, and it runs whether or not the snapshot did.
 async function städa() {
   const stängda = await retireClosedAds();
+  // The market is written down before the prune below deletes the ads
+  // it counts. A failure here is logged and the sweep goes on: a missed
+  // day is recomputed by the next run, for as long as it is in the window.
+  try {
+    const m = await byggMarknad();
+    await stämpla('janitor_marknad', `${m.rader} rader`);
+  } catch (err) {
+    console.error('marknad:', err.message.slice(0, 200));
+  }
   const rensade = await pruneStaleAds();
+  // Employer types for the market view: by SCB's register when
+  // SCB_API_KEY is set, by name until then. Slow on purpose (SCB allows
+  // five calls a second), which is why it lives here and not in the worker.
+  try {
+    const g = await klassaArbetsgivare();
+    await stämpla('janitor_arbetsgivare',
+      `${g.scb} från SCB, ${g.saknas} okända för SCB, ${g.namn} efter namn${g.stopp ? `, stopp: ${g.stopp}` : ''}`);
+  } catch (err) {
+    console.error('arbetsgivare:', err.message.slice(0, 200));
+  }
+  // Arbetsförmedlingen's forecast: two editions a year, checked daily.
+  try {
+    const yb = await status('janitor_yrkesbarometer');
+    if (!yb?.last_run_at || Date.now() - new Date(yb.last_run_at).getTime() > 24 * TIMME) {
+      const r = await hämtaYrkesbarometer();
+      await stämpla('janitor_yrkesbarometer',
+        `omgång ${r.omgång}${r.nya.length ? `, nya: ${r.nya.join(', ')}` : ''}${r.förraFel ? `, förra: ${r.förraFel}` : ''}`);
+    }
+  } catch (err) {
+    console.error('yrkesbarometer:', err.message.slice(0, 200));
+  }
   const täckning = await embeddingCoverage();
   await stämpla('janitor_sweep',
     `${stängda.vektorer} vektorer, ${stängda.kandidater} kandidater, `

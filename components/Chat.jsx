@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import Soklage from './Soklage';
 import { api } from '../lib/api.js';
 import ChatTools from './ChatTools.jsx';
 import CvUpload from './CvUpload.jsx';
@@ -171,6 +172,8 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
             {m.content}
           </div>
         ))}
+        {/* how the market looks for what this search finds — data, not a model */}
+        {!isLetter && !creatingSearch && search?.id && <Soklage search={search} turn={messages.length} />}
         {!isLetter && !creatingSearch && search?.id && !busy
           && search.apply_filter == null && (
           <ApplyFilterAsk search={search} onChanged={onSearchChanged} />

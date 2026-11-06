@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 066.
+-- Baseline covers migrations up to 043; latest migration 069.
 -- ============================================================
 
 --
@@ -86,6 +86,7 @@ CREATE FUNCTION public.ad_raw_slim(r jsonb) RETURNS jsonb
   SELECT CASE WHEN jsonb_typeof(r) IS DISTINCT FROM 'object' THEN r ELSE jsonb_strip_nulls(jsonb_build_object(
     'id', r->'id',
     'experience_required', r->'experience_required',
+    'number_of_vacancies', r->'number_of_vacancies',
     'workplace_address', CASE WHEN jsonb_typeof(r->'workplace_address') = 'object' THEN jsonb_build_object(
       'municipality', r#>'{workplace_address,municipality}',
       'municipality_concept_id', r#>'{workplace_address,municipality_concept_id}',
@@ -110,7 +111,7 @@ $$;
 -- Name: FUNCTION ad_raw_slim(r jsonb); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.ad_raw_slim(r jsonb) IS 'The paths of a JobTech ad the app reads; everything else is dropped. Idempotent. A new raw-> path in the code must be added here, or it reads null.';
+COMMENT ON FUNCTION public.ad_raw_slim(r jsonb) IS 'The paths of a JobTech ad the app reads; everything else is dropped. Idempotent. A new raw-> path in the code must be added here, or it reads null. number_of_vacancies since 067 (the market view counts openings, not only ads).';
 
 --
 -- Name: ads_slim_raw(); Type: FUNCTION; Schema: public; Owner: -
@@ -439,6 +440,56 @@ COMMENT ON COLUMN public.applications.claim_checked_version IS 'letter_version t
 COMMENT ON COLUMN public.applications.sending_since IS 'When the send claim was taken. A row still ''sending'' is repaired by the Sent-folder sync.';
 
 --
+-- Name: arbetsgivare; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.arbetsgivare (
+    orgnr text NOT NULL,
+    typ text NOT NULL,
+    kalla text NOT NULL,
+    sni text,
+    jurform text,
+    sektor text,
+    scb_status text,
+    scb_forsokt timestamp with time zone,
+    uppdaterad timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT arbetsgivare_kalla CHECK ((kalla = ANY (ARRAY['scb'::text, 'namn'::text]))),
+    CONSTRAINT arbetsgivare_orgnr CHECK (((orgnr ~ '^[0-9]{10}$'::text) AND (substr(orgnr, 3, 1) >= '2'::text))),
+    CONSTRAINT arbetsgivare_scb_status CHECK ((scb_status = ANY (ARRAY['hittad'::text, 'saknas'::text]))),
+    CONSTRAINT arbetsgivare_typ CHECK ((typ = ANY (ARRAY['foretag'::text, 'offentlig'::text, 'bemanning'::text, 'rekrytering'::text])))
+);
+
+--
+-- Name: TABLE arbetsgivare; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.arbetsgivare IS 'One row per employer organisation number seen in Platsbanken ads: what kind of employer it is (src/arbetsgivare.js). Feeds the per-employer-type view of the Marknaden tab. Holds only what the classification needs — no name, address, phone or e-mail, although SCB returns them — and never a sole trader: their organisation number is a personal identity number (third digit 0 or 1), which the orgnr check refuses, so it is neither stored here nor sent to SCB. Source when kalla = scb: SCB:s allmänna företagsregister, bearbetat av Jobbflo (the terms require both).';
+
+--
+-- Name: COLUMN arbetsgivare.typ; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.arbetsgivare.typ IS 'foretag | offentlig (sector 13*, general government) | bemanning (SNI 78.2/78.3, hires staff out) | rekrytering (SNI 78.1, recruits for others).';
+
+--
+-- Name: COLUMN arbetsgivare.kalla; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.arbetsgivare.kalla IS 'scb = from the register by organisation number; namn = guessed from the employer name, used until SCB answers.';
+
+--
+-- Name: COLUMN arbetsgivare.sni; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.arbetsgivare.sni IS 'Primary SNI code (rangordning 1), digits only.';
+
+--
+-- Name: COLUMN arbetsgivare.scb_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.arbetsgivare.scb_status IS 'hittad = SCB knew the number (re-read after 180 days); saknas = SCB answered 404 (asked again after 30); NULL = not asked yet.';
+
+--
 -- Name: attachments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -628,6 +679,22 @@ CREATE TABLE public.interview_prep (
 COMMENT ON TABLE public.interview_prep IS 'Interview preparation, generated when an application reaches status ''interview''.';
 
 --
+-- Name: lan_region; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lan_region (
+    lan text NOT NULL,
+    region_concept_id text NOT NULL,
+    namn text NOT NULL
+);
+
+--
+-- Name: TABLE lan_region; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.lan_region IS 'County code (as in the Yrkesbarometer) to the region concept_id the ads carry. The 21 counties are fixed in the taxonomy.';
+
+--
 -- Name: lead_scans; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -713,6 +780,59 @@ COMMENT ON COLUMN public.llm_usage.uppgift IS 'What the call did (src/uppgifter.
 --
 
 COMMENT ON COLUMN public.llm_usage."usd_källa" IS 'leverantör: the cost OpenRouter reported for this call. listpris: tokens × the listed price. gratis: a local model.';
+
+--
+-- Name: marknad_dag; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.marknad_dag (
+    dag date NOT NULL,
+    falt_id text NOT NULL,
+    falt text NOT NULL,
+    region_id text NOT NULL,
+    region text NOT NULL,
+    nya integer DEFAULT 0 NOT NULL,
+    platser integer DEFAULT 0 NOT NULL,
+    stangda integer DEFAULT 0 NOT NULL,
+    oppna integer DEFAULT 0 NOT NULL,
+    uppdaterad timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
+-- Name: TABLE marknad_dag; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.marknad_dag IS 'The shared market, one row per day x occupation field x region (src/marknad.js byggMarknad, run by the janitor). Counts only — no ad, employer or user is named. Kept because the pool forgets: closed ads are deleted seven days after closing, so trends have to be written down as they happen. The last seven days are recomputed each run; older days are final.';
+
+--
+-- Name: COLUMN marknad_dag.falt_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.falt_id IS 'The occupation field''s concept_id (Arbetsförmedlingen''s taxonomy), or ''okänt'' when the ad gives none. Matches on concept_id, never on labels (CLAUDE.md invariant 6).';
+
+--
+-- Name: COLUMN marknad_dag.nya; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.nya IS 'Ads published that day.';
+
+--
+-- Name: COLUMN marknad_dag.platser; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.platser IS 'Openings in those new ads (number_of_vacancies, 1 where the ad gives none). Undercounted for ads written before migration 067.';
+
+--
+-- Name: COLUMN marknad_dag.stangda; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.stangda IS 'Ads withdrawn that day (removed_at) — taken down before or at their deadline, the nearest sign there is that a role was filled.';
+
+--
+-- Name: COLUMN marknad_dag.oppna; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.oppna IS 'Ads open at the end of the day: published by then, not withdrawn, deadline not passed.';
 
 --
 -- Name: match_results; Type: TABLE; Schema: public; Owner: -
@@ -1367,6 +1487,76 @@ COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages,
 COMMENT ON COLUMN public.users.disabled_at IS 'Blocked by the operator. Sign-in is refused (403), campaigns are paused with the reason, the mailbox closes. Cleared to let them back in; campaigns stay paused for the user to restart.';
 
 --
+-- Name: yrkesprognos; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.yrkesprognos (
+    omgang text NOT NULL,
+    yb_id text NOT NULL,
+    lan text NOT NULL,
+    yrke text NOT NULL,
+    yrkesomrade text,
+    jobbmojligheter text,
+    rekrytering text,
+    prognos text,
+    text_jobb text,
+    CONSTRAINT yrkesprognos_jobbmojligheter CHECK ((jobbmojligheter = ANY (ARRAY['små'::text, 'medelstora'::text, 'stora'::text]))),
+    CONSTRAINT yrkesprognos_lan CHECK ((lan ~ '^[0-9]{2}$'::text))
+);
+
+--
+-- Name: TABLE yrkesprognos; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.yrkesprognos IS 'Arbetsförmedlingen''s Yrkesbarometer (open data, CC0), one row per edition x occupation x county; lan 00 is the national assessment. Every edition is kept: the previous one is what "worse than last time" compares against, and the history is what Jobbflo''s own outcomes will one day be held up to. Loaded by the janitor (src/yrkesbarometer.js).';
+
+--
+-- Name: COLUMN yrkesprognos.omgang; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.omgang IS 'Edition, e.g. 2026-1 (two a year). Sorts as text.';
+
+--
+-- Name: COLUMN yrkesprognos.yb_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.yb_id IS 'The Yrkesbarometer occupation (yb_concept_id), which may span several SSYK groups.';
+
+--
+-- Name: COLUMN yrkesprognos.jobbmojligheter; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.jobbmojligheter IS 'Chances of work now and over the coming year. NULL where AF had too little to assess.';
+
+--
+-- Name: COLUMN yrkesprognos.rekrytering; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.rekrytering IS 'brist | balans | överskott | paradox (shortage although many are looking).';
+
+--
+-- Name: COLUMN yrkesprognos.prognos; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.prognos IS 'Five-year outlook for demand: öka | vara oförändrad | minska.';
+
+--
+-- Name: yrkesprognos_yrke; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.yrkesprognos_yrke (
+    omgang text NOT NULL,
+    concept_id text NOT NULL,
+    yb_id text NOT NULL
+);
+
+--
+-- Name: TABLE yrkesprognos_yrke; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.yrkesprognos_yrke IS 'Which Yrkesbarometer occupation an ad''s occupation (raw->occupation->concept_id, a taxonomy occupation-name) belongs to. From AF''s relations file; covers about 80 % of open ads.';
+
+--
 -- Name: error_log id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1427,6 +1617,13 @@ ALTER TABLE ONLY public.applications
 
 ALTER TABLE ONLY public.applications
     ADD CONSTRAINT applications_profile_ad UNIQUE (profile_id, ad_id);
+
+--
+-- Name: arbetsgivare arbetsgivare_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arbetsgivare
+    ADD CONSTRAINT arbetsgivare_pkey PRIMARY KEY (orgnr);
 
 --
 -- Name: attachments attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1492,6 +1689,20 @@ ALTER TABLE ONLY public.interview_prep
     ADD CONSTRAINT interview_prep_pkey PRIMARY KEY (id);
 
 --
+-- Name: lan_region lan_region_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lan_region
+    ADD CONSTRAINT lan_region_pkey PRIMARY KEY (lan);
+
+--
+-- Name: lan_region lan_region_region_concept_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lan_region
+    ADD CONSTRAINT lan_region_region_concept_id_key UNIQUE (region_concept_id);
+
+--
 -- Name: lead_scans lead_scans_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1518,6 +1729,13 @@ ALTER TABLE ONLY public.letter_versions
 
 ALTER TABLE ONLY public.llm_usage
     ADD CONSTRAINT llm_usage_pkey PRIMARY KEY (id);
+
+--
+-- Name: marknad_dag marknad_dag_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.marknad_dag
+    ADD CONSTRAINT marknad_dag_pkey PRIMARY KEY (dag, falt_id, region_id);
 
 --
 -- Name: match_results match_results_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1637,6 +1855,20 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+--
+-- Name: yrkesprognos yrkesprognos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.yrkesprognos
+    ADD CONSTRAINT yrkesprognos_pkey PRIMARY KEY (omgang, yb_id, lan);
+
+--
+-- Name: yrkesprognos_yrke yrkesprognos_yrke_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.yrkesprognos_yrke
+    ADD CONSTRAINT yrkesprognos_yrke_pkey PRIMARY KEY (omgang, concept_id);
 
 --
 -- Name: ads_closed_with_vector_idx; Type: INDEX; Schema: public; Owner: -
@@ -2189,6 +2421,12 @@ ALTER TABLE public.ads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: arbetsgivare; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.arbetsgivare ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: attachments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2237,6 +2475,12 @@ ALTER TABLE public.imap_sync_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.interview_prep ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: lan_region; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.lan_region ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: lead_scans; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2253,6 +2497,12 @@ ALTER TABLE public.letter_versions ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.llm_usage ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: marknad_dag; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.marknad_dag ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: match_results; Type: ROW SECURITY; Schema: public; Owner: -
@@ -2331,6 +2581,18 @@ ALTER TABLE public.taxonomy_vectors ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: yrkesprognos; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.yrkesprognos ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: yrkesprognos_yrke; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.yrkesprognos_yrke ENABLE ROW LEVEL SECURITY;
 
 --
 -- PostgreSQL database dump complete

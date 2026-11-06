@@ -1,5 +1,7 @@
 import { pool } from './db.js';
 import { resolveFilters } from './taxonomy.js';
+import { typTillåten } from './arbetsgivare.js';
+import { rensaTyper } from '../lib/arbetsgivartyp.js';
 
 // ------------------------------------------------------------
 // One source of ads: the pool this app already holds.
@@ -53,7 +55,7 @@ const LIKVÄRDIGA = {
 };
 
 export const LOKALA_FILTER = new Set([
-  ...Object.keys(KONCEPTVÄG), 'worktime-extent', 'experience', 'q',
+  ...Object.keys(KONCEPTVÄG), 'worktime-extent', 'experience', 'q', 'arbetsgivartyp',
 ]);
 
 // Build the WHERE fragments for one filter set. The params array is
@@ -87,6 +89,15 @@ export function filterSql(resolved = {}, params = []) {
     params.push(omf);
     villkor.push(`(a.raw->'working_hours_type'->>'concept_id' IS NULL`
       + ` OR a.raw->'working_hours_type'->>'concept_id' = ANY($${params.length}::text[]))`);
+  }
+
+  // Employer type (src/arbetsgivare.js): never widened away when a
+  // search finds nothing — a campaign told "no agencies" must not start
+  // writing to agencies because the direct employers ran out.
+  const typer = rensaTyper(resolved.arbetsgivartyp);
+  if (typer) {
+    params.push(typer);
+    villkor.push(typTillåten('a', `$${params.length}::text[]`));
   }
 
   if (resolved.experience === true || resolved.experience === false) {
