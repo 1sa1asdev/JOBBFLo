@@ -3104,16 +3104,16 @@
 @media (min-width:641px){ .mk-svar{align-items:flex-start;} }
 /* jump buttons under the overview tabs: one swipeable row on a phone,
    wrapped on a wider screen; sticky so they are there wherever you are */
-.hopp{position:sticky;top:46px;z-index:4;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;
-  margin:0 0 14px;padding:8px 0;background:var(--paper);border-bottom:1px solid var(--tag-border);}
+.hopp{position:sticky;top:46px;z-index:4;display:flex;gap:2px 18px;overflow-x:auto;scrollbar-width:none;
+  margin:0 0 12px;padding:2px 0;background:var(--paper);border-bottom:1px solid var(--tag-border);}
 .hopp::-webkit-scrollbar{display:none;}
 /* a fade at the right edge says the row goes on */
 .hopp{-webkit-mask-image:linear-gradient(to right,#000 85%,transparent);mask-image:linear-gradient(to right,#000 85%,transparent);}
 @media (min-width:761px){ .hopp{-webkit-mask-image:none;mask-image:none;} }
-.hopp button{flex:0 0 auto;min-height:36px;padding:6px 12px;border:1px solid var(--line);background:transparent;
+.hopp button{flex:0 0 auto;min-height:36px;padding:6px 0;border:0;background:transparent;
   font-family:'IBM Plex Mono',monospace;font-size:var(--fs-small);font-weight:700;letter-spacing:.04em;
   text-transform:uppercase;color:var(--ink);cursor:pointer;white-space:nowrap;}
-.hopp button:hover{background:var(--panel);}
+.hopp button:hover{text-decoration:underline;text-underline-offset:4px;}
 .hopp button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
 @media (min-width:761px){ .hopp{flex-wrap:wrap;overflow-x:visible;} }
 .hopp-mal{scroll-margin-top:110px;}

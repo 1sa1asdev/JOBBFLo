@@ -99,8 +99,7 @@ export default function Marknaden() {
       </div>
 
       <Hopp etikett="Gå till" mål={[
-        data.yrken && { id: 'mk-yrken', label: 'Bäst läge', före: () => setVy('bast') },
-        data.yrken && { id: 'mk-yrken', label: 'Sämst läge', före: () => setVy('samst') },
+        data.yrken && { id: 'mk-yrken', label: 'Bäst & sämst läge' },
         { id: 'mk-falt', label: 'Yrkesområden', före: öppnaMer },
         { id: 'mk-typer', label: 'Arbetsgivartyper', före: öppnaMer },
         { id: 'mk-om', label: 'Om siffrorna', före: öppnaMer },
