@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
 import { aktivProfilId } from '../../../src/auth.js';
 import { marknadsläge } from '../../../src/marknad.js';
+import { yrkesläge } from '../../../src/yrkesbarometer.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +12,8 @@ export async function GET(req) {
   await aktivProfilId(); // signed in, like every other page of the app
   const region = new URL(req.url).searchParams.get('region') || null;
   try {
-    return NextResponse.json(await marknadsläge({ regionId: region }), {
+    const [läge, yrken] = await Promise.all([marknadsläge({ regionId: region }), yrkesläge({ regionId: region })]);
+    return NextResponse.json({ ...läge, yrken }, {
       // the pool moves by the minute, the picture by the day
       headers: { 'cache-control': 'private, max-age=300' },
     });

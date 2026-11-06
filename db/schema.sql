@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 068.
+-- Baseline covers migrations up to 043; latest migration 069.
 -- ============================================================
 
 --
@@ -677,6 +677,22 @@ CREATE TABLE public.interview_prep (
 --
 
 COMMENT ON TABLE public.interview_prep IS 'Interview preparation, generated when an application reaches status ''interview''.';
+
+--
+-- Name: lan_region; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lan_region (
+    lan text NOT NULL,
+    region_concept_id text NOT NULL,
+    namn text NOT NULL
+);
+
+--
+-- Name: TABLE lan_region; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.lan_region IS 'County code (as in the Yrkesbarometer) to the region concept_id the ads carry. The 21 counties are fixed in the taxonomy.';
 
 --
 -- Name: lead_scans; Type: TABLE; Schema: public; Owner: -
@@ -1471,6 +1487,76 @@ COMMENT ON COLUMN public.users.role IS 'admin: the operator — the admin pages,
 COMMENT ON COLUMN public.users.disabled_at IS 'Blocked by the operator. Sign-in is refused (403), campaigns are paused with the reason, the mailbox closes. Cleared to let them back in; campaigns stay paused for the user to restart.';
 
 --
+-- Name: yrkesprognos; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.yrkesprognos (
+    omgang text NOT NULL,
+    yb_id text NOT NULL,
+    lan text NOT NULL,
+    yrke text NOT NULL,
+    yrkesomrade text,
+    jobbmojligheter text,
+    rekrytering text,
+    prognos text,
+    text_jobb text,
+    CONSTRAINT yrkesprognos_jobbmojligheter CHECK ((jobbmojligheter = ANY (ARRAY['små'::text, 'medelstora'::text, 'stora'::text]))),
+    CONSTRAINT yrkesprognos_lan CHECK ((lan ~ '^[0-9]{2}$'::text))
+);
+
+--
+-- Name: TABLE yrkesprognos; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.yrkesprognos IS 'Arbetsförmedlingen''s Yrkesbarometer (open data, CC0), one row per edition x occupation x county; lan 00 is the national assessment. Every edition is kept: the previous one is what "worse than last time" compares against, and the history is what Jobbflo''s own outcomes will one day be held up to. Loaded by the janitor (src/yrkesbarometer.js).';
+
+--
+-- Name: COLUMN yrkesprognos.omgang; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.omgang IS 'Edition, e.g. 2026-1 (two a year). Sorts as text.';
+
+--
+-- Name: COLUMN yrkesprognos.yb_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.yb_id IS 'The Yrkesbarometer occupation (yb_concept_id), which may span several SSYK groups.';
+
+--
+-- Name: COLUMN yrkesprognos.jobbmojligheter; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.jobbmojligheter IS 'Chances of work now and over the coming year. NULL where AF had too little to assess.';
+
+--
+-- Name: COLUMN yrkesprognos.rekrytering; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.rekrytering IS 'brist | balans | överskott | paradox (shortage although many are looking).';
+
+--
+-- Name: COLUMN yrkesprognos.prognos; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.yrkesprognos.prognos IS 'Five-year outlook for demand: öka | vara oförändrad | minska.';
+
+--
+-- Name: yrkesprognos_yrke; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.yrkesprognos_yrke (
+    omgang text NOT NULL,
+    concept_id text NOT NULL,
+    yb_id text NOT NULL
+);
+
+--
+-- Name: TABLE yrkesprognos_yrke; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.yrkesprognos_yrke IS 'Which Yrkesbarometer occupation an ad''s occupation (raw->occupation->concept_id, a taxonomy occupation-name) belongs to. From AF''s relations file; covers about 80 % of open ads.';
+
+--
 -- Name: error_log id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1601,6 +1687,20 @@ ALTER TABLE ONLY public.interview_prep
 
 ALTER TABLE ONLY public.interview_prep
     ADD CONSTRAINT interview_prep_pkey PRIMARY KEY (id);
+
+--
+-- Name: lan_region lan_region_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lan_region
+    ADD CONSTRAINT lan_region_pkey PRIMARY KEY (lan);
+
+--
+-- Name: lan_region lan_region_region_concept_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lan_region
+    ADD CONSTRAINT lan_region_region_concept_id_key UNIQUE (region_concept_id);
 
 --
 -- Name: lead_scans lead_scans_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -1755,6 +1855,20 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+--
+-- Name: yrkesprognos yrkesprognos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.yrkesprognos
+    ADD CONSTRAINT yrkesprognos_pkey PRIMARY KEY (omgang, yb_id, lan);
+
+--
+-- Name: yrkesprognos_yrke yrkesprognos_yrke_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.yrkesprognos_yrke
+    ADD CONSTRAINT yrkesprognos_yrke_pkey PRIMARY KEY (omgang, concept_id);
 
 --
 -- Name: ads_closed_with_vector_idx; Type: INDEX; Schema: public; Owner: -
@@ -2361,6 +2475,12 @@ ALTER TABLE public.imap_sync_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.interview_prep ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: lan_region; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.lan_region ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: lead_scans; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2461,6 +2581,18 @@ ALTER TABLE public.taxonomy_vectors ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: yrkesprognos; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.yrkesprognos ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: yrkesprognos_yrke; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.yrkesprognos_yrke ENABLE ROW LEVEL SECURITY;
 
 --
 -- PostgreSQL database dump complete

@@ -3102,6 +3102,34 @@
 .mk-svar{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;}
 .mk-svar b{font-weight:600;}
 @media (min-width:641px){ .mk-svar{align-items:flex-start;} }
+/* best and worst placed occupations (Arbetsförmedlingen's assessment) */
+.mk-vaxel{display:flex;gap:0;border:1px solid var(--line);margin-bottom:6px;}
+.mk-vaxel button{flex:1 1 0;min-height:40px;background:transparent;border:0;font-family:'IBM Plex Mono',monospace;
+  font-size:var(--fs-small);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);cursor:pointer;}
+.mk-vaxel button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
+.mk-vaxel button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.mk-topp{list-style:none;margin:0 0 8px;padding:0;}
+.mk-topp li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:start;
+  padding:10px 0;border-bottom:1px solid var(--tag-border);}
+.mk-plats{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--mute);padding-top:1px;}
+.mk-yrke{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.mk-yrke b{font-weight:600;font-size:var(--fs-read);overflow-wrap:anywhere;}
+.mk-antal{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums;}
+.mk-antal b{font-weight:600;}
+.mk-andring{font-size:var(--fs-label);font-weight:700;}
+.mk-andring.bättre{color:var(--ok);}
+.mk-andring.sämre{color:var(--flag);}
+.mk-mer{margin-top:14px;border-top:1px solid var(--line);}
+.mk-mer>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;
+  font-size:var(--fs-small);font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+.mk-mer>summary:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+/* the search chat's market card */
+.msg.sl-kort{border-left:3px solid var(--ok);}
+.sl-rubrik{font-weight:600;margin-bottom:4px;}
+.sl-kort p{margin:0 0 4px;}
+.sl-huvud b{font-weight:600;}
+.sl-ovrig,.sl-tal{font-size:var(--fs-meta);color:var(--mute);}
+.sl-kalla{font-size:var(--fs-label);color:var(--mute);margin-top:6px!important;}
 /* per employer type: one card each, stacked on a phone, side by side when there is room */
 .mk-typer{list-style:none;margin:10px 0 8px;padding:0;display:grid;gap:10px;grid-template-columns:minmax(0,1fr);}
 @media (min-width:561px){ .mk-typer{grid-template-columns:repeat(2,minmax(0,1fr));} }

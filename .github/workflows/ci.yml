@@ -118,6 +118,9 @@ jobs:
       - name: Proof — employer types follow SCB, and SCB is used as its terms say
         run: time node scripts/prove-arbetsgivare.js
 
+      - name: Proof — Arbetsförmedlingen's forecast is loaded whole and ranked right
+        run: time node scripts/prove-yrkesbarometer.js
+
       - name: Proof — no code picks a profile by guessing
         run: time node scripts/prove-profile-scope.js
 

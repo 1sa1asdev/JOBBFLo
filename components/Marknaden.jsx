@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import Dots from './Dots';
+import { kortLäge, ÄNDRING } from '../lib/yrkesord.js';
 
 // ------------------------------------------------------------
 // Marknaden: the shared market, the same for every user (src/marknad.js).
@@ -29,6 +30,42 @@ function Trend({ v }) {
   );
 }
 
+// The best and worst placed occupations: Arbetsförmedlingen's chances
+// of work first, open ads now second (src/yrkesbarometer.js yrkesläge).
+function Yrkesläge({ yrken }) {
+  const [vy, setVy] = useState('bast');
+  if (!yrken) return null;
+  const lista = vy === 'bast' ? yrken.bast : yrken.samst;
+  return (
+    <div className="dash-block mk-yrken">
+      <div className="mk-vaxel" role="group" aria-label="Visa yrken">
+        <button type="button" aria-pressed={vy === 'bast'} onClick={() => setVy('bast')}>▲ Bäst läge</button>
+        <button type="button" aria-pressed={vy === 'samst'} onClick={() => setVy('samst')}>▼ Sämst läge</button>
+      </div>
+      <ol className="mk-topp">
+        {lista.map((y, i) => (
+          <li key={y.yb_id}>
+            <span className="mk-plats">{i + 1}</span>
+            <span className="mk-yrke">
+              <b>{y.yrke}</b>
+              <span className="mk-av">{kortLäge(y)}</span>
+              {y.andring && <span className={`mk-andring ${y.andring}`}>{ÄNDRING[y.andring]}</span>}
+            </span>
+            <span className="mk-antal"><b>{tal(y.oppna)}</b><span className="mk-av">annonser</span></span>
+          </li>
+        ))}
+      </ol>
+      <p className="mk-av">
+        {vy === 'bast'
+          ? `${yrken.antal.stora} yrken bedöms ha stora möjligheter till arbete — här de med flest öppna annonser.`
+          : `${yrken.antal.sma} yrken bedöms ha små möjligheter till arbete — här de med flest öppna annonser.`}
+        {' '}Bedömning: Arbetsförmedlingens yrkesbarometer {yrken.omgang}
+        {yrken.lan !== '00' ? ', länets egen där den finns.' : '.'}
+      </p>
+    </div>
+  );
+}
+
 export default function Marknaden() {
   const [region, setRegion] = useState('');
   const [data, setData] = useState(null);
@@ -51,10 +88,10 @@ export default function Marknaden() {
     <div className="dash">
       <div className="auto-head">
         <div className="idx">05 / Marknaden</div>
-        <h2>Vem anställer just nu</h2>
+        <h2>Var jobben finns</h2>
         <p className="auto-lede">
-          Alla Platsbankens annonser, sorterade efter yrkesområde. Samma siffror för alla som
-          använder Jobbflo — inget här handlar om dig.
+          Var möjligheterna är störst och minst, enligt Arbetsförmedlingen och Platsbankens
+          annonser just nu. Samma för alla som använder Jobbflo — inget här handlar om dig.
         </p>
       </div>
 
@@ -73,6 +110,10 @@ export default function Marknaden() {
         <div className="dash-stat accent"><b>{tal(data.totalt.nya_7)}</b><span className="dash-stat-label">Nya senaste 7 dagarna</span></div>
       </div>
 
+      <Yrkesläge yrken={data.yrken} />
+
+      <details className="mk-mer">
+        <summary>Visa mer — alla yrkesområden och arbetsgivartyper</summary>
       <div className="dash-block">
         <span className="auto-queue-title">Per yrkesområde</span>
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Marknaden per yrkesområde">
@@ -148,9 +189,14 @@ export default function Marknaden() {
           ? `${data.arbetsgivartyp.fran_scb} % av annonserna efter näringsgren och sektor i SCB:s företagsregister, resten gissat efter arbetsgivarens namn.`
           : 'gissat efter arbetsgivarens namn tills SCB:s företagsregister är kopplat.'}{' '}
           Bemanning hyr ut personal till kunder och är själva arbetsgivaren; rekrytering söker åt en kund som sedan anställer.</p>
-        <p className="mk-kalla">Källa: Platsbanken via Arbetsförmedlingens JobStream. Uppdateras löpande; historiken sparas dagligen.
+        <p><b>Bäst och sämst läge</b> — Arbetsförmedlingens bedömning av möjligheterna till arbete det närmaste året
+          och efterfrågan på fem års sikt, per yrke och län. Bland yrkena med stora respektive små möjligheter visas de
+          med flest öppna annonser just nu. En pil visar om bedömningen ändrats sedan förra omgången.</p>
+        <p className="mk-kalla">Källa: Platsbanken via Arbetsförmedlingens JobStream och Arbetsförmedlingens yrkesbarometer
+          (öppna data). Uppdateras löpande; historiken sparas dagligen.
           {data.arbetsgivartyp.fran_scb > 0 && <> Arbetsgivartyp: SCB:s företagsregister, bearbetat av Jobbflo.</>}</p>
       </div>
+      </details>
     </div>
   );
 }

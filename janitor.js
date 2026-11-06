@@ -4,6 +4,7 @@ import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { byggMarknad } from './src/marknad.js';
 import { klassaArbetsgivare } from './src/arbetsgivare.js';
+import { hämtaYrkesbarometer } from './src/yrkesbarometer.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 import { version } from './src/version.js';
@@ -77,6 +78,17 @@ async function städa() {
       `${g.scb} från SCB, ${g.saknas} okända för SCB, ${g.namn} efter namn${g.stopp ? `, stopp: ${g.stopp}` : ''}`);
   } catch (err) {
     console.error('arbetsgivare:', err.message.slice(0, 200));
+  }
+  // Arbetsförmedlingen's forecast: two editions a year, checked daily.
+  try {
+    const yb = await status('janitor_yrkesbarometer');
+    if (!yb?.last_run_at || Date.now() - new Date(yb.last_run_at).getTime() > 24 * TIMME) {
+      const r = await hämtaYrkesbarometer();
+      await stämpla('janitor_yrkesbarometer',
+        `omgång ${r.omgång}${r.nya.length ? `, nya: ${r.nya.join(', ')}` : ''}${r.förraFel ? `, förra: ${r.förraFel}` : ''}`);
+    }
+  } catch (err) {
+    console.error('yrkesbarometer:', err.message.slice(0, 200));
   }
   const täckning = await embeddingCoverage();
   await stämpla('janitor_sweep',

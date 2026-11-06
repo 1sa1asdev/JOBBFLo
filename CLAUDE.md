@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Twenty-six scripts, each one a rule that protects money, reputation or the
+Twenty-seven scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -247,6 +247,7 @@ node scripts/prove-reply-attachments.js  # a reply carries only the user's own f
 node scripts/prove-own-letter.js         # a letter the user writes is kept as written and never overwrites one
 node scripts/prove-marknad.js            # the shared market counts right, and no figure about users shows below five of them
 node scripts/prove-arbetsgivare.js        # employer types follow SCB's register; no sole trader is sent or stored, the key stays on the server
+node scripts/prove-yrkesbarometer.js     # AF's forecast is loaded whole or not at all; best/worst and the search card rank by it
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
