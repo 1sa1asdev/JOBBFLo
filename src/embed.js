@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { pool } from './db.js';
 
 // ------------------------------------------------------------
@@ -76,6 +77,30 @@ const PROVIDERS = {
     dimensions: null,      // nomic is natively 768; it rejects the field
   },
 };
+
+// Which platform key this process holds, without the key: whether one
+// is set, which variable it came from, and an eight-character
+// fingerprint (the start of its SHA-256). The admin page shows the app's
+// and the worker's side by side, so a rotation that reached Vercel but
+// not Railway — or the reverse — is visible at a glance. Eight hex
+// characters of a hash say nothing usable about a 70-character key.
+const NYCKELNAMN = {
+  openrouter: ['PLATFORM_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  openai: ['PLATFORM_OPENAI_API_KEY', 'OPENAI_API_KEY'],
+};
+export function nyckelStatus() {
+  const cfg = embedConfig();
+  const [egen, reserv] = NYCKELNAMN[cfg.provider] || [];
+  const källa = egen && process.env[egen]?.trim() ? egen
+    : reserv && process.env[reserv]?.trim() ? `${reserv} (reserv)` : null;
+  return {
+    leverantör: cfg.provider,
+    behövs: Boolean(egen),
+    satt: Boolean(cfg.key),
+    källa,
+    avtryck: cfg.key ? createHash('sha256').update(cfg.key).digest('hex').slice(0, 8) : null,
+  };
+}
 
 export function embedConfig() {
   const want = (process.env.EMBED_PROVIDER || 'openrouter').toLowerCase();
