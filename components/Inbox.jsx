@@ -436,7 +436,10 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const calib = stats?.calibration;
 
   return (
-    <div className="inbox">
+    // On a phone one of the two at a time: the list until a conversation
+    // is opened, then the conversation with a way back. Side by side they
+    // left the list one row and the rest of the screen to a hint.
+    <div className="inbox" data-thread={thread ? 'open' : error ? 'fel' : 'none'}>
       <div className="thread-list">
         <div className="inbox-head">
           <div className="idx">{source === 'auto' ? '04 / Automatiska ansökningar' : '03 / Ansökningar'}</div>
@@ -576,6 +579,11 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
       </div>
 
       <div className="thread-view">
+        {thread && (
+          <button type="button" className="tv-back" onClick={() => setThread(null)}>
+            ← Alla ansökningar
+          </button>
+        )}
         {!thread ? (
           <div className="empty-thread">{error || 'Välj en ansökan till vänster'}</div>
         ) : (

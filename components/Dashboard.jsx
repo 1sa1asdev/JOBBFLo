@@ -76,12 +76,15 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
   useEffect(() => { load(); }, [load]);
   usePoll(load, { interval: 15000 });
 
-  if (!data) return <div className="loading-note">{err || <>Laddar<Dots /></>}</div>;
+  // In its own scroll container: the app shell (body) never scrolls, so
+  // without one nothing below the first screen could be reached.
+  if (!data) return <div className="dash-page"><div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
 
   const t = data.total;
   const pct = (v) => (v == null ? '—' : `${v}%`);
 
   return (
+    <div className="dash-page">
     <div className="dash">
       <div className="auto-head">
         <div className="idx">05 / Översikt</div>
@@ -183,6 +186,7 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
           Modellanrop denna månad: <b>${data.cost.usd}</b> över {n(data.cost.anrop)} anrop.
         </p>
       )}
+    </div>
     </div>
   );
 }
