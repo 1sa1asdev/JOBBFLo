@@ -16,6 +16,8 @@
 //      to SCB and never stored; the table refuses it
 //   7. the market view counts per type, and says how much SCB stands behind
 //   8. no code the browser loads knows the key or SCB's address
+//   9. a search or campaign limited to some employer types finds only
+//      those (plus ads of unknown type); all types or none is no filter
 //
 // Against a fake SCB, on throwaway ads in a region of their own.
 import 'dotenv/config';
@@ -24,6 +26,8 @@ import { join } from 'node:path';
 import { pool } from '../src/db.js';
 import { klassaArbetsgivare, typFrånScb, typFrånNamn, glömPeForm, SCB_MELLANRUM_MS } from '../src/arbetsgivare.js';
 import { marknadsläge } from '../src/marknad.js';
+import { countLocal } from '../src/localsearch.js';
+import { rensaTyper, DIREKT } from '../lib/arbetsgivartyp.js';
 
 const RUN = `${Date.now()}`;
 const REGION = `bevis-reg-ag-${RUN}`;
@@ -41,6 +45,7 @@ const ALLA = [A, B, C, D, E, ENSKILD];
 const NAMN = { [A]: 'Bevis Ett AB', [B]: 'Bevis Två AB', [C]: 'Bevis Tre AB', [D]: 'Bevis Bemanning AB', [E]: 'Bevis Fem AB', [ENSKILD]: 'Sven Bevisson Bemanning' };
 
 const adIds = [];
+let profilId = null;
 const annons = async (n, orgnr) => {
   const raw = {
     id: `${RUN}-${n}`, headline: 'Bevis',
@@ -148,6 +153,20 @@ try {
   kolla('7. annons utan nummer: okänd, inte gissad', m.okanda === 1);
   kolla('7. hur mycket SCB står bakom', m.fran_scb === 57, `${m.fran_scb} % (4 av 7)`);
 
+  // ---- 9 ----
+  kolla('9. alla typer eller inga är inget filter', rensaTyper([]) === null
+    && rensaTyper(['foretag', 'offentlig', 'bemanning', 'rekrytering']) === null
+    && JSON.stringify(rensaTyper(['bemanning', 'påhittad'])) === '["bemanning"]');
+  const { rows: [bp] } = await pool.query(
+    `INSERT INTO profile (name, email) VALUES ('Bevis', $1) RETURNING id`, [`proof+ag-filter-${RUN}@example.invalid`]);
+  profilId = bp.id;
+  const räkna = (typer) => countLocal({ region: [REGION], ...(typer ? { arbetsgivartyp: typer } : {}) },
+    { resolved: true, profileId: profilId });
+  const [allt, direkt, viaMellanhand] = [await räkna(null), await räkna(DIREKT), await räkna(['bemanning', 'rekrytering'])];
+  // the seven ads: A, D bemanning · B rekrytering · C offentlig · E, sole trader företag · one unknown
+  kolla('9. bara direkt: företag och offentlig, plus okänd typ', direkt === 4, `${direkt} av ${allt}`);
+  kolla('9. bara mellanhänder: bemanning och rekrytering, plus okänd typ', viaMellanhand === 4, `${viaMellanhand} av ${allt}`);
+
   // ---- 8 ----
   const filer = (dir) => readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
@@ -161,6 +180,7 @@ try {
 } finally {
   if (adIds.length) await pool.query(`DELETE FROM ads WHERE id = ANY($1)`, [adIds]).catch(() => {});
   await pool.query(`DELETE FROM arbetsgivare WHERE orgnr = ANY($1)`, [ALLA]).catch(() => {});
+  if (profilId) await pool.query(`DELETE FROM profile WHERE id = $1`, [profilId]).catch(() => {});
   await pool.end();
 }
 

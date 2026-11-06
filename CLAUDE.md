@@ -246,7 +246,7 @@ node scripts/prove-beacon.js             # one beacon round asks for every view 
 node scripts/prove-reply-attachments.js  # a reply carries only the user's own files, within what Gmail and one request take
 node scripts/prove-own-letter.js         # a letter the user writes is kept as written and never overwrites one
 node scripts/prove-marknad.js            # the shared market counts right, and no figure about users shows below five of them
-node scripts/prove-arbetsgivare.js        # employer types follow SCB's register; no sole trader is sent or stored, the key stays on the server
+node scripts/prove-arbetsgivare.js        # employer types follow SCB's register; a search limited to some types finds only those; no sole trader is sent or stored
 node scripts/prove-yrkesbarometer.js     # AF's forecast is loaded whole or not at all; best/worst and the search card rank by it
 ```
 

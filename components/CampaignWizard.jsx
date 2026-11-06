@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import LocationPicker from './LocationPicker.jsx';
 import Dots from './Dots';
+import ArbetsgivarFilter from './ArbetsgivarFilter.jsx';
+import { DIREKT, TYPNAMN } from '../lib/arbetsgivartyp.js';
 
 // ------------------------------------------------------------
 // Setting up a campaign, in steps.
@@ -32,6 +34,7 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
   const [locations, setLocations] = useState([]);
   const [ratio, setRatio] = useState(null);
   const [worktime, setWorktime] = useState(null);
+  const [arbetsgivartyp, setArbetsgivartyp] = useState(null);
   const [mustCriteria, setMustCriteria] = useState('');
   const [minScore, setMinScore] = useState(85);
   const [dailyLimit, setDailyLimit] = useState(3);
@@ -49,6 +52,7 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
       locations,
       location_ratio: locations.length > 1 ? ratio : null,
       worktime,
+      arbetsgivartyp,
       must_criteria: mustCriteria,
       min_score: minScore,
       daily_limit: dailyLimit,
@@ -157,6 +161,14 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
             extrajobb och att sålla bort dem vore att missa dem.
           </p>
 
+          <div className="wiz-field">
+            <ArbetsgivarFilter etikett="Skriv till" value={arbetsgivartyp} onChange={setArbetsgivartyp} />
+          </div>
+          <p className="hint">
+            Stäng av Bemanning och Rekrytering så skriver kampanjen bara till arbetsgivaren
+            själv, inte till en mellanhand. Annonser utan organisationsnummer tas alltid med.
+          </p>
+
           <label>
             <span>Absolut krav (fritext, valfritt)</span>
             <textarea
@@ -206,6 +218,10 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
               <div><span>Fördelning</span><b>{locations.map((p) => `${p} ${weights[p]}`).join(' · ')}</b></div>
             )}
             <div><span>Omfattning</span><b>{worktime || 'alla'}</b></div>
+            <div><span>Skriver till</span><b>{!arbetsgivartyp ? 'alla arbetsgivare'
+              : arbetsgivartyp.length === DIREKT.length && DIREKT.every((t) => arbetsgivartyp.includes(t))
+                ? 'bara direkt hos arbetsgivaren'
+                : arbetsgivartyp.map((t) => TYPNAMN[t].toLowerCase()).join(', ')}</b></div>
             {mustCriteria.trim() && <div><span>Absolut krav</span><b>{mustCriteria.trim()}</b></div>}
             <div><span>Regel</span><b>
               {requireScore ? `minst ${minScore} poäng` : 'ingen bedömning'}, max {dailyLimit}/dygn

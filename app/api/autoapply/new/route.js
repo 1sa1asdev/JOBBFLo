@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { aktivProfilId } from '../../../../src/auth.js';
 import { pool } from '../../../../src/db.js';
 import { parseCriteria, scanSearch } from '../../../../src/score.js';
+import { rensaTyper } from '../../../../lib/arbetsgivartyp.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req) {
   const {
     name, criteria, min_score, daily_limit,
-    locations, location_ratio, worktime, must_criteria, require_score,
+    locations, location_ratio, worktime, must_criteria, require_score, arbetsgivartyp,
   } = await req.json();
   if (!criteria?.trim()) {
     return NextResponse.json({ error: 'beskriv vilka annonser kampanjen gäller' }, { status: 400 });
@@ -61,6 +62,9 @@ export async function POST(req) {
     if (muni.length) filters.municipality = muni;
     if (reg.length) filters.region = reg;
   }
+
+  const typer = rensaTyper(arbetsgivartyp);
+  if (typer) filters.arbetsgivartyp = typer;
 
   if (worktime === 'Heltid' || worktime === 'Deltid') {
     filters['worktime-extent'] = worktime;

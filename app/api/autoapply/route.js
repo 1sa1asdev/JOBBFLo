@@ -18,6 +18,7 @@ export async function GET() {
             s.auto_apply_daily_limit, s.auto_apply_paused_reason,
             s.auto_apply_require_score, s.campaign_created_at,
             s.location, s.must_criteria, s.location_ratio,
+            s.api_filters->'arbetsgivartyp' AS arbetsgivartyp,
             s.fetch_offset, s.fetch_total, s.fetch_done_at, s.scan_enabled,
             s.send_days, s.send_from, s.send_to,
             s.send_batch_size, s.send_batch_minutes, s.last_batch_at,

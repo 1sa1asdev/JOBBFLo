@@ -3172,3 +3172,13 @@
 .mk-forklaring{margin-top:18px;display:grid;gap:8px;font-size:var(--fs-small);line-height:var(--lh-body);color:var(--mute);max-width:70ch;}
 .mk-forklaring b{color:var(--ink);}
 .mk-kalla{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);}
+
+/* employer types a search or campaign reaches (ArbetsgivarFilter) */
+.ag-filter{flex-wrap:wrap;row-gap:6px;}
+.ag-filter .ct-seg{flex:1 1 100%;min-width:0;}
+.ag-filter .ct-seg button{flex:1 1 auto;min-width:0;min-height:36px;padding-left:4px;padding-right:4px;font-size:var(--fs-label);letter-spacing:.02em;white-space:nowrap;}
+@media (min-width:561px){ .ag-filter .ct-seg{flex:0 1 auto;} .ag-filter .ct-seg button{flex:0 0 auto;padding-left:10px;padding-right:10px;} }
+.ag-direkt{background:none;border:0;padding:4px 0;font-size:var(--fs-meta);color:var(--ok);text-decoration:underline;
+  text-underline-offset:3px;cursor:pointer;}
+.ag-direkt:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+.auto-ag{margin:12px 0;}

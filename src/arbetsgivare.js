@@ -185,5 +185,21 @@ async function spara(g) {
     [g.orgnr, g.typ, g.kalla, g.sni ?? null, g.jurform ?? null, g.sektor ?? null, g.scb_status]);
 }
 
+// ------------------------------------------------------------
+// Limiting a search or campaign to some employer types — "only the
+// employer itself, no staffing agency in between". SQL over ad alias a.
+//
+// An ad whose type is unknown (no organisation number, or not yet
+// classified) is kept: hiding a job for want of a number is worse than
+// showing it, and the campaign's own score still has to clear.
+// A sole trader is a company (their number is never looked up).
+// ------------------------------------------------------------
+export const typAv = (a) => `COALESCE(
+  (SELECT g.typ FROM arbetsgivare g WHERE g.orgnr = ${a}.raw->'employer'->>'organization_number'),
+  CASE WHEN ${a}.raw->'employer'->>'organization_number' ~ '^[0-9]{10}$'
+        AND substr(${a}.raw->'employer'->>'organization_number', 3, 1) < '2' THEN 'foretag' END,
+  'okand')`;
+export const typTillåten = (a, typerSql) => `(${typAv(a)} = 'okand' OR ${typAv(a)} = ANY(${typerSql}))`;
+
 // for the proof: forget which PeOrgNr form SCB answered to
 export const glömPeForm = () => { peForm = null; };
