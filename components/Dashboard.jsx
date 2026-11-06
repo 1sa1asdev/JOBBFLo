@@ -6,6 +6,7 @@ import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import Dots from './Dots';
 import KomIgang from './KomIgang';
+import Marknaden from './Marknaden.jsx';
 
 // ------------------------------------------------------------
 // Did any of this work?
@@ -62,6 +63,16 @@ function PerDay({ rows }) {
 }
 
 export default function Dashboard({ onProfil, onNySökning, onSök }) {
+  // Two tabs: what the app did for you, and the market everyone shares.
+  // The choice is remembered in this browser.
+  const [flik, setFlik] = useState('din');
+  useEffect(() => {
+    try { if (localStorage.getItem('jobbflo-oversikt-flik') === 'marknad') setFlik('marknad'); } catch { /* storage may be off */ }
+  }, []);
+  const väljFlik = (f) => {
+    setFlik(f);
+    try { localStorage.setItem('jobbflo-oversikt-flik', f); } catch { /* storage may be off */ }
+  };
   const [data, setData] = useState(null);
   const [dagar, setDagar] = useState(0);
   const [checked, setChecked] = useState(null);
@@ -84,13 +95,21 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
 
   // In its own scroll container: the app shell (body) never scrolls, so
   // without one nothing below the first screen could be reached.
-  if (!data) return <div className="dash-page"><div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
+  const flikar = (
+    <div className="dash-flikar" role="tablist" aria-label="Översikt">
+      <button role="tab" aria-selected={flik === 'din'} onClick={() => väljFlik('din')}>Din översikt</button>
+      <button role="tab" aria-selected={flik === 'marknad'} onClick={() => väljFlik('marknad')}>Marknaden</button>
+    </div>
+  );
+  if (flik === 'marknad') return <div className="dash-page">{flikar}<Marknaden /></div>;
+  if (!data) return <div className="dash-page">{flikar}<div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
 
   const t = data.total;
   const pct = (v) => (v == null ? '—' : `${v}%`);
 
   return (
     <div className="dash-page">
+    {flikar}
     <div className="dash">
       <div className="auto-head">
         <div className="idx">05 / Översikt</div>

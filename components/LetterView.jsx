@@ -274,6 +274,8 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
             {ad.employer} — <b>{ad.municipality || '—'}</b>
             {exp != null && <> · ansök inom <b>{exp <= 0 ? 'IDAG' : `${exp} dagar`}</b></>}
             {ad.ats_vendor && <> · ansökan via <b>{ad.ats_vendor}</b></>}
+            {/* only from five users up (src/marknad.js antalSökande) */}
+            {data.sokande != null && <> · <b>{data.sokande}</b> Jobbflo-användare har sökt</>}
           </div>
         </div>
         {match && <div className="score-badge"><span className="n">{match.score}</span> Matchning</div>}

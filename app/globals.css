@@ -3076,3 +3076,24 @@
 /* the overview scrolls in its own container (Dashboard.jsx): body is
    the app shell and never scrolls */
 .dash-page{flex:1;min-height:0;overflow-y:auto;}
+
+/* ================= ÖVERSIKT: TABS AND THE MARKET ================= */
+.dash-flikar{display:flex;border-bottom:2px solid var(--line);background:var(--sidebar);position:sticky;top:0;z-index:5;}
+.dash-flikar button{flex:1 1 0;min-width:0;min-height:44px;padding:10px 8px;border:none;border-right:1px solid var(--line);
+  background:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:var(--fs-small);font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--mute);}
+.dash-flikar button:last-child{border-right:none;}
+.dash-flikar button[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+.dash-flikar button:focus-visible{outline:2px solid var(--flag);outline-offset:-2px;}
+@media (min-width:761px){ .dash-flikar button{flex:0 0 auto;padding:10px 22px;} }
+.mk-filter{display:flex;align-items:center;gap:10px;margin:4px 0 14px;}
+.mk-etikett{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--mute);}
+.mk-filter select{max-width:260px;}
+.mk-trend{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);font-weight:700;margin-left:4px;white-space:nowrap;}
+.mk-trend.upp{color:var(--ok);}
+.mk-trend.ned{color:var(--flag);}
+.mk-av{font-size:var(--fs-label);color:var(--mute);}
+.mk-forklaring{margin-top:18px;display:grid;gap:8px;font-size:var(--fs-small);line-height:var(--lh-body);color:var(--mute);max-width:70ch;}
+.mk-forklaring b{color:var(--ink);}
+.mk-kalla{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);}

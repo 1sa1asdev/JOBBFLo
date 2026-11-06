@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
+import { byggMarknad } from './src/marknad.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 import { version } from './src/version.js';
@@ -56,6 +57,15 @@ const stämpla = async (key, note) => {
 // that notices, and it runs whether or not the snapshot did.
 async function städa() {
   const stängda = await retireClosedAds();
+  // The market is written down before the prune below deletes the ads
+  // it counts. A failure here is logged and the sweep goes on: a missed
+  // day is recomputed by the next run, for as long as it is in the window.
+  try {
+    const m = await byggMarknad();
+    await stämpla('janitor_marknad', `${m.rader} rader`);
+  } catch (err) {
+    console.error('marknad:', err.message.slice(0, 200));
+  }
   const rensade = await pruneStaleAds();
   const täckning = await embeddingCoverage();
   await stämpla('janitor_sweep',

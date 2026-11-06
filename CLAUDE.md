@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Twenty-four scripts, each one a rule that protects money, reputation or the
+Twenty-five scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -245,6 +245,7 @@ node scripts/prove-campaign-errors.js    # a failed send is retried, paused or r
 node scripts/prove-beacon.js             # one beacon round asks for every view on screen and answers each its own
 node scripts/prove-reply-attachments.js  # a reply carries only the user's own files, within what Gmail and one request take
 node scripts/prove-own-letter.js         # a letter the user writes is kept as written and never overwrites one
+node scripts/prove-marknad.js            # the shared market counts right, and no figure about users shows below five of them
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)

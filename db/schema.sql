@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 066.
+-- Baseline covers migrations up to 043; latest migration 067.
 -- ============================================================
 
 --
@@ -86,6 +86,7 @@ CREATE FUNCTION public.ad_raw_slim(r jsonb) RETURNS jsonb
   SELECT CASE WHEN jsonb_typeof(r) IS DISTINCT FROM 'object' THEN r ELSE jsonb_strip_nulls(jsonb_build_object(
     'id', r->'id',
     'experience_required', r->'experience_required',
+    'number_of_vacancies', r->'number_of_vacancies',
     'workplace_address', CASE WHEN jsonb_typeof(r->'workplace_address') = 'object' THEN jsonb_build_object(
       'municipality', r#>'{workplace_address,municipality}',
       'municipality_concept_id', r#>'{workplace_address,municipality_concept_id}',
@@ -110,7 +111,7 @@ $$;
 -- Name: FUNCTION ad_raw_slim(r jsonb); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.ad_raw_slim(r jsonb) IS 'The paths of a JobTech ad the app reads; everything else is dropped. Idempotent. A new raw-> path in the code must be added here, or it reads null.';
+COMMENT ON FUNCTION public.ad_raw_slim(r jsonb) IS 'The paths of a JobTech ad the app reads; everything else is dropped. Idempotent. A new raw-> path in the code must be added here, or it reads null. number_of_vacancies since 067 (the market view counts openings, not only ads).';
 
 --
 -- Name: ads_slim_raw(); Type: FUNCTION; Schema: public; Owner: -
@@ -713,6 +714,59 @@ COMMENT ON COLUMN public.llm_usage.uppgift IS 'What the call did (src/uppgifter.
 --
 
 COMMENT ON COLUMN public.llm_usage."usd_källa" IS 'leverantör: the cost OpenRouter reported for this call. listpris: tokens × the listed price. gratis: a local model.';
+
+--
+-- Name: marknad_dag; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.marknad_dag (
+    dag date NOT NULL,
+    falt_id text NOT NULL,
+    falt text NOT NULL,
+    region_id text NOT NULL,
+    region text NOT NULL,
+    nya integer DEFAULT 0 NOT NULL,
+    platser integer DEFAULT 0 NOT NULL,
+    stangda integer DEFAULT 0 NOT NULL,
+    oppna integer DEFAULT 0 NOT NULL,
+    uppdaterad timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
+-- Name: TABLE marknad_dag; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.marknad_dag IS 'The shared market, one row per day x occupation field x region (src/marknad.js byggMarknad, run by the janitor). Counts only — no ad, employer or user is named. Kept because the pool forgets: closed ads are deleted seven days after closing, so trends have to be written down as they happen. The last seven days are recomputed each run; older days are final.';
+
+--
+-- Name: COLUMN marknad_dag.falt_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.falt_id IS 'The occupation field''s concept_id (Arbetsförmedlingen''s taxonomy), or ''okänt'' when the ad gives none. Matches on concept_id, never on labels (CLAUDE.md invariant 6).';
+
+--
+-- Name: COLUMN marknad_dag.nya; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.nya IS 'Ads published that day.';
+
+--
+-- Name: COLUMN marknad_dag.platser; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.platser IS 'Openings in those new ads (number_of_vacancies, 1 where the ad gives none). Undercounted for ads written before migration 067.';
+
+--
+-- Name: COLUMN marknad_dag.stangda; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.stangda IS 'Ads withdrawn that day (removed_at) — taken down before or at their deadline, the nearest sign there is that a role was filled.';
+
+--
+-- Name: COLUMN marknad_dag.oppna; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.marknad_dag.oppna IS 'Ads open at the end of the day: published by then, not withdrawn, deadline not passed.';
 
 --
 -- Name: match_results; Type: TABLE; Schema: public; Owner: -
@@ -1520,6 +1574,13 @@ ALTER TABLE ONLY public.llm_usage
     ADD CONSTRAINT llm_usage_pkey PRIMARY KEY (id);
 
 --
+-- Name: marknad_dag marknad_dag_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.marknad_dag
+    ADD CONSTRAINT marknad_dag_pkey PRIMARY KEY (dag, falt_id, region_id);
+
+--
 -- Name: match_results match_results_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2253,6 +2314,12 @@ ALTER TABLE public.letter_versions ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.llm_usage ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: marknad_dag; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.marknad_dag ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: match_results; Type: ROW SECURITY; Schema: public; Owner: -
