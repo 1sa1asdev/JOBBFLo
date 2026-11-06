@@ -242,19 +242,21 @@ async function vectorsTick() {
 // rather than six hours later.
 
 // The only path in this app that sends without a per-letter click.
-// Campaigns are opt-in per search, capped per day, and pause on the
-// first error — see src/autoapply.js for the rails.
+// Campaigns are opt-in per search, capped per day, and pause on an
+// error that will not fix itself — see src/autoapply.js for the rails.
+// The code in brackets is the one in auto_apply_log.code and on the
+// campaign card (src/felkoder.js), so a log line can be found again.
 async function autoApplyTick() {
   try {
     const results = await runAllAutoApply();
     for (const r of results) {
       if (r.sent) console.log(`auto-apply: ${r.sent} skickade för "${r.search}"`);
-      if (r.paused) console.log(`auto-apply: "${r.search}" pausad`);
-      // A run that stopped on a network fault is worth a line: it is
-      // not a pause and not a quiet nothing, and without it the only
-      // trace of a Gmail outage is letters that did not go out.
-      else if (r.reason?.startsWith('nätverksfel')) {
-        console.log(`auto-apply: "${r.search}" — ${r.reason}`);
+      if (r.paused) console.log(`auto-apply: "${r.search}" pausad [${r.code || 'regel'}]`);
+      // A run that stopped on a fault that fixes itself is worth a line:
+      // it is not a pause and not a quiet nothing, and without it the
+      // only trace of a Gmail outage is letters that did not go out.
+      else if (r.code) {
+        console.log(`auto-apply: "${r.search}" [${r.code}] — ${r.reason}`);
       }
     }
   } catch (err) {

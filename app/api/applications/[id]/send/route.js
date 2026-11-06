@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ägareAvAnsökan, inteHittad } from '../../../../../src/auth.js';
 import { sendApplication } from '../../../../../src/mailer.js';
+import { felsvar } from '../../../../../src/felkoder.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +16,7 @@ export async function POST(req, { params }) {
     const result = await sendApplication(id, { to });
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    // the same code a campaign would log for this failure (src/felkoder.js)
+    return NextResponse.json(felsvar(err), { status: 500 });
   }
 }

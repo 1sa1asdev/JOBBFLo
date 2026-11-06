@@ -984,7 +984,9 @@ export default function AutoApply({ onFindSimilar }) {
                               : l.outcome === 'failed' ? '✗ fel' : '– hoppad'}
                           </span>
                           <span className="alr-title">{l.title || '—'}</span>
-                          <span className="alr-detail">{l.detail}</span>
+                          {/* the same code as in the worker's log and the
+                              pause reason, so one can be found from the other */}
+                          <span className="alr-detail">{l.code ? `[${l.code}] ` : ''}{l.detail}</span>
                         </div>
                       ))}
                   </div>

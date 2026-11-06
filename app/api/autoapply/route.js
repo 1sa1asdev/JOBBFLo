@@ -330,32 +330,12 @@ export async function PATCH(req) {
     }
   }
 
-  // ----------------------------------------------------------
-  // A changed rule takes effect now, not in half an hour.
-  //
-  // The worker's tick is every 30 minutes, so lowering the threshold or
-  // raising the daily cap looked like nothing happened — and the natural
-  // response to that is to change it again. Re-running here makes the
-  // card reflect the rule you just set.
-  //
-  // Fire-and-forget: the campaign takes a lock and can take a while
-  // (it may queue scoring and send letters), and the settings request
-  // must not sit waiting on it.
-  // ----------------------------------------------------------
-  const affectsWhoQualifies = min_score !== undefined
-    || daily_limit !== undefined
-    || require_score !== undefined
-    || must_criteria !== undefined
-    || location_ratio !== undefined
-    || criteriaChanged
-    || enabled === true;
-
-  if (affectsWhoQualifies && !clear_campaign && s.auto_apply_enabled) {
-    const { runAutoApply } = await import('../../../src/autoapply.js');
-    runAutoApply(searchId)
-      .then((r) => { if (r?.sent) console.log(`regeländring: ${r.sent} skickade direkt`); })
-      .catch((e) => console.error(`kampanj-omkörning ${searchId}:`, e.message));
-  }
+  // A changed rule, or PÅ, takes effect on the worker's next tick, at
+  // most a minute away. This route used to start the campaign itself
+  // and answer without waiting for it; Vercel may freeze a function the
+  // moment it has answered, and a letter half-sent by a frozen function
+  // is how a campaign paused on "Unexpected socket close" (5 Nov).
+  // Sending belongs to the worker, which stays up.
 
   return NextResponse.json(parseError ? { ...s, warning: parseError } : s);
 }
