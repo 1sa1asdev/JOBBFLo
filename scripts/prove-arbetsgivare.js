@@ -93,6 +93,11 @@ try {
   kolla('1. offentlig sektor (13…) går före näringsgrenen', typFrånScb(SVAR[C]).typ === 'offentlig');
   kolla('1. utan sektor: kommun som juridisk form är offentlig', typFrånScb({ jurform: '82', naringsgrenar: [] }).typ === 'offentlig');
   kolla('1. allt annat är företag', typFrånScb(SVAR[E]).typ === 'foretag');
+  kolla('1. bemanning som bisyssla räknas från en fjärdedel av verksamheten',
+    typFrånScb({ sektor: '111000', naringsgrenar: [{ rangordning: 1, naringsgren: '70100', andelProcent: 62 },
+      { rangordning: 2, naringsgren: '78100', andelProcent: 38 }] }).typ === 'rekrytering'
+    && typFrånScb({ sektor: '111000', naringsgrenar: [{ rangordning: 1, naringsgren: '62010', andelProcent: 90 },
+      { rangordning: 2, naringsgren: '78200', andelProcent: 10 }] }).typ === 'foretag');
   kolla('1. namn: "Rekrytering & Bemanning" hyr ut — bemanning', typFrånNamn('Kraftsam Rekrytering & Bemanning AB') === 'bemanning');
   kolla('1. namn: rekrytering, region, kommun, vanligt bolag',
     typFrånNamn('Schnell Rekrytering AB') === 'rekrytering' && typFrånNamn('REGION SKÅNE') === 'offentlig'

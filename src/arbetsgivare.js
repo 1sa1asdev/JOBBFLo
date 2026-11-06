@@ -39,16 +39,30 @@ export const ärJuridisk = (orgnr) => /^[0-9]{10}$/.test(orgnr || '') && orgnr[2
 // state authority — the fallback when sektor is missing.
 const OFFENTLIG_JURFORM = new Set(['81', '82', '83', '84', '85', '87', '89']);
 
+// Staffing or recruitment counts even when it is not the main industry,
+// if it is a real share of the business: Jobandtalent is 62 % "head
+// office" (70100) and 38 % recruitment (78100), and a filter for direct
+// employers must still keep it out.
+export const MELLANHAND_ANDEL = 25;
+const siffror = (g) => String(g?.naringsgren || '').replace(/\D/g, '');
+const mellanTyp = (sni) => (sni.startsWith('781') ? 'rekrytering'
+  : sni.startsWith('782') || sni.startsWith('783') ? 'bemanning' : null);
+
 export function typFrånScb(je) {
   const sektor = String(je?.sektor || '');
   const jurform = String(je?.jurform || '');
-  const huvud = [...(je?.naringsgrenar || [])]
-    .sort((a, b) => (a.rangordning ?? 99) - (b.rangordning ?? 99))[0];
-  const sni = String(huvud?.naringsgren || '').replace(/\D/g, '');
+  const grenar = [...(je?.naringsgrenar || [])]
+    .sort((a, b) => (a.rangordning ?? 99) - (b.rangordning ?? 99));
+  const sni = siffror(grenar[0]);
   let typ = 'foretag';
-  if (sektor.startsWith('13') || (!sektor && OFFENTLIG_JURFORM.has(jurform))) typ = 'offentlig';
-  else if (sni.startsWith('781')) typ = 'rekrytering';
-  else if (sni.startsWith('782') || sni.startsWith('783')) typ = 'bemanning';
+  if (sektor.startsWith('13') || (!sektor && OFFENTLIG_JURFORM.has(jurform))) {
+    typ = 'offentlig';
+  } else if (mellanTyp(sni)) {
+    typ = mellanTyp(sni);
+  } else {
+    const bi = grenar.find((g) => mellanTyp(siffror(g)) && (g.andelProcent ?? 0) >= MELLANHAND_ANDEL);
+    if (bi) typ = mellanTyp(siffror(bi));
+  }
   return { typ, sni: sni || null, jurform: jurform || null, sektor: sektor || null };
 }
 
