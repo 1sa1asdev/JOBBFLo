@@ -24,6 +24,15 @@ export const MIN_ANVÄNDARE = 5;     // users behind any number built from their
 export const MIN_SVAR = 20;         // sent applications behind a reply rate
 export const TREND_DAGAR = 28;      // recorded days before a trend is shown
 export const FÖNSTER = 7;           // days recomputed on every run (and the pool's grace period)
+export const SVARSTID = 14;         // days a letter gets to be answered before it counts towards a reply rate
+
+// The applications a reply rate is a share of: letters sent through the
+// app (a reply to an application made on the employer's site never
+// reaches the app's inbox), that arrived (not bounced) and were not
+// taken back, sent long enough ago to have been answered — a letter
+// from yesterday is not "unanswered" yet — and within the last 90 days.
+const SVARBAR = `sent_by <> 'external' AND status NOT IN ('undeliverable', 'withdrawn')
+  AND sent_at > now() - interval '90 days' AND sent_at <= now() - interval '${SVARSTID} days'`;
 
 const DAG = (kolumn) => `(${kolumn} AT TIME ZONE 'Europe/Stockholm')::date`;
 const IDAG = `(now() AT TIME ZONE 'Europe/Stockholm')::date`;
@@ -123,14 +132,12 @@ export async function marknadsläge({ regionId = null } = {}) {
      SELECT falt_id,
        count(*) FILTER (WHERE sent_at > now() - interval '30 days')::int AS sokta_30,
        count(DISTINCT profile_id) FILTER (WHERE sent_at > now() - interval '30 days')::int AS anv_30,
-       -- replies are tracked for letters sent through the app, not for
-       -- ads applied to on the employer's own site
-       count(*) FILTER (WHERE sent_by <> 'external' AND sent_at > now() - interval '90 days')::int AS skickade_90,
-       count(DISTINCT profile_id) FILTER (WHERE sent_by <> 'external' AND sent_at > now() - interval '90 days')::int AS anv_90,
-       count(*) FILTER (WHERE sent_by <> 'external' AND sent_at > now() - interval '90 days'
-                        AND status IN ('replied', 'interview', 'rejected'))::int AS svar_90,
-       count(*) FILTER (WHERE sent_by <> 'external' AND sent_at > now() - interval '90 days'
-                        AND status = 'interview')::int AS intervju_90
+       count(*) FILTER (WHERE ${SVARBAR})::int AS skickade_90,
+       count(DISTINCT profile_id) FILTER (WHERE ${SVARBAR})::int AS anv_90,
+       -- each application counts once, at the furthest it got
+       count(*) FILTER (WHERE ${SVARBAR} AND status IN ('replied', 'interview', 'rejected'))::int AS svar_90,
+       count(*) FILTER (WHERE ${SVARBAR} AND status = 'interview')::int AS intervju_90,
+       count(*) FILTER (WHERE ${SVARBAR} AND status = 'rejected')::int AS nej_90
      FROM a WHERE true ${iRegion}
      GROUP BY falt_id`, param);
   const perFält = new Map(användning.map((r) => [r.falt_id, r]));
@@ -151,6 +158,7 @@ export async function marknadsläge({ regionId = null } = {}) {
       svar: svarOk ? {
         andel: Math.round((u.svar_90 / u.skickade_90) * 100),
         intervju: Math.round((u.intervju_90 / u.skickade_90) * 100),
+        nej: Math.round((u.nej_90 / u.skickade_90) * 100),
         av: u.skickade_90,
       } : null,
     };
@@ -171,7 +179,7 @@ export async function marknadsläge({ regionId = null } = {}) {
     },
     regioner,
     historik: { dagar, trendFrån: TREND_DAGAR },
-    gränser: { användare: MIN_ANVÄNDARE, svar: MIN_SVAR },
+    gränser: { användare: MIN_ANVÄNDARE, svar: MIN_SVAR, svarstid: SVARSTID },
   };
 }
 

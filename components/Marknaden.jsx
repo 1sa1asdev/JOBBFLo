@@ -86,7 +86,12 @@ export default function Marknaden() {
                   <td data-label="Dagar tills annonsen togs ned">{r.median_dagar == null ? '—' : `${r.median_dagar} d`}</td>
                   <td data-label="Sökt via Jobbflo, 30 dagar">{tal(r.sokta_30)}</td>
                   <td data-label="Svar från arbetsgivare">
-                    {r.svar ? <>{r.svar.andel} % <span className="mk-av">({r.svar.intervju} % intervju, av {r.svar.av})</span></> : '—'}
+                    {r.svar ? (
+                      <span className="mk-svar">
+                        <b>{r.svar.andel} % svarade</b>
+                        <span className="mk-av">{r.svar.intervju} % intervju · {r.svar.nej} % nej · av {r.svar.av}</span>
+                      </span>
+                    ) : '—'}
                   </td>
                 </tr>
               ))}
@@ -102,6 +107,10 @@ export default function Marknaden() {
         <p><b>Sökt via Jobbflo</b> och <b>Svar</b> bygger på vad användarna gjort, och visas först när minst
           {' '}{data.gränser.användare} olika användare står bakom en siffra — och för svar minst {data.gränser.svar} skickade
           ansökningar — så att ingen enskild kan pekas ut.</p>
+        <p><b>Svar</b> — andelen ansökningar som arbetsgivaren svarade på alls, och hur många av dem som blev
+          intervju eller nej. Räknar brev skickade via Jobbflo de senaste 90 dagarna som kommit fram och fått
+          minst {data.gränser.svarstid} dagar på sig. Studsade och återkallade ansökningar räknas inte, och
+          inte heller de du sökt på arbetsgivarens egen sida — svaren på dem syns inte i appen.</p>
         <p><b>Trend</b> — {kvarTillTrend > 0
           ? `visas när 4 veckors historik samlats, om ${kvarTillTrend} dagar.`
           : 'nya annonser de senaste 14 dagarna mot de 14 före.'}</p>

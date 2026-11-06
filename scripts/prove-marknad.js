@@ -10,7 +10,9 @@
 //   2. a user's pasted ad (source 'manual') is never counted
 //   3. "N users applied" stays hidden below five different users — on an
 //      ad and per field — and appears at five
-//   4. a reply rate needs twenty sent applications from five users
+//   4. a reply rate needs twenty applications from five users — counting
+//      only letters that arrived, were not withdrawn and have had two
+//      weeks to be answered — and shows rejections apart from interviews
 //   5. a median closing time needs five closed ads
 //   6. what the tab returns names no ad, employer or user
 //
@@ -55,9 +57,9 @@ const profil = async (n) => {
   rader.profiler.push(p.id);
   return p.id;
 };
-const sök = (adId, profileId, status = 'sent') => pool.query(
+const sök = (adId, profileId, status = 'sent', dagarSedan = 1) => pool.query(
   `INSERT INTO applications (ad_id, profile_id, status, sent_at, sent_by, subject, letter_text)
-   VALUES ($1, $2, $3, now() - interval '1 day', 'user', 'x', 'x')`, [adId, profileId, status]);
+   VALUES ($1, $2, $3, now() - make_interval(days => $4), 'user', 'x', 'x')`, [adId, profileId, status, dagarSedan]);
 const fältRad = async () => (await marknadsläge({ regionId: REGION })).rader.find((r) => r.falt_id === FÄLT);
 
 try {
@@ -95,17 +97,24 @@ try {
   kolla('3. fem sökande: antalet visas', (await antalSökande(öppen)) === 5 && (await fältRad()).sokta_30 === 5);
 
   // ---- 4 ----
-  // 19 more sent letters (24 in all with the five above, but only from
-  // the same five users) — then check the gate on both counts.
+  // A reply rate is a share of letters that arrived, were not taken back
+  // and have had SVARSTID days to be answered. The five letters above
+  // are a day old; add 14 that are twenty days old, and five that
+  // bounced or were withdrawn — 24 sent, 14 that count.
   const svarAds = [];
-  for (let i = 0; i < 15; i += 1) svarAds.push(await annons(100 + i, { dagarSedan: 2 }));
-  for (let i = 0; i < 14; i += 1) await sök(svarAds[i], p[i % 5], i < 6 ? 'replied' : 'sent');
-  const r19 = await fältRad();
-  kolla('4. under tjugo skickade: ingen svarsandel', r19.svar === null, `${5 + 14} skickade`);
-  await sök(svarAds[14], p[0], 'interview');
+  for (let i = 0; i < 25; i += 1) svarAds.push(await annons(100 + i, { dagarSedan: 30 }));
+  for (let i = 0; i < 14; i += 1) await sök(svarAds[i], p[i % 5], i < 6 ? 'replied' : 'sent', 20);
+  for (let i = 14; i < 19; i += 1) await sök(svarAds[i], p[i % 5], i < 17 ? 'undeliverable' : 'withdrawn', 20);
+  const r14 = await fältRad();
+  kolla('4. färska, studsade och återkallade räknas inte: ingen svarsandel', r14.svar === null, '24 skickade, 14 räknas');
+  // six more that count — one interview, two rejections — make twenty
+  for (let i = 19; i < 25; i += 1) {
+    await sök(svarAds[i], p[i % 5], i === 19 ? 'interview' : i < 22 ? 'rejected' : 'sent', 20);
+  }
   const r20 = await fältRad();
-  kolla('4. tjugo skickade från fem användare: svarsandelen visas', r20.svar?.av === 20 && r20.svar.andel === 35,
-    JSON.stringify(r20.svar));
+  kolla('4. tjugo som räknas, från fem användare: andelen visas', r20.svar?.av === 20, JSON.stringify(r20.svar));
+  kolla('4. svar = svar + intervju + nej; nej visas för sig',
+    r20.svar?.andel === 45 && r20.svar.intervju === 5 && r20.svar.nej === 10, '9 av 20 svarade, 1 intervju, 2 nej');
 
   // ---- 6 ----
   const hela = JSON.stringify(await marknadsläge({ regionId: REGION }));

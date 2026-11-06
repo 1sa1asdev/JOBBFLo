@@ -3099,6 +3099,9 @@
 .mk-trend.upp{color:var(--ok);}
 .mk-trend.ned{color:var(--flag);}
 .mk-av{font-size:var(--fs-label);color:var(--mute);}
+.mk-svar{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;}
+.mk-svar b{font-weight:600;}
+@media (min-width:641px){ .mk-svar{align-items:flex-start;} }
 .mk-forklaring{margin-top:18px;display:grid;gap:8px;font-size:var(--fs-small);line-height:var(--lh-body);color:var(--mute);max-width:70ch;}
 .mk-forklaring b{color:var(--ink);}
 .mk-kalla{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);}
