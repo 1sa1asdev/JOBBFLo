@@ -3004,6 +3004,8 @@
   .gate .warn{border:none;background:none;padding:0;font-size:var(--fs-label);}
   .gate .acts .btn{min-height:38px;padding:6px 10px;}
 
+}
+
 /* ================= ADMIN PAGE ================= */
 /* /admin sits straight in body, which is the app shell and never
    scrolls — so the page scrolls in this container, or nothing below
