@@ -3102,6 +3102,31 @@
 .mk-svar{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;}
 .mk-svar b{font-weight:600;}
 @media (min-width:641px){ .mk-svar{align-items:flex-start;} }
+/* jump buttons under the overview tabs: one swipeable row on a phone,
+   wrapped on a wider screen; sticky so they are there wherever you are */
+.hopp{position:sticky;top:46px;z-index:4;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;
+  margin:0 0 14px;padding:8px 0;background:var(--paper);border-bottom:1px solid var(--tag-border);}
+.hopp::-webkit-scrollbar{display:none;}
+/* a fade at the right edge says the row goes on */
+.hopp{-webkit-mask-image:linear-gradient(to right,#000 85%,transparent);mask-image:linear-gradient(to right,#000 85%,transparent);}
+@media (min-width:761px){ .hopp{-webkit-mask-image:none;mask-image:none;} }
+.hopp button{flex:0 0 auto;min-height:36px;padding:6px 12px;border:1px solid var(--line);background:transparent;
+  font-family:'IBM Plex Mono',monospace;font-size:var(--fs-small);font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--ink);cursor:pointer;white-space:nowrap;}
+.hopp button:hover{background:var(--panel);}
+.hopp button:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+@media (min-width:761px){ .hopp{flex-wrap:wrap;overflow-x:visible;} }
+.hopp-mal{scroll-margin-top:110px;}
+.hopp-mal:focus{outline:none;}
+.hopp-mal:focus-visible{outline:2px solid var(--flag);outline-offset:4px;}
+/* the user's own letters, per employer type and occupation field */
+.dash-fordelning{list-style:none;margin:10px 0 6px;padding:0;display:grid;gap:10px;}
+.dash-fordelning li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;}
+.df-namn{font-weight:600;overflow-wrap:anywhere;}
+.df-tal{font-size:var(--fs-meta);color:var(--mute);font-variant-numeric:tabular-nums;text-align:right;}
+.df-tal b{color:var(--ink);}
+.df-stapel{grid-column:1 / -1;display:block;height:6px;background:var(--tag-border);}
+.df-stapel span{display:block;height:100%;background:var(--ok);}
 /* best and worst placed occupations (Arbetsförmedlingen's assessment) */
 .mk-vaxel{display:flex;gap:0;border:1px solid var(--line);margin-bottom:6px;}
 .mk-vaxel button{flex:1 1 0;min-height:40px;background:transparent;border:0;font-family:'IBM Plex Mono',monospace;

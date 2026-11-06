@@ -51,7 +51,7 @@ const ANNONSER = `
 // The employer type of an ad (src/arbetsgivare.js), joined as g. A sole
 // trader is never looked up — their number is a personal one — and is a
 // company; a number not yet classified, or none at all, is unknown.
-const TYP = `COALESCE(g.typ,
+export const TYP = `COALESCE(g.typ,
   CASE WHEN a.orgnr ~ '^[0-9]{10}$' AND substr(a.orgnr, 3, 1) < '2' THEN 'foretag' END, 'okand')`;
 export const TYPER = ['foretag', 'offentlig', 'bemanning', 'rekrytering'];
 // What the app's users did, one row per application, for the counts below.

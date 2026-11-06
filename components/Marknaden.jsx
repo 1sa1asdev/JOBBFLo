@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import Dots from './Dots';
+import Hopp from './Hopp';
 import { kortLäge, ÄNDRING } from '../lib/yrkesord.js';
 
 // ------------------------------------------------------------
@@ -32,12 +33,11 @@ function Trend({ v }) {
 
 // The best and worst placed occupations: Arbetsförmedlingen's chances
 // of work first, open ads now second (src/yrkesbarometer.js yrkesläge).
-function Yrkesläge({ yrken }) {
-  const [vy, setVy] = useState('bast');
+function Yrkesläge({ yrken, vy, setVy }) {
   if (!yrken) return null;
   const lista = vy === 'bast' ? yrken.bast : yrken.samst;
   return (
-    <div className="dash-block mk-yrken">
+    <div className="dash-block mk-yrken hopp-mal" id="mk-yrken" tabIndex={-1}>
       <div className="mk-vaxel" role="group" aria-label="Visa yrken">
         <button type="button" aria-pressed={vy === 'bast'} onClick={() => setVy('bast')}>▲ Bäst läge</button>
         <button type="button" aria-pressed={vy === 'samst'} onClick={() => setVy('samst')}>▼ Sämst läge</button>
@@ -70,6 +70,9 @@ export default function Marknaden() {
   const [region, setRegion] = useState('');
   const [data, setData] = useState(null);
   const [fel, setFel] = useState(null);
+  const [vy, setVy] = useState('bast');
+  const [merÖppen, setMerÖppen] = useState(false);
+  const öppnaMer = () => setMerÖppen(true);
 
   useEffect(() => {
     let aktuell = true;
@@ -95,6 +98,14 @@ export default function Marknaden() {
         </p>
       </div>
 
+      <Hopp etikett="Gå till" mål={[
+        data.yrken && { id: 'mk-yrken', label: 'Bäst läge', före: () => setVy('bast') },
+        data.yrken && { id: 'mk-yrken', label: 'Sämst läge', före: () => setVy('samst') },
+        { id: 'mk-falt', label: 'Yrkesområden', före: öppnaMer },
+        { id: 'mk-typer', label: 'Arbetsgivartyper', före: öppnaMer },
+        { id: 'mk-om', label: 'Om siffrorna', före: öppnaMer },
+      ]} />
+
       <div className="mk-filter">
         <label htmlFor="mk-region" className="mk-etikett">Region</label>
         <select id="mk-region" className="ct-input" value={region} onChange={(e) => { setData(null); setRegion(e.target.value); }}>
@@ -110,11 +121,11 @@ export default function Marknaden() {
         <div className="dash-stat accent"><b>{tal(data.totalt.nya_7)}</b><span className="dash-stat-label">Nya senaste 7 dagarna</span></div>
       </div>
 
-      <Yrkesläge yrken={data.yrken} />
+      <Yrkesläge yrken={data.yrken} vy={vy} setVy={setVy} />
 
-      <details className="mk-mer">
+      <details className="mk-mer" open={merÖppen} onToggle={(e) => setMerÖppen(e.currentTarget.open)}>
         <summary>Visa mer — alla yrkesområden och arbetsgivartyper</summary>
-      <div className="dash-block">
+      <div className="dash-block hopp-mal" id="mk-falt" tabIndex={-1}>
         <span className="auto-queue-title">Per yrkesområde</span>
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Marknaden per yrkesområde">
           <table className="dash-table adm-stack mk-tabell">
@@ -148,7 +159,7 @@ export default function Marknaden() {
         </div>
       </div>
 
-      <div className="dash-block">
+      <div className="dash-block hopp-mal" id="mk-typer" tabIndex={-1}>
         <span className="auto-queue-title">Per arbetsgivartyp</span>
         <ul className="mk-typer">
           {data.arbetsgivartyp.typer.map((t) => (
@@ -171,7 +182,7 @@ export default function Marknaden() {
         )}
       </div>
 
-      <div className="mk-forklaring">
+      <div className="mk-forklaring hopp-mal" id="mk-om" tabIndex={-1}>
         <p><b>Platser</b> — en annons kan söka flera personer; räknas från och med nu, äldre annonser räknas som en.</p>
         <p><b>Dagar öppen</b> — mediantiden från publicering tills annonser togs ned den senaste veckan. Det närmaste
           man kommer hur snabbt tjänster tillsätts. Visas när minst {data.gränser.användare} annonser stängts.</p>
