@@ -103,6 +103,9 @@ jobs:
       - name: Proof — a letter can never be sent twice
         run: time node scripts/prove-send-transaction.js
 
+      - name: Proof — a failed send is retried, paused or released by its code
+        run: time node scripts/prove-campaign-errors.js
+
       - name: Proof — no code picks a profile by guessing
         run: time node scripts/prove-profile-scope.js
 

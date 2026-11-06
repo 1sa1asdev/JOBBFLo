@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 064.
+-- Baseline covers migrations up to 043; latest migration 065.
 -- ============================================================
 
 --
@@ -466,8 +466,15 @@ CREATE TABLE public.auto_apply_log (
     score integer,
     outcome text NOT NULL,
     detail text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    code text
 );
+
+--
+-- Name: COLUMN auto_apply_log.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.auto_apply_log.code IS 'Why a send failed, as a code from src/felkoder.js (MAIL_CONNECT_FAILED, MAIL_LOGIN_REJECTED, ...). Decides retry vs pause, the five-in-a-row pause, and whether the draft may be released (only codes that fail before Gmail could take the letter). NULL for rows that are not a failed send, and for rows from before migration 065.';
 
 --
 -- Name: campaign_messages; Type: TABLE; Schema: public; Owner: -

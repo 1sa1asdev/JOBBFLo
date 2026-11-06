@@ -2,6 +2,7 @@ import { pool } from './db.js';
 import { renderCampaignLetter } from './campaign.js';
 import { sendApplication, attachmentsFor } from './mailer.js';
 import { adressFör, glömAdress } from './addresses.js';
+import { mejlfel, FÖRE_BREV, TILLFÄLLIGA } from './felkoder.js';
 
 // ------------------------------------------------------------
 // Auto-apply campaigns.
@@ -15,8 +16,10 @@ import { adressFör, glömAdress } from './addresses.js';
 //   - only when a CV file exists to attach (the ad asked for one)
 //   - highest score first, so the daily budget goes to best matches
 //   - one application per ad, ever (UNIQUE(profile_id, ad_id))
-//   - a send failure PAUSES the campaign instead of retrying, so a
-//     broken config can't spray a hundred employers
+//   - a send failure PAUSES the campaign, so a broken config can't
+//     spray a hundred employers — except one that fixes itself (a
+//     dropped connection), which is retried until it has failed
+//     FEL_I_RAD times in a row (src/felkoder.js says which is which)
 //   - every decision is written to auto_apply_log, including skips
 // ------------------------------------------------------------
 
@@ -134,11 +137,72 @@ async function withLock(fn) {
 
 async function log(entry) {
   await pool.query(
-    `INSERT INTO auto_apply_log (search_id, ad_id, application_id, score, outcome, detail)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
+    `INSERT INTO auto_apply_log (search_id, ad_id, application_id, score, outcome, detail, code)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [entry.searchId || null, entry.adId || null, entry.applicationId || null,
-     entry.score ?? null, entry.outcome, entry.detail || null]
+     entry.score ?? null, entry.outcome, entry.detail || null, entry.code || null]
   );
+}
+
+// A failure that fixes itself is retried on the next run, a minute
+// later. Not forever: this many in a row and the campaign pauses and
+// says so, rather than trying all night with nothing going out.
+export const FEL_I_RAD = 5;
+
+// "In a row": since the last letter that went out, within the hour.
+export async function tillfälligaFelIRad(searchId) {
+  const { rows: [r] } = await pool.query(
+    `SELECT count(*)::int AS n FROM auto_apply_log l
+     WHERE l.search_id = $1 AND l.code = ANY($2)
+       AND l.created_at > now() - interval '1 hour'
+       AND l.created_at > COALESCE(
+         (SELECT max(created_at) FROM auto_apply_log WHERE search_id = $1 AND outcome = 'sent'),
+         '-infinity'::timestamptz)`,
+    [searchId, TILLFÄLLIGA]);
+  return r.n;
+}
+
+// ------------------------------------------------------------
+// Drafts a failed send left behind, released so their ads can be tried
+// again.
+//
+// A campaign's draft exists only for the moment between being written
+// and being sent. One still 'drafted' after its run is a send that
+// failed — and while it exists, the ad counts as applied to (the
+// fingerprint guard in candidatesFor) and is never tried again. Every
+// failed send cost the campaign that ad, silently.
+//
+// Released only when the failure is known to have come before Gmail
+// could have taken the letter: a code from FÖRE_BREV, or for rows from
+// before codes existed, a message that can only come from that stage.
+// A connection lost mid-send leaves the draft where it is, because the
+// letter may have arrived — a duplicate is worse than a missed ad.
+//
+// Runs inside the campaign lock, so no send is in flight while it reads.
+// ------------------------------------------------------------
+const FÖRE_BREV_GAMMAL = 'Connection timeout|Unexpected socket close|Greeting never received|ECONNREFUSED'
+  + '|ENOTFOUND|EAI_AGAIN|Invalid login|535-5\\.7\\.8|ingen bilaga kunde bifogas|adressen avvisades'
+  + '|Gmail är inte kopplat';
+const KANSKE_SKICKAT_GAMMAL = 'ECONNRESET|EPIPE|socket hang up|Connection closed|(^|: )Timeout($|[^a-z])';
+
+export async function släppFastaUtkast(searchId) {
+  const { rows } = await pool.query(
+    `DELETE FROM applications a
+     WHERE a.origin_search_id = $1 AND a.sent_by = 'auto' AND a.status = 'drafted'
+       AND EXISTS (
+         SELECT 1 FROM auto_apply_log l WHERE l.search_id = $1 AND l.ad_id = a.ad_id
+           AND (l.code = ANY($2) OR (l.code IS NULL AND l.detail ~ $3)))
+       AND NOT EXISTS (
+         SELECT 1 FROM auto_apply_log l WHERE l.search_id = $1 AND l.ad_id = a.ad_id
+           AND ((l.code IS NOT NULL AND l.code <> ALL($2))
+                OR (l.code IS NULL AND l.detail ~ $4)))
+     RETURNING a.ad_id`,
+    [searchId, FÖRE_BREV, FÖRE_BREV_GAMMAL, KANSKE_SKICKAT_GAMMAL]);
+  for (const r of rows) {
+    await log({ searchId, adId: r.ad_id, outcome: 'skipped',
+                detail: 'utkast släppt — förra försöket nådde aldrig Gmail, annonsen provas igen' });
+  }
+  return rows.length;
 }
 
 async function pause(searchId, reason) {
@@ -477,6 +541,71 @@ export async function runAutoApply(searchId, opts = {}) {
   return res;
 }
 
+// ------------------------------------------------------------
+// What a campaign does after a send failed: 'nästa' goes on to the
+// next ad, 'stopp' ends this run (paused or not). Its own function so
+// prove-campaign-errors.js can hand it failures without sending.
+// ------------------------------------------------------------
+export async function efterSändfel(err, { searchId, search, c, results }) {
+  const fel = mejlfel(err);
+
+  // A rejected RECIPIENT is about this one address, not about the
+  // connection — the next employer is unaffected, so stopping the
+  // campaign for it is the wrong response. One scraped address
+  // carrying a trailing backslash did exactly that: Gmail answered
+  // 555-5.5.2 and 700 reachable ads sat still behind it.
+  //
+  // The address is cleared rather than kept, so the ad goes back to
+  // "utan mejladress" and can be found again properly instead of
+  // failing the same way every run.
+  if (fel.kod === 'MAIL_RECIPIENT_REJECTED') {
+    await glömAdress(c.ad_id, search.profile_id, c.apply_email);
+    await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped', code: fel.kod,
+                detail: `adressen avvisades av mottagarservern: ${fel.detalj.slice(0, 120)}` });
+    results.skipped.push({ title: c.title, detail: 'ogiltig adress — borttagen' });
+    return 'nästa';
+  }
+
+  // A failure that fixes itself is not a campaign fault.
+  //
+  // "connect ECONNREFUSED 172.253.148.108:465" paused this campaign
+  // at 18:47 and it needed a person to press PÅ again — while both
+  // the host and the worker container could reach smtp.gmail.com:465
+  // perfectly well a few minutes later. "Connection timeout" did the
+  // same on 5 Nov, because it was not on the list this used to be.
+  //
+  // Stop this run rather than hammering a connection that is
+  // refusing, and leave the campaign on — until it has failed
+  // FEL_I_RAD times in a row. Then it is not a blip, and a campaign
+  // that silently sends nothing all night is worse than a paused one.
+  if (fel.tillfälligt) {
+    await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped', code: fel.kod,
+                detail: `${fel.text}, försöker igen: ${fel.detalj.slice(0, 120)}` });
+    results.skipped.push({ title: c.title, detail: `${fel.text} — försöker igen` });
+    results.code = fel.kod;
+    const iRad = await tillfälligaFelIRad(searchId);
+    if (iRad >= FEL_I_RAD) {
+      await pause(searchId, `stoppad (${fel.kod}): ${fel.text}, ${iRad} försök i rad — `
+        + 'tryck PÅ för att försöka igen');
+      results.paused = true;
+    } else {
+      results.reason = `${fel.text} (${fel.kod}) — försöker igen nästa körning`;
+    }
+    return 'stopp';
+  }
+
+  // anything else stops the whole campaign — a rejected login, a
+  // quota or an unknown fault will not fix itself on the next employer
+  await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'failed', code: fel.kod,
+              detail: fel.detalj });
+  await pause(searchId, `stoppad (${fel.kod}): ${fel.text}`
+    + (fel.kod === 'MAIL_UNKNOWN' ? ` — ${fel.detalj.slice(0, 120)}` : ''));
+  results.skipped.push({ title: c.title, detail: fel.detalj });
+  results.code = fel.kod;
+  results.paused = true;
+  return 'stopp';
+}
+
 async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = {}) {
   const { rows: [search] } = await pool.query(
     `SELECT s.*, p.id AS profile_id, octet_length(COALESCE(s.cv_file, p.cv_file)) AS cv_bytes
@@ -485,6 +614,7 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
   );
   if (!search) return { sent: 0, skipped: [], reason: 'sökningen finns inte' };
   if (!dryRun && !search.auto_apply_enabled) return { sent: 0, skipped: [], reason: 'avstängd' };
+  if (!dryRun) await släppFastaUtkast(searchId);
 
   // the whole point of a campaign: ONE letter the user has read.
   // Editing the letter clears the approval, so this also stops a
@@ -684,7 +814,9 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
       const files = await attachmentsFor(app.id);
       if (!files.length) {
         const detail = 'ingen bilaga kunde bifogas';
-        await log({ searchId, adId: c.ad_id, applicationId: app.id, score: c.score, outcome: 'skipped', detail });
+        // nothing was sent, so the ad is not spent
+        await pool.query(`DELETE FROM applications WHERE id = $1 AND status = 'drafted'`, [app.id]);
+        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped', detail });
         results.skipped.push({ title: c.title, detail });
         continue;
       }
@@ -711,55 +843,7 @@ async function runAutoApplyInner(searchId, { dryRun = false, manual = false } = 
         results.skipped.push({ title: c.title, detail: 'dubblett stoppad' });
         continue;
       }
-      // A rejected RECIPIENT is about this one address, not about the
-      // connection — the next employer is unaffected, so stopping the
-      // campaign for it is the wrong response. One scraped address
-      // carrying a trailing backslash did exactly that: Gmail answered
-      // 555-5.5.2 and 700 reachable ads sat still behind it.
-      //
-      // The address is cleared rather than kept, so the ad goes back to
-      // "utan mejladress" and can be found again properly instead of
-      // failing the same way every run.
-      if (/all recipients were rejected|5\.1\.[13]|5\.5\.2|550|553|555/i.test(err.message)) {
-        await glömAdress(c.ad_id, search.profile_id, c.apply_email);
-        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
-                    detail: `adressen avvisades av mottagarservern: ${err.message.slice(0, 120)}` });
-        results.skipped.push({ title: c.title, detail: 'ogiltig adress — borttagen' });
-        continue;
-      }
-
-      // A connection that never opened is not a campaign fault.
-      //
-      // "connect ECONNREFUSED 172.253.148.108:465" paused this campaign
-      // at 18:47 and it needed a person to press PÅ again — while both
-      // the host and the worker container could reach smtp.gmail.com:465
-      // perfectly well a few minutes later. A refused socket, a reset,
-      // a DNS hiccup: these are the failures that DO fix themselves,
-      // and the next tick is a minute away. Pausing on them means a
-      // campaign silently stops overnight for a blip nobody saw.
-      //
-      // The distinction is the same one scoring already makes between
-      // transient and permanent. What still pauses: a rejected login, a
-      // bad key, a quota — none of which the next employer will cure.
-      if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|Connection closed/i
-        .test(err.message)) {
-        await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'skipped',
-                    detail: `nätverksfel, försöker igen: ${err.message.slice(0, 120)}` });
-        results.skipped.push({ title: c.title, detail: 'nätverksfel — försöker igen' });
-        // Stop this run rather than hammering a connection that is
-        // refusing, but leave the campaign on.
-        results.reason = 'nätverksfel mot Gmail — försöker igen nästa körning';
-        break;
-      }
-
-      // anything else stops the whole campaign — a bad key, a dead
-      // SMTP session or an LLM outage will not fix itself on the next
-      // employer
-      const detail = err.message.slice(0, 200);
-      await log({ searchId, adId: c.ad_id, score: c.score, outcome: 'failed', detail });
-      await pause(searchId, `stoppad efter fel: ${detail}`);
-      results.skipped.push({ title: c.title, detail });
-      results.paused = true;
+      if (await efterSändfel(err, { searchId, search, c, results }) === 'nästa') continue;
       break;
     }
   }
