@@ -243,7 +243,7 @@ export default function LlmSettings({ onSaved } = {}) {
               </button>
             </div>
           )}
-          {listFel && <div className="err-note" style={{ margin: '8px 0 0' }}>{listFel}</div>}
+          {listFel && <div className="err-note" role="alert" style={{ margin: '8px 0 0' }}>{listFel}</div>}
 
           {!meta.lokal && (
             <p className="hint">
@@ -264,7 +264,7 @@ export default function LlmSettings({ onSaved } = {}) {
                 : `✗ ${test.error}`}
             </div>
           )}
-          {error && <div className="err-note" style={{ margin: '10px 0 0' }}>{error}</div>}
+          {error && <div className="err-note" role="alert" style={{ margin: '10px 0 0' }}>{error}</div>}
 
           <div className="llm-acts">
             <button className="btn" type="button" onClick={runTest} disabled={busy}>
@@ -276,7 +276,7 @@ export default function LlmSettings({ onSaved } = {}) {
             {data.current.provider && (
               <button className="btn" type="button" onClick={clear} disabled={busy}>Nollställ</button>
             )}
-            {saved && <span className="gate-status">✓ Sparat</span>}
+            {saved && <span className="gate-status" role="status">✓ Sparat</span>}
           </div>
         </div>
       )}

@@ -56,7 +56,7 @@ export default function ChatTools({ search, onChanged, onCvChanged }) {
           value={search?.location || []}
           onSave={saveLocations}
         />
-        {saving && <span className="ct-saving">sparar…</span>}
+        {saving && <span className="ct-saving" role="status">sparar…</span>}
       </div>
 
       <div className="ct-row">

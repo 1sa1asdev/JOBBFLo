@@ -120,7 +120,7 @@ export default function FilterSuggest({ search, turn, onChanged }) {
           </div>
         </>
       )}
-      {error && <div className="fa-err">{error}</div>}
+      {error && <div className="fa-err" role="alert">{error}</div>}
     </div>
   );
 }

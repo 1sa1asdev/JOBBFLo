@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, timeAgo, fmtDate } from '../lib/api.js';
-import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import { useNotify } from '../lib/useNotify.js';
 import Dots from './Dots';
+import Gem from './Gem.jsx';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
@@ -139,7 +140,7 @@ function CampaignHead({ group, collapsed, onToggle, onSaved }) {
             Sparas och söks om direkt. Favoriter och betalda bedömningar behålls —
             bara okontrollerade kandidater från det gamla syftet rensas.
           </div>
-          {err && <div className="err-note">{err}</div>}
+          {err && <div className="err-note" role="alert">{err}</div>}
           <button className="btn" onClick={save} disabled={busy || !name.trim() || !purpose.trim()}>
             {busy ? <>Sparar<Dots label="Sparar" /></> : 'Spara syfte'}
           </button>
@@ -260,20 +261,17 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   // refetch the list AND the open thread — the open thread used to
   // never refresh, so a reply arriving while you read it stayed
   // invisible until you clicked away and back.
-  const version = useRef(null);
-  usePoll(async () => {
-    const { version: v } = await api('/api/pulse');
-    // Stamped on every successful poll, not only on a change: the point
-    // of the clock is to show the connection is alive, and a beacon
-    // that has not moved is the normal case.
-    setChecked(Date.now());
-    if (v === version.current) return;
-    const first = version.current === null;
-    version.current = v;
+  // The shared beacon (lib/beacon.jsx), asked every 3 s while this view
+  // is open. The clock is stamped on every answer, not only on a change:
+  // its point is to show the connection is alive, and a beacon that has
+  // not moved is the normal case. The first answer is where things
+  // already stand — the mount above loaded that.
+  useBeacon('global', async (v, { first }) => {
+    if (first) return;
     await load();
     if (activeId) await loadThread(activeId);
-    if (!first) setPulsed(Date.now());
-  }, { interval: 3000 });
+    setPulsed(Date.now());
+  }, { interval: 3000, onTick: () => setChecked(Date.now()) });
 
   // Says what it found, including when that is nothing — "0 nya" is the
   // answer to "is it stuck?", and silence is not.
@@ -388,20 +386,36 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
     ? grouped
     : grouped.filter((g) => String(g.id || 'ingen') === campaign);
 
-  async function sendReply(body, suggestedReplyId = null) {
-    if (!body?.trim() || !thread) return;
+  // True when it went, so the composer can let go of its files.
+  async function sendReply(body, suggestedReplyId = null, bilagor = null) {
+    if (!body?.trim() || !thread) return false;
     setBusy(true);
     setError(null);
+    let ok = false;
     try {
-      await api(`/api/inbox/${thread.id}/reply`, {
-        method: 'POST',
-        body: { body, suggestedReplyId },
-      });
+      if (bilagor?.dokument.length || bilagor?.filer.length) {
+        // files go as multipart; plain fetch, as the other uploads do
+        const fd = new FormData();
+        fd.append('body', body);
+        if (suggestedReplyId) fd.append('suggestedReplyId', suggestedReplyId);
+        for (const id of bilagor.dokument) fd.append('dokument', id);
+        for (const f of bilagor.filer) fd.append('fil', f, f.name);
+        const res = await fetch(`/api/inbox/${thread.id}/reply`, { method: 'POST', body: fd });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || (res.status === 413 ? 'filerna är för stora för att skickas' : `${res.status}`));
+      } else {
+        await api(`/api/inbox/${thread.id}/reply`, {
+          method: 'POST',
+          body: { body, suggestedReplyId },
+        });
+      }
       setComposerText('');
+      ok = true;
       await loadThread(thread.id);
       await load();
     } catch (e) { setError(e.message); }
     setBusy(false);
+    return ok;
   }
 
   async function dismissSuggestion(id) {
@@ -419,7 +433,10 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
   const calib = stats?.calibration;
 
   return (
-    <div className="inbox">
+    // On a phone one of the two at a time: the list until a conversation
+    // is opened, then the conversation with a way back. Side by side they
+    // left the list one row and the rest of the screen to a hint.
+    <div className="inbox" data-thread={thread ? 'open' : error ? 'fel' : 'none'}>
       <div className="thread-list">
         <div className="inbox-head">
           <div className="idx">{source === 'auto' ? '04 / Automatiska ansökningar' : '03 / Ansökningar'}</div>
@@ -470,9 +487,10 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
           <div className="inbox-search">
             <input
               className="ct-input" value={query} placeholder="Sök företag, roll eller person…"
+              aria-label="Sök i inkorgen"
               onChange={(e) => setQuery(e.target.value)}
             />
-            <select className="ct-input inbox-sort" value={sort}
+            <select className="ct-input inbox-sort" value={sort} aria-label="Sortering"
               onChange={(e) => setSort(e.target.value)}>
               <option value="recent">Senaste först</option>
               <option value="oldest">Längst utan svar först</option>
@@ -558,6 +576,11 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
       </div>
 
       <div className="thread-view">
+        {thread && (
+          <button type="button" className="tv-back" onClick={() => setThread(null)}>
+            ← Alla ansökningar
+          </button>
+        )}
         {!thread ? (
           <div className="empty-thread">{error || 'Välj en ansökan till vänster'}</div>
         ) : (
@@ -585,6 +608,17 @@ function ThreadDetail({ thread: t, openMsgs, setOpenMsgs, composerText, setCompo
   const o = odds(t);
   const note = oddsNote(t);
   const suggestion = (t.suggestions || [])[0] || null;
+
+  // Files chosen for the next reply in this thread. A different thread
+  // starts with none: a certificate picked for one employer must not
+  // ride along to the next.
+  const tomma = { dokument: [], filer: [], för_stora: false };
+  const [bilagor, setBilagor] = useState(tomma);
+  const [bilagaÖppen, setBilagaÖppen] = useState(false);
+  useEffect(() => { setBilagor(tomma); setBilagaÖppen(false); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function skicka(text, förslagId = null) {
+    if (await onSendReply(text, förslagId, bilagor)) { setBilagor(tomma); setBilagaÖppen(false); }
+  }
 
   return (
     <>
@@ -623,19 +657,24 @@ function ThreadDetail({ thread: t, openMsgs, setOpenMsgs, composerText, setCompo
           const open = !!openMsgs[m.id];
           return (
             <div key={m.id} className={`tmsg ${mine ? 'mine' : 'theirs'}${open ? ' is-open' : ''}`}>
-              <div className="tmsg-head" onClick={() => setOpenMsgs((s) => ({ ...s, [m.id]: !open }))}>
+              {/* a button, so it opens from the keyboard too */}
+              <button type="button" className="tmsg-head" aria-expanded={open}
+                onClick={() => setOpenMsgs((s) => ({ ...s, [m.id]: !open }))}>
                 <span className="tmsg-who">
                   {mine ? 'Du' : m.from_name || m.from_addr}
                   <span className="role">{mine ? (m.in_reply_to ? 'Svar' : 'Ansökan') : t.employer}</span>
                 </span>
                 <span className="tmsg-meta">
                   {new Date(m.sent_at).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  {' '}<span className="caret">›</span>
+                  {' '}<span className="caret" aria-hidden="true">›</span>
                 </span>
-              </div>
+              </button>
               <div className="tmsg-preview">{(m.body_text || '').slice(0, 110)}</div>
               <div className="tmsg-body">
                 {(m.body_text || '').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+                {m.attachments?.length > 0 && (
+                  <p className="tmsg-files">Bilagor: {m.attachments.map((a) => a.filename).join(', ')}</p>
+                )}
               </div>
             </div>
           );
@@ -686,7 +725,8 @@ function ThreadDetail({ thread: t, openMsgs, setOpenMsgs, composerText, setCompo
               {suggestion.body.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
             </div>
             <div className="suggest-acts">
-              <button className="primary" disabled={busy} onClick={() => onSendReply(suggestion.body, suggestion.id)}>
+              <button className="primary" disabled={busy || bilagor.för_stora}
+                onClick={() => skicka(suggestion.body, suggestion.id)}>
                 {busy ? 'Skickar…' : 'Skicka detta →'}
               </button>
               <button onClick={() => setComposerText(suggestion.body)}>Redigera först</button>
@@ -697,22 +737,114 @@ function ThreadDetail({ thread: t, openMsgs, setOpenMsgs, composerText, setCompo
       </div>
 
       <div className="composer">
-        {error && <div className="err-note" style={{ margin: '0 0 8px' }}>{error}</div>}
+        {error && <div className="err-note" role="alert" style={{ margin: '0 0 8px' }}>{error}</div>}
         <div className="composer-box">
           <textarea
             rows={2}
             placeholder="Skriv ett svar…"
+            aria-label="Ditt svar"
             value={composerText}
             onChange={(e) => setComposerText(e.target.value)}
           />
-          <button className="composer-send" disabled={busy} onClick={() => onSendReply(composerText)}>
+          {/* the same paperclip as on the campaign letter (Gem.jsx) */}
+          <Gem iFält open={bilagaÖppen} onToggle={() => setBilagaÖppen((v) => !v)} controls="svar-bilagor"
+            label="Bifoga filer" antal={bilagor.dokument.length + bilagor.filer.length} />
+          <button className="composer-send" disabled={busy || bilagor.för_stora} onClick={() => skicka(composerText)}>
             Skicka
           </button>
         </div>
+        <SvarsBilagor trådId={t.id} bilagor={bilagor} setBilagor={setBilagor} öppen={bilagaÖppen} />
         <div className="composer-note">
           Skickas från {t.sent_from || 'ditt Gmail-konto'} · svar hamnar i samma tråd · inget skickas utan att du klickar
         </div>
       </div>
     </>
+  );
+}
+
+const storlek = (b) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB`
+  : b === 0 ? '0 kB' : `${Math.max(1, Math.round(b / 1024))} kB`);
+
+// ------------------------------------------------------------
+// Files for a reply: documents already uploaded (the CV first), or a
+// file from this computer. New files are capped by what one request to
+// the server may carry; the server checks the same limits again.
+// ------------------------------------------------------------
+function SvarsBilagor({ trådId, bilagor, setBilagor, öppen }) {
+  const [lista, setLista] = useState(null);
+  const [fel, setFel] = useState(null);
+  useEffect(() => { setLista(null); setFel(null); }, [trådId]);
+  useEffect(() => {
+    if (!öppen || lista) return;
+    api(`/api/inbox/${trådId}/reply`).then(setLista).catch((e) => setFel(e.message));
+  }, [öppen, lista, trådId]);
+
+  const nyaMax = lista?.nyaMax || 4 * 1024 * 1024;
+  const nya = bilagor.filer.reduce((s, f) => s + f.size, 0);
+  const sätt = (ändring) => setBilagor((b) => {
+    const n = { ...b, ...ändring };
+    n.för_stora = n.filer.reduce((s, f) => s + f.size, 0) > nyaMax;
+    return n;
+  });
+  const namn = (id) => lista?.dokument.find((d) => d.id === id)?.filename || 'dokument';
+  const antal = bilagor.dokument.length + bilagor.filer.length;
+  if (!öppen && !antal) return null;
+
+  return (
+    <div className="reply-attach">
+      {antal > 0 && (
+      <div className="ra-row">
+        {bilagor.dokument.map((id) => (
+          <span className="locchip" key={id}>
+            {id === 'cv' ? `CV: ${namn(id)}` : namn(id)}
+            <button type="button" aria-label={`Ta bort ${namn(id)}`}
+              onClick={() => sätt({ dokument: bilagor.dokument.filter((x) => x !== id) })}>✕</button>
+          </span>
+        ))}
+        {bilagor.filer.map((f, i) => (
+          <span className="locchip" key={`${f.name}-${i}`}>
+            {f.name} <span className="ra-size">{storlek(f.size)}</span>
+            <button type="button" aria-label={`Ta bort ${f.name}`}
+              onClick={() => sätt({ filer: bilagor.filer.filter((_, j) => j !== i) })}>✕</button>
+          </span>
+        ))}
+      </div>
+      )}
+
+      {öppen && (
+        <div className="ra-panel" id="svar-bilagor">
+          {fel && <div className="err-note" role="alert">{fel}</div>}
+          {!lista && !fel && <p className="hint">Hämtar dina dokument…</p>}
+          {lista && (
+            <fieldset className="ra-docs">
+              <legend>Dina dokument</legend>
+              {lista.dokument.length === 0 && (
+                <p className="hint">Inga uppladdade dokument än. Ladda upp under Profil, eller välj en fil nedan.</p>
+              )}
+              {lista.dokument.map((d) => (
+                <label key={d.id} className="ra-doc">
+                  <input type="checkbox" checked={bilagor.dokument.includes(d.id)}
+                    onChange={(e) => sätt({ dokument: e.target.checked
+                      ? [...bilagor.dokument, d.id]
+                      : bilagor.dokument.filter((x) => x !== d.id) })} />
+                  <span>{d.id === 'cv' ? 'CV: ' : ''}{d.filename}</span>
+                  <span className="ra-size">{storlek(d.size)}</span>
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <label className="ra-file">
+            Välj fil från datorn
+            <input type="file" multiple
+              accept={(lista?.filtyper || ['pdf', 'doc', 'docx', 'odt', 'rtf', 'txt', 'png', 'jpg', 'jpeg']).map((t) => `.${t}`).join(',')}
+              onChange={(e) => { sätt({ filer: [...bilagor.filer, ...e.target.files] }); e.target.value = ''; }} />
+          </label>
+          <p className="ra-sum" role="status">
+            Nya filer: {storlek(nya)} av {storlek(nyaMax)}
+            {bilagor.för_stora && <b> — för mycket, ta bort något</b>}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

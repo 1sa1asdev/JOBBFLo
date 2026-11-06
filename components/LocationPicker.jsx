@@ -88,6 +88,7 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
         <input
           ref={inputRef}
           className="ct-input"
+          aria-label={`${label || 'Orter'}: lägg till en ort`}
           list={listId}
           placeholder={picked.length ? 'lägg till en ort…' : 'hela Sverige'}
           value={draft}
@@ -113,7 +114,7 @@ export default function LocationPicker({ value, onSave, disabled, label = 'Orter
         <datalist id={listId}>
           {options.map((o) => <option key={o} value={o} />)}
         </datalist>
-        {saving && <span className="ct-saving">sparar…</span>}
+        {saving && <span className="ct-saving" role="status">sparar…</span>}
       </div>
 
       {picked.length > 0 && (

@@ -53,7 +53,7 @@ export default function GoogleLogin({ url, anonKey, epostlänk = false, fel = nu
           hjälper dig att koppla Gmail, välja AI och ladda upp ditt CV.
         </p>
 
-        {error && <div className="err-note">{error}</div>}
+        {error && <div className="err-note" role="alert">{error}</div>}
 
         <button className="btn primary login-submit login-google" type="button" onClick={google} disabled={busy}>
           <GoogleG />

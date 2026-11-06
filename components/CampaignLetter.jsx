@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import Dots from './Dots';
+import { useDialog } from '../lib/useDialog.js';
+import Gem from './Gem.jsx';
 
 // ------------------------------------------------------------
 // Co-authoring the campaign letter, mirroring the search chat:
@@ -22,6 +24,14 @@ export default function CampaignLetter({ search, onChanged }) {
   const [files, setFiles] = useState(null);
   const [upErr, setUpErr] = useState(null);
   const fileRef = useRef(null);
+  // On a phone the chat is a bubble over the letter, as in Sökning
+  // (App.jsx): stacked above it, it took half the screen from the text
+  // being approved.
+  const [chatÖppen, setChatÖppen] = useState(false);
+  const chatRef = useRef(null);
+  useDialog(chatRef, chatÖppen, () => setChatÖppen(false));
+  // The attachments open from the paperclip in the text field.
+  const [bilagorÖppna, setBilagorÖppna] = useState(false);
 
   const load = useCallback(async () => {
     if (!search?.id) return;
@@ -112,11 +122,15 @@ export default function CampaignLetter({ search, onChanged }) {
   const shown = letter;   // sent exactly as written
   const approved = Boolean(data.approved_at);
   const quick = ['Kortare', 'Mindre formellt', 'Mer konkret', 'Lyft fram projekten', 'Skriv om helt'];
+  const antalBilagor = (files?.cv ? 1 : 0) + (files?.files?.length || 0);
 
   return (
-    <div className="cl-wrap">
-      <div className="cl-chat">
+    <div className="cl-wrap" data-chat={chatÖppen ? 'open' : 'closed'}>
+      <div className="cl-chat" ref={chatRef} role={chatÖppen ? 'dialog' : undefined}
+        aria-modal={chatÖppen || undefined} aria-label={chatÖppen ? 'Ändra brevet' : undefined}>
         <div className="chat-header">
+          <button type="button" className="chat-close" onClick={() => setChatÖppen(false)}
+            aria-label="Stäng chatten">✕</button>
           <div className="idx">05 / Kampanjbrev</div>
           <h1>{letter ? 'Ändra brevet' : 'Skriv kampanjbrevet'}</h1>
         </div>
@@ -154,6 +168,7 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
           <div className="chat-input-box">
             <textarea
               rows={1}
+              aria-label={letter ? 'Ändring i brevet' : 'Hur brevet ska låta'}
               value={input}
               placeholder={letter ? 'Beskriv en ändring…' : 'Valfritt: säg hur brevet ska låta…'}
               onChange={(e) => setInput(e.target.value)}
@@ -161,7 +176,7 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input.trim() || null); }
               }}
             />
-            <button className="send-btn" onClick={() => send(input.trim() || null)} disabled={busy}>
+            <button className="send-btn" aria-label={letter ? 'Skicka ändringen' : 'Skriv brevet'} onClick={() => send(input.trim() || null)} disabled={busy}>
               {letter ? '→' : '✎'}
             </button>
           </div>
@@ -171,8 +186,39 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
       <div className="cl-letter">
         <div className="pane-head">
           <span>{letter ? 'Kampanjbrev' : 'Inget brev än'}</span>
-
+          {/* the attachments belong to the letter: they go with every copy of it */}
+          <Gem open={bilagorÖppna} onToggle={() => setBilagorÖppna((v) => !v)} controls="cl-bilagor"
+            label="Bilagor" antal={antalBilagor} saknas={Boolean(files && !files.cv)} />
         </div>
+        {bilagorÖppna && (
+          <div className="cl-files" id="cl-bilagor" role="region" aria-label="Bilagor"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setBilagorÖppna(false); } }}>
+            <span className="cl-files-title">Bilagor som följer med varje mejl</span>
+            <div className="cl-file-list">
+              {files?.cv
+                ? <span className="cl-file locked">
+                    <span className="x">CV</span>{files.cv.filename}
+                    <i>{Math.round(files.cv.bytes / 1024)} kB · från Profil</i>
+                  </span>
+                : <span className="cl-file missing">Inget CV — ladda upp i Profil</span>}
+              {(files?.files || []).map((f) => (
+                <span className="cl-file" key={f.id}>
+                  <span className="x">{(f.filename.split('.').pop() || '').toUpperCase().slice(0, 4)}</span>
+                  {f.filename}
+                  <i>{Math.round(f.size_bytes / 1024)} kB{f.global ? ' · alla utskick' : ''}</i>
+                  <button className="cl-file-x" aria-label={`Ta bort ${f.filename}`} onClick={() => removeFile(f.id)}>✕</button>
+                </span>
+              ))}
+            </div>
+            <input ref={fileRef} type="file" style={{ display: 'none' }}
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
+              onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+            <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>
+              + Lägg till bilaga
+            </button>
+            {upErr && <div className="err-note" role="alert" style={{ margin: '8px 0 0' }}>{upErr}</div>}
+          </div>
+        )}
 
         <div className="pane-scroll">
           {!letter ? (
@@ -234,35 +280,12 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
           )}
         </div>
 
-        <div className="cl-files">
-          <span className="cl-files-title">Bilagor som följer med varje mejl</span>
-          <div className="cl-file-list">
-            {files?.cv
-              ? <span className="cl-file locked">
-                  <span className="x">CV</span>{files.cv.filename}
-                  <i>{Math.round(files.cv.bytes / 1024)} kB · från Profil</i>
-                </span>
-              : <span className="cl-file missing">Inget CV — ladda upp i Profil</span>}
-            {(files?.files || []).map((f) => (
-              <span className="cl-file" key={f.id}>
-                <span className="x">{(f.filename.split('.').pop() || '').toUpperCase().slice(0, 4)}</span>
-                {f.filename}
-                <i>{Math.round(f.size_bytes / 1024)} kB{f.global ? ' · alla utskick' : ''}</i>
-                <button className="cl-file-x" title="Ta bort" onClick={() => removeFile(f.id)}>✕</button>
-              </span>
-            ))}
-          </div>
-          <input ref={fileRef} type="file" style={{ display: 'none' }}
-            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
-            onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
-          <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>
-            + Lägg till bilaga
-          </button>
-          {upErr && <div className="err-note" style={{ margin: '8px 0 0' }}>{upErr}</div>}
-        </div>
-
         {letter && (
           <div className="gate">
+            {/* stays in view: without a CV the campaign sends nothing */}
+            {files && !files.cv && (
+              <div className="cl-file missing" role="alert">Inget CV bifogas — ladda upp i Profil, annars skickar kampanjen inget</div>
+            )}
             <div className="recip">
               {approved
                 ? <>✓ Godkänt {new Date(data.approved_at).toLocaleString('sv-SE')} — kampanjen får skicka det här brevet</>
@@ -280,6 +303,14 @@ Ett kallt mejl — skickas oförändrat till alla annonser som matchar reglerna
           </div>
         )}
       </div>
+      {chatÖppen && <div className="chat-scrim" onClick={() => setChatÖppen(false)} aria-hidden="true" />}
+      {/* hidden, not removed, while the chat is open: focus returns here */}
+      <button type="button" className="chat-fab" onClick={() => setChatÖppen(true)}
+        aria-label="Öppna chatten och ändra brevet">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+          <path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        </svg>
+      </button>
     </div>
   );
 }

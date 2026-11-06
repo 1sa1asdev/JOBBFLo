@@ -102,7 +102,7 @@ export default function GmailSettings({ onSaved } = {}) {
           {data.connected && (
             <button className="btn" type="button" onClick={disconnect} disabled={busy}>Koppla bort</button>
           )}
-          {saved && <span className="gate-status">✓ Sändning och läsning fungerar — sparat</span>}
+          {saved && <span className="gate-status" role="status">✓ Sändning och läsning fungerar — sparat</span>}
         </div>
       </div>
     </div>

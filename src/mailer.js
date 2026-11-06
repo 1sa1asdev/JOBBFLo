@@ -77,6 +77,101 @@ export async function attachmentsFor(applicationId) {
 }
 
 // ------------------------------------------------------------
+// Files a reply can carry: the CV this application would be sent with,
+// and every document the user has uploaded. 'cv' stands for the CV, so
+// a reply picks it up whichever of the three places it lives in.
+// ------------------------------------------------------------
+const CV_VAL = `
+  CASE WHEN a.cv_file IS NOT NULL THEN a.cv_filename
+       WHEN s.cv_file IS NOT NULL THEN s.cv_filename ELSE p.cv_filename END`;
+
+export async function svarsdokument(applicationId) {
+  const { rows: [rad] } = await pool.query(
+    `SELECT a.profile_id, ${CV_VAL} AS cv_filename,
+            octet_length(COALESCE(a.cv_file, s.cv_file, p.cv_file)) AS cv_size
+     FROM applications a
+     JOIN profile p ON p.id = a.profile_id
+     LEFT JOIN searches s ON s.id = a.origin_search_id
+     WHERE a.id = $1`, [applicationId]);
+  if (!rad) return { profileId: null, dokument: [] };
+  const { rows: filer } = await pool.query(
+    `SELECT id, filename, size_bytes FROM attachments WHERE profile_id = $1 ORDER BY created_at`,
+    [rad.profile_id]);
+  return {
+    profileId: rad.profile_id,
+    dokument: [
+      ...(rad.cv_size ? [{ id: 'cv', filename: rad.cv_filename || 'cv.pdf', size: Number(rad.cv_size) }] : []),
+      ...filer.map((f) => ({ id: f.id, filename: f.filename, size: Number(f.size_bytes) })),
+    ],
+  };
+}
+
+// New files ride in the request, and Vercel takes about 4.5 MB per
+// request, so new files stay under 4 MB together. Gmail refuses a
+// message over 25 MB, and attachments grow by a third on the way
+// (base64), so all of them together stay under 18 MB.
+export const SVARSBILAGOR = { nyaMax: 4 * 1024 * 1024, totaltMax: 18 * 1024 * 1024 };
+const FILTYPER = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  odt: 'application/vnd.oasis.opendocument.text',
+  rtf: 'application/rtf',
+  txt: 'text/plain',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+};
+export const SVARSFILTYPER = Object.keys(FILTYPER);
+
+class BilagaFel extends Error {
+  constructor(text) { super(text); this.status = 400; }
+}
+
+// The files for one reply, checked: a chosen document must be one of
+// this application's owner's own (an id from someone else's account is
+// "no longer there", never sent), and a new file must be a document or
+// an image within the limits above. The type is taken from the name,
+// not from what the browser claims.
+export async function bilagorFörSvar(applicationId, { dokument = [], uppladdade = [] } = {}) {
+  const valda = [...new Set(dokument.map(String))];
+  const ut = [];
+  if (valda.length) {
+    const { profileId, dokument: finns } = await svarsdokument(applicationId);
+    const kända = new Set(finns.map((d) => d.id));
+    if (valda.some((id) => !kända.has(id))) throw new BilagaFel('ett av de valda dokumenten finns inte längre');
+    if (valda.includes('cv')) {
+      const cv = (await attachmentsFor(applicationId))[0];
+      if (cv) ut.push(cv);
+    }
+    const ids = valda.filter((id) => id !== 'cv');
+    if (ids.length) {
+      const { rows } = await pool.query(
+        `SELECT filename, mime, bytes FROM attachments WHERE id = ANY($1::uuid[]) AND profile_id = $2
+         ORDER BY created_at`, [ids, profileId]);
+      for (const f of rows) ut.push({ filename: f.filename, content: f.bytes, contentType: f.mime || undefined });
+    }
+  }
+
+  let nya = 0;
+  for (const f of uppladdade) {
+    const namn = String(f.filename || 'fil').split(/[\\/]/).pop().slice(0, 150);
+    const ändelse = (namn.includes('.') ? namn.split('.').pop() : '').toLowerCase();
+    if (!FILTYPER[ändelse]) {
+      throw new BilagaFel(`${namn}: den filtypen kan inte bifogas — välj PDF, Word, text eller en bild`);
+    }
+    nya += f.bytes.length;
+    ut.push({ filename: namn, content: f.bytes, contentType: FILTYPER[ändelse] });
+  }
+  if (nya > SVARSBILAGOR.nyaMax) throw new BilagaFel('nya filer får vara högst 4 MB tillsammans');
+  const totalt = ut.reduce((s, f) => s + (f.content?.length || 0), 0);
+  if (totalt > SVARSBILAGOR.totaltMax) {
+    throw new BilagaFel('bilagorna får vara högst 18 MB tillsammans — större än så tar Gmail inte emot');
+  }
+  return ut;
+}
+
+// ------------------------------------------------------------
 // sendApplication: send the approved letter for an application.
 // Stores messageId on the row — reply matching depends on it.
 // ------------------------------------------------------------
@@ -187,7 +282,7 @@ export async function sendApplication(applicationId, { to } = {}) {
 // sendReply: user-approved reply in an existing thread.
 // Threads correctly via In-Reply-To/References.
 // ------------------------------------------------------------
-export async function sendReply(applicationId, body, { suggestedReplyId = null } = {}) {
+export async function sendReply(applicationId, body, { suggestedReplyId = null, bilagor = [] } = {}) {
   const { rows: [app] } = await pool.query(
     `SELECT * FROM applications WHERE id = $1`, [applicationId]
   );
@@ -218,18 +313,22 @@ export async function sendReply(applicationId, body, { suggestedReplyId = null }
     text: body,
     inReplyTo: lastIn?.message_id,
     references: refs,
+    attachments: bilagor,
   });
 
   await pool.query(
     `INSERT INTO email_messages (application_id, direction, message_id, in_reply_to, references_ids,
-       from_addr, to_addr, subject, body_text, sent_at)
-     VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, now())`,
+       from_addr, to_addr, subject, body_text, sent_at, attachments)
+     VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, now(), $9)`,
     [applicationId, info.messageId, lastIn?.message_id || null, refs, from, to,
-     lastIn?.subject || app.subject, body]
+     lastIn?.subject || app.subject, body,
+     bilagor.length ? JSON.stringify(bilagor.map((b) => ({ filename: b.filename, size: b.content?.length || 0 }))) : null]
   );
 
   if (suggestedReplyId) {
-    await pool.query(`UPDATE suggested_replies SET dismissed = true WHERE id = $1`, [suggestedReplyId]);
+    // only a suggestion in this thread: the id comes from the request
+    await pool.query(`UPDATE suggested_replies SET dismissed = true WHERE id = $1 AND application_id = $2`,
+      [suggestedReplyId, applicationId]);
   }
 
   return { messageId: info.messageId, to };

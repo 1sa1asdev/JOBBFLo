@@ -106,6 +106,12 @@ jobs:
       - name: Proof — a failed send is retried, paused or released by its code
         run: time node scripts/prove-campaign-errors.js
 
+      - name: Proof — a reply carries only the user's own files, within the limits
+        run: time node scripts/prove-reply-attachments.js
+
+      - name: Proof — a letter the user writes is kept as written
+        run: time node scripts/prove-own-letter.js
+
       - name: Proof — no code picks a profile by guessing
         run: time node scripts/prove-profile-scope.js
 
@@ -143,6 +149,11 @@ jobs:
       - name: Proof — three providers, the operator's models, no internal addresses
         run: time node scripts/prove-llm-val.js
 
+      # One beacon round must ask for every view on screen and hand each
+      # its own answer — two searches must not overwrite each other.
+      - name: Proof — the shared beacon asks for every view, and answers each its own
+        run: time node scripts/prove-beacon.js
+
   build-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -170,6 +181,11 @@ jobs:
 
       - name: Production build
         run: time npm run build
+
+      # The routes that read PDFs must ship the canvas package pdfjs needs
+      # for DOMMatrix — without it every PDF upload on Vercel failed.
+      - name: PDF routes ship their native canvas binary
+        run: node scripts/check-pdf-trace.js
 
       - run: npm run db:init && npm run db:seed
 

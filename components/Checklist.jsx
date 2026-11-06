@@ -47,7 +47,7 @@ export default function Checklist({ adId, searchId }) {
     <div className="chk" onClick={(e) => e.stopPropagation()}>
       {sorterade.map((i, n) => (
         <div key={n} className={`chk-row s-${i.status}`}>
-          <span className="chk-status">{ETIKETT[i.status] || i.status}</span>
+          <span className="chk-status" role="status">{ETIKETT[i.status] || i.status}</span>
           <div className="chk-mid">
             <div className="chk-name">
               {i.name}

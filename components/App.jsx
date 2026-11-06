@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
-import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import { useUrlState } from '../lib/useUrlState.js';
 import Dashboard from './Dashboard';
 import { useRowAlign } from '../lib/useRowAlign.js';
@@ -12,6 +12,7 @@ import LetterView from './LetterView.jsx';
 import ProfileView from './ProfileView.jsx';
 import Inbox from './Inbox.jsx';
 import AutoApply from './AutoApply.jsx';
+import { useDialog } from '../lib/useDialog.js';
 
 export default function App() {
   // Where you are lives in the address bar (lib/useUrlState.js), so
@@ -28,7 +29,12 @@ export default function App() {
   const [creatingSearch, setCreatingSearch] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
   const [autoCount, setAutoCount] = useState(0);
-  const [mobilePanel, setMobilePanel] = useState('chat'); // library | chat | stage
+  // On a phone, search is two tabs (the searches, the results) and the
+  // chat is a bubble that opens over them: as a tab of its own it took
+  // the whole screen away from the results it was changing.
+  const [mobilePanel, setMobilePanel] = useState('stage'); // library | stage
+  const [chatÖppen, setChatÖppen] = useState(false);
+  const chatRef = useRef(null);
   // profile is reachable from EVERY workspace, so it lives outside
   // the search view's `view` state rather than inside it
   const showProfile = urlState.profil === '1';
@@ -79,19 +85,22 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadSearches(); loadInboxCount(); }, [loadSearches, loadInboxCount]);
-  useEffect(() => { api('/api/profile').then(setProfile).catch(() => {}); }, [showProfile]);
+  // Once; after that the profile panel reports what it loads and saves.
+  useEffect(() => { api('/api/profile').then(setProfile).catch(() => {}); }, []);
 
-  // sidebar counts + inbox badge follow the same beacon, so the
-  // badge appears as soon as a reply is classified
-  const version = useRef(null);
-  usePoll(async () => {
-    const { version: v } = await api('/api/pulse');
-    if (v === version.current) return;
-    version.current = v;
+  // sidebar counts + inbox badge follow the shared beacon (lib/beacon.jsx),
+  // so the badge appears as soon as a reply is classified. The first
+  // answer only says where things stand, and the mount above already
+  // loaded that.
+  useBeacon('global', async (v, { first }) => {
+    if (first) return;
     await Promise.all([loadSearches(), loadInboxCount()]);
   }, { interval: 5000 });
 
   const activeSearch = searches.find((s) => s.id === activeSearchId) || null;
+  // Open, the chat sheet behaves as a dialog: focus inside, Escape closes.
+  // (On a wide screen the chat is a column and the bubble never shows.)
+  useDialog(chatRef, chatÖppen, () => setChatÖppen(false));
 
   // The URL can change under us — back, forward, a pasted link — and a
   // letter on screen belongs to the ad it was built for. Dropped as
@@ -131,7 +140,8 @@ export default function App() {
     setCreatingSearch(false);
     setLetterState(null);
     navigate({ vy: 'search', sok: id, annons: null });
-    setMobilePanel('chat');
+    setMobilePanel('stage');
+    setChatÖppen(false);
   }
 
   // The search on screen is the URL's ?sok, like everything else here.
@@ -141,7 +151,9 @@ export default function App() {
     setCreatingSearch(true);
     setLetterState(null);
     navigate({ vy: 'search', sok: null, annons: null });
-    setMobilePanel('chat');
+    // a new search is written in the chat, so it opens
+    setMobilePanel('stage');
+    setChatÖppen(true);
   }
 
   // deleting the search you're looking at must not leave the stage
@@ -199,7 +211,7 @@ export default function App() {
 
       {workspace === 'search' && !showProfile && (
         <div className="mobile-tabs" role="tablist">
-          {[['library', 'Sök'], ['chat', 'Chatt'], ['stage', 'Resultat']].map(([k, label]) => (
+          {[['library', 'Sökningar'], ['stage', 'Resultat']].map(([k, label]) => (
             <button key={k} role="tab" aria-selected={mobilePanel === k} onClick={() => setMobilePanel(k)}>
               {label}
             </button>
@@ -209,10 +221,10 @@ export default function App() {
 
       {showProfile ? (
         <div className="profile-shell">
-          <ProfileView onClose={() => setShowProfile(false)} />
+          <ProfileView onClose={() => setShowProfile(false)} onProfile={setProfile} />
         </div>
       ) : workspace === 'search' ? (
-        <div className="app" data-mobile-panel={mobilePanel}>
+        <div className="app" data-mobile-panel={mobilePanel} data-chat={chatÖppen ? 'open' : 'closed'}>
           <Library
             searches={searches}
             activeSearchId={activeSearchId}
@@ -221,7 +233,10 @@ export default function App() {
             onProfile={() => setShowProfile(true)}
             onDeleted={handleSearchDeleted}
           />
+          <div className="chat-slot" ref={chatRef} role={chatÖppen ? 'dialog' : undefined}
+            aria-modal={chatÖppen || undefined} aria-label={chatÖppen ? 'Chatt' : undefined}>
           <Chat
+            onClose={() => setChatÖppen(false)}
             mode={view === 'letter' ? 'letter' : 'search'}
             search={activeSearch}
             creatingSearch={creatingSearch}
@@ -230,6 +245,18 @@ export default function App() {
             onLetterRevised={(app) => setLetterState((s) => (s ? { ...s, application: app } : s))}
             onSearchChanged={loadSearches}
           />
+          </div>
+          {chatÖppen && <div className="chat-scrim" onClick={() => setChatÖppen(false)} aria-hidden="true" />}
+          {/* hidden, not removed, while the chat is open: closing it hands
+              focus back here */}
+          {(
+            <button type="button" className="chat-fab" onClick={() => setChatÖppen(true)}
+              aria-label={view === 'letter' ? 'Öppna chatten och ändra brevet' : 'Öppna chatten'}>
+              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+                <path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
           <div className="stage">
             {view === 'list' && (
               <ResultsList

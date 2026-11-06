@@ -1,17 +1,29 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { api, daysUntil } from '../lib/api.js';
+import { useDialog } from '../lib/useDialog.js';
+import { annonsordIBrevet } from '../lib/brevJamfor.js';
 import Dots from './Dots';
 
 // Highlight verbatim quotes from matched[]/flags[] inside a paragraph.
 // Quotes are max 15 words and MUST be verbatim (scoring invariant) —
 // if one doesn't match the ad text, it silently doesn't highlight,
 // which is the correct failure mode.
+//
+// `alla` marks every occurrence, not just the first: the words of the
+// letter being written (annonsordIBrevet), which light up wherever the
+// ad uses them.
 function markParagraph(text, spans, onJumpRegister) {
   const hits = [];
+  const låg = text.toLowerCase();
   for (const s of spans) {
-    const idx = text.toLowerCase().indexOf(s.quote.toLowerCase());
-    if (idx >= 0) hits.push({ ...s, idx, len: s.quote.length });
+    const q = s.quote.toLowerCase();
+    let idx = låg.indexOf(q);
+    while (idx >= 0) {
+      hits.push({ ...s, idx, len: s.quote.length });
+      if (!s.alla) break;
+      idx = låg.indexOf(q, idx + q.length);
+    }
   }
   hits.sort((a, b) => a.idx - b.idx);
 
@@ -21,11 +33,12 @@ function markParagraph(text, spans, onJumpRegister) {
     if (h.idx < pos) continue; // overlapping — keep first
     if (h.idx > pos) out.push(text.slice(pos, h.idx));
     out.push(
-      <span key={h.id} id={h.id} className={h.neg ? 'hl-flag' : 'hl-match'} title={h.why}>
+      <span key={`${h.id}-${h.idx}`} id={h.alla ? undefined : h.id}
+        className={h.brev ? 'hl-brev' : h.neg ? 'hl-flag' : 'hl-match'} title={h.why}>
         {text.slice(h.idx, h.idx + h.len)}
       </span>
     );
-    onJumpRegister(h.id);
+    if (!h.alla) onJumpRegister(h.id);
     pos = h.idx + h.len;
   }
   out.push(text.slice(pos));
@@ -42,8 +55,39 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const [adCollapsed, setAdCollapsed] = useState(false);
+  // A letter the user writes themselves, before or instead of a generated
+  // one. Kept in this browser until it is saved, so leaving the page does
+  // not lose it.
+  const [skriverSjälv, setSkriverSjälv] = useState(false);
+  const [egetÄmne, setEgetÄmne] = useState('');
+  const [egenText, setEgenText] = useState('');
+  const egetNyckel = `jobbflo-eget-brev:${adId}`;
+  useEffect(() => {
+    let sparat = null;
+    try { sparat = JSON.parse(localStorage.getItem(egetNyckel) || 'null'); } catch { /* storage may be off */ }
+    setEgetÄmne(sparat?.subject || '');
+    setEgenText(sparat?.body || '');
+    setSkriverSjälv(Boolean(sparat?.body));
+  }, [egetNyckel]);
+  useEffect(() => {
+    if (!skriverSjälv) return;
+    try {
+      if (egenText.trim()) localStorage.setItem(egetNyckel, JSON.stringify({ subject: egetÄmne, body: egenText }));
+      else localStorage.removeItem(egetNyckel);
+    } catch { /* storage may be off */ }
+  }, [skriverSjälv, egetÄmne, egenText, egetNyckel]);
+  // On a phone the ad is a bar above the send row and starts folded, so
+  // the letter has the screen until the ad is asked for.
+  useEffect(() => {
+    if (window.matchMedia('(max-width:760px)').matches) setAdCollapsed(true);
+  }, [adId]);
   const [confirming, setConfirming] = useState(false);
   const [justSent, setJustSent] = useState(false);
+  const bekräftaRef = useRef(null);
+  const skickadRef = useRef(null);
+  // Escape does not cancel a send already on its way.
+  useDialog(bekräftaRef, confirming, () => { if (!busy) setConfirming(false); });
+  useDialog(skickadRef, justSent, () => setJustSent(false));
   const [attachments, setAttachments] = useState(null);
 
   const application = letterState?.application || data?.application || null;
@@ -84,6 +128,22 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
         method: 'POST',
         body: { adId, searchId: search?.id },
       });
+      setLetterState({ application: app, ad: data.ad, match: data.match });
+      setAppDetail(await api(`/api/applications/${app.id}`));
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  async function sparaEget() {
+    setBusy(true);
+    setError(null);
+    try {
+      const app = await api('/api/applications', {
+        method: 'POST',
+        body: { adId, searchId: search?.id, egen: { subject: egetÄmne, body: egenText } },
+      });
+      try { localStorage.removeItem(egetNyckel); } catch { /* storage may be off */ }
+      setSkriverSjälv(false);
       setLetterState({ application: app, ad: data.ad, match: data.match });
       setAppDetail(await api(`/api/applications/${app.id}`));
     } catch (e) { setError(e.message); }
@@ -159,9 +219,17 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     setBusy(false);
   }
 
+  // The letter being written — your own or one being edited — for the
+  // ad text to mark as it grows. Deferred, so typing never waits on it.
+  const skrivText = skriverSjälv ? egenText : editing ? editText : '';
+  const uppskjuten = useDeferredValue(skrivText);
+  const brevOrd = useMemo(() => annonsordIBrevet(uppskjuten, data?.ad?.description),
+    [uppskjuten, data?.ad?.description]);
+
   if (!data) return <div className="loading-note">{error || <>Laddar<Dots /></>}</div>;
 
   const { ad, match, duplicates } = data;
+  const brevSpans = brevOrd.map((w, i) => ({ quote: w, id: `src-b${i}`, brev: true, alla: true, why: 'Finns i ditt brev' }));
   const exp = daysUntil(ad.deadline);
   const sent = application?.status && application.status !== 'drafted';
   const jumpIds = [];
@@ -170,7 +238,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
     ...(match?.flags || []).map((f, i) => ({ ...f, id: `src-f${i}`, neg: true })),
   ];
   // highlighting only makes sense for quotes that are actually in the text
-  const highlightable = spans.filter((s) => s.verbatim !== false);
+  const highlightable = [...spans.filter((s) => s.verbatim !== false), ...brevSpans];
 
   function jump(id) {
     const el = document.getElementById(id);
@@ -212,13 +280,13 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
       </div>
 
       {duplicates?.length > 0 && (
-        <div className="err-note">
+        <div className="err-note" role="alert">
           ⚠ Möjlig dubblett: samma arbetsgivare/titel finns som {duplicates.length} annan annons
           {duplicates[0].status ? ` — du har redan status "${duplicates[0].status}" på en av dem` : ''}.
           Flaggas alltid, slås aldrig ihop automatiskt.
         </div>
       )}
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       <div className="split">
         <div className="split-pane letter-pane">
@@ -232,7 +300,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
           )}
           <div className="pane-head">
             <span>Personligt brev{application ? ` · v${application.letter_version}` : ''}</span>
-            {application && <span className="wc" style={{ margin: 0 }}><b>{wordCount}</b> ord</span>}
+            {application && <span className="wc"><b>{wordCount}</b> ord</span>}
           </div>
 
           {application && !sent && (
@@ -261,13 +329,47 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
           <div className="pane-scroll">
             {!application ? (
               <div className="sheet">
-                <p style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>
-                  Inget utkast än. Brevet genereras utifrån ditt CV, dina projekt och de citerade
-                  kraven ur annonsen — och skickas aldrig utan din bekräftelse.
-                </p>
-                <button className="btn primary" onClick={generate} disabled={busy}>
-                  {busy ? 'Genererar…' : 'Generera utkast →'}
-                </button>
+                {/* Writing it yourself is not a fallback: either order works,
+                    and both end up as a draft the chat and the edit box can
+                    work on. */}
+                {skriverSjälv ? (
+                  <>
+                    <div className="subject-line">
+                      <span className="lbl">Ämne</span>
+                      <input className="ct-input" aria-label="Ämne" value={egetÄmne}
+                        placeholder={`Ansökan: ${ad.title}`} onChange={(e) => setEgetÄmne(e.target.value)} />
+                    </div>
+                    <textarea className="letter-edit" rows={14} aria-label="Ditt brev"
+                      placeholder="Hej! Jag söker tjänsten som …" value={egenText}
+                      onChange={(e) => setEgenText(e.target.value)} />
+                    <p className="hint" style={{ marginTop: 8 }}>
+                      Sparas precis som du skrev det. Vill du ha hjälp efteråt kan du be chatten
+                      korta, skärpa eller skriva om det.
+                    </p>
+                    <div className="cl-edit-acts">
+                      <button className="btn primary" disabled={busy || !egenText.trim()} onClick={sparaEget}>
+                        {busy ? 'Sparar…' : 'Spara brevet'}
+                      </button>
+                      <button className="btn" disabled={busy} onClick={() => setSkriverSjälv(false)}>Avbryt</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 'var(--fs-read)', lineHeight: 'var(--lh-loose)', marginBottom: 16 }}>
+                      Inget brev än. Skriv det själv, eller låt AI:n skriva ett första utkast
+                      utifrån ditt CV och annonsens krav. Båda går att ändra fritt efteråt — och
+                      inget skickas utan din bekräftelse.
+                    </p>
+                    <div className="cl-edit-acts">
+                      <button className="btn" onClick={() => setSkriverSjälv(true)} disabled={busy}>
+                        Skriv själv
+                      </button>
+                      <button className="btn primary" onClick={generate} disabled={busy}>
+                        {busy ? 'Genererar…' : 'Generera utkast →'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="sheet">
@@ -334,7 +436,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                     ett CV mottagaren aldrig får.
                   </div>
                 )}
-                {cvErr && <div className="err-note" style={{ margin: '6px 0 0' }}>{cvErr}</div>}
+                {cvErr && <div className="err-note" role="alert" style={{ margin: '6px 0 0' }}>{cvErr}</div>}
 
                 {spans.length > 0 && (
                   <div className="evidence">
@@ -374,6 +476,9 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
               <div className="legend">
                 <span><i style={{ background: '#E4E9CF', borderBottom: '2px solid var(--ok)' }} /> Matchar</span>
                 <span><i style={{ background: '#F0DCD4', borderBottom: '2px solid var(--flag)' }} /> Flaggat</span>
+                {skrivText.trim() && (
+                  <span role="status"><i className="hl-brev" /> I ditt brev · {brevOrd.length} ord ur annonsen</span>
+                )}
               </div>
               {paragraphs.map((p, i) => (
                 <p key={i}>{markParagraph(p, highlightable, (id) => jumpIds.push(id))}</p>
@@ -392,7 +497,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
               : <>Annonsen saknar ansökningsväg</>}
         </div>
         {sent ? (
-          <span className="gate-status">
+          <span className="gate-status" role="status">
             {/* Never claim the app sent something it did not send. */}
             {application.sent_by === 'external' ? '✓ Ansökt via länken ' : '✓ Skickad '}
             {application.sent_at ? new Date(application.sent_at).toLocaleString('sv-SE') : ''}
@@ -431,10 +536,11 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
 
       {confirming && application && (
         <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) setConfirming(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="bekrafta-rubrik"
+            ref={bekräftaRef} tabIndex={-1}>
             <div className="modal-head">
               <div className="idx">Sista steget</div>
-              <h3>Bekräfta utskick</h3>
+              <h3 id="bekrafta-rubrik">Bekräfta utskick</h3>
             </div>
             <div className="modal-body">
               <div className="confirm-row"><span className="k">Till</span><span className="v">{ad.apply_email}</span></div>
@@ -470,10 +576,11 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
 
       {justSent && (
         <div className="overlay" onClick={() => setJustSent(false)}>
-          <div className="modal">
-            <div className="modal-head"><h3>Skickad ✓</h3></div>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="skickad-rubrik"
+            ref={skickadRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h3 id="skickad-rubrik">Skickad ✓</h3></div>
             <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <p style={{ fontSize: 'var(--fs-read)', lineHeight: 'var(--lh-loose)' }}>
                 Ansökan är skickad. Svar fångas automatiskt i Inkorgen.
               </p>
             </div>

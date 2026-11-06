@@ -44,7 +44,7 @@ export default function ApplyFilterAsk({ search, onChanged }) {
           </button>
         ))}
       </div>
-      {error && <div className="aa-err">{error}</div>}
+      {error && <div className="aa-err" role="alert">{error}</div>}
     </div>
   );
 }

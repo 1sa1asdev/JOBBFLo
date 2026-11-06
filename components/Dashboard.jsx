@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, fmtDate } from '../lib/api.js';
 import { usePoll } from '../lib/usePoll.js';
+import { useBeacon } from '../lib/beacon.jsx';
 import LiveDot from './LiveDot';
 import Dots from './Dots';
 import KomIgang from './KomIgang';
@@ -74,14 +75,22 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
   }, [dagar]);
 
   useEffect(() => { load(); }, [load]);
-  usePoll(load, { interval: 15000 });
+  // Rebuilt when letters or replies move the shared beacon, instead of
+  // every 15 s; the slow fallback keeps the AI cost line current, which
+  // no beacon tracks.
+  useBeacon('global', (v, { first }) => (first ? undefined : load()),
+    { interval: 5000, minGap: 15000, onTick: () => setChecked(Date.now()) });
+  usePoll(load, { interval: 60_000 });
 
-  if (!data) return <div className="loading-note">{err || <>Laddar<Dots /></>}</div>;
+  // In its own scroll container: the app shell (body) never scrolls, so
+  // without one nothing below the first screen could be reached.
+  if (!data) return <div className="dash-page"><div className="loading-note">{err || <>Laddar<Dots /></>}</div></div>;
 
   const t = data.total;
   const pct = (v) => (v == null ? '—' : `${v}%`);
 
   return (
+    <div className="dash-page">
     <div className="dash">
       <div className="auto-head">
         <div className="idx">05 / Översikt</div>
@@ -122,7 +131,8 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
 
       <div className="dash-block">
         <span className="auto-queue-title">Per kampanj och sökning</span>
-        <table className="dash-table">
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Per kampanj och sökning">
+          <table className="dash-table">
           <thead>
             <tr>
               <th>Källa</th><th>Skickade</th><th>Svar</th>
@@ -149,7 +159,8 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {data.funnel?.length > 0 && (
@@ -181,6 +192,7 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
           Modellanrop denna månad: <b>${data.cost.usd}</b> över {n(data.cost.anrop)} anrop.
         </p>
       )}
+    </div>
     </div>
   );
 }

@@ -272,6 +272,52 @@ export async function draftLetter(adId, { originSearchId = null, profileId } = {
 }
 
 // ------------------------------------------------------------
+// ownLetter: the user's own words as the first version.
+//
+// Writing first and asking the copilot afterwards is as good an order
+// as the reverse, and nobody should have to spend a model call to get
+// a text box. The text is stored exactly as written: no model sees it
+// until the user asks for a revision (reviseLetter), which then works
+// from their words like from any other version.
+//
+// It never replaces a letter that exists — a generated draft, an
+// earlier own letter, or anything already sent.
+// ------------------------------------------------------------
+export const EGET_BREV_MAX = 20_000;
+
+export async function ownLetter(adId, { originSearchId = null, profileId, subject, body } = {}) {
+  if (!profileId) throw new Error('ownLetter: profileId krävs');
+  const fel = (text, status) => Object.assign(new Error(text), { status });
+  const text = String(body || '').trim();
+  if (!text) throw fel('brevet är tomt', 400);
+  if (text.length > EGET_BREV_MAX) throw fel(`brevet får vara högst ${EGET_BREV_MAX} tecken`, 400);
+  const { rows: [ad] } = await pool.query(`SELECT title FROM ads WHERE id = $1`, [adId]);
+  if (!ad) throw fel('annonsen finns inte', 404);
+  const ämne = String(subject || '').trim().slice(0, 300) || `Ansökan: ${ad.title}`;
+
+  const { rows: [app] } = await pool.query(
+    `INSERT INTO applications (ad_id, profile_id, origin_search_id, status, subject, letter_text, letter_version)
+     VALUES ($1, $2, $3, 'drafted', $4, $5, 1)
+     ON CONFLICT (profile_id, ad_id) DO UPDATE SET
+       subject = EXCLUDED.subject, letter_text = EXCLUDED.letter_text,
+       letter_version = 1, updated_at = now()
+     WHERE applications.status = 'drafted' AND applications.letter_text IS NULL
+     RETURNING *`,
+    [adId, profileId, originSearchId, ämne, text]
+  );
+  if (!app) throw fel('det finns redan ett brev för annonsen — ändra det i stället', 409);
+
+  await pool.query(
+    `INSERT INTO letter_versions (application_id, version, subject, body, change_note)
+     VALUES ($1, 1, $2, $3, 'Skrivet av dig')
+     ON CONFLICT (application_id, version) DO UPDATE SET
+       subject = EXCLUDED.subject, body = EXCLUDED.body, change_note = EXCLUDED.change_note`,
+    [app.id, ämne, text]
+  );
+  return app;
+}
+
+// ------------------------------------------------------------
 // reviseLetter: one turn of the revision chat. New version row
 // every time so the UI's version picker / undo works.
 // ------------------------------------------------------------
