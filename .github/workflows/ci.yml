@@ -115,6 +115,9 @@ jobs:
       - name: Proof — the shared market counts right and points at nobody
         run: time node scripts/prove-marknad.js
 
+      - name: Proof — employer types follow SCB, and SCB is used as its terms say
+        run: time node scripts/prove-arbetsgivare.js
+
       - name: Proof — no code picks a profile by guessing
         run: time node scripts/prove-profile-scope.js
 

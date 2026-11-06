@@ -189,6 +189,8 @@ tjänster från samma repo:
 Båda bygger `Dockerfile` (Node 22). Variabler per miljö: `DATABASE_URL`,
 `DATABASE_CA_CERT`, `ENCRYPTION_KEY` (samma som Vercel i den miljön),
 `PLATFORM_OPENROUTER_API_KEY`, `JOBSTREAM_API_KEY`, `TZ=Europe/Stockholm`.
+Janitorn dessutom `SCB_API_KEY` (SCB:s företagsregister, personlig nyckel —
+bara där, aldrig på Vercel); utan den gissas arbetsgivartyp efter namnet.
 
 Bara **en** worker per miljö: den tar ett rådgivande lås, och en andra
 väntar tills låset blir ledigt. Så tar en ny deploy över när Railway

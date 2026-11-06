@@ -10,6 +10,13 @@ import Dots from './Dots';
 // it, how many applied through the app and how often employers answer.
 // ------------------------------------------------------------
 const tal = (n) => (n == null ? '—' : n.toLocaleString('sv-SE'));
+const TYPNAMN = { foretag: 'Företag', offentlig: 'Offentlig sektor', bemanning: 'Bemanning', rekrytering: 'Rekrytering' };
+const TYPOM = {
+  foretag: 'Anställer själva.',
+  offentlig: 'Stat, regioner och kommuner.',
+  bemanning: 'Anställer dig och hyr ut dig till kunder.',
+  rekrytering: 'Söker åt en kund som anställer.',
+};
 
 function Trend({ v }) {
   if (v == null) return null;
@@ -100,6 +107,29 @@ export default function Marknaden() {
         </div>
       </div>
 
+      <div className="dash-block">
+        <span className="auto-queue-title">Per arbetsgivartyp</span>
+        <ul className="mk-typer">
+          {data.arbetsgivartyp.typer.map((t) => (
+            <li key={t.typ} className="mk-typ">
+              <span className="mk-typ-namn">{TYPNAMN[t.typ]}</span>
+              <span className="mk-typ-tal"><b>{tal(t.oppna)}</b> öppna · {t.andel} %</span>
+              <span className="mk-stapel" aria-hidden="true"><span style={{ width: `${t.andel}%` }} /></span>
+              <dl className="mk-typ-rader">
+                <dt>Nya 7 d</dt><dd>{tal(t.nya_7)}</dd>
+                <dt>Dagar öppen</dt><dd>{t.median_dagar == null ? '—' : `${t.median_dagar} d`}</dd>
+                <dt>Svar</dt>
+                <dd>{t.svar ? <>{t.svar.andel} % <span className="mk-av">· {t.svar.intervju} % intervju · {t.svar.nej} % nej · av {t.svar.av}</span></> : '—'}</dd>
+              </dl>
+              <span className="mk-typ-om">{TYPOM[t.typ]}</span>
+            </li>
+          ))}
+        </ul>
+        {data.arbetsgivartyp.okanda > 0 && (
+          <p className="mk-av">{tal(data.arbetsgivartyp.okanda)} öppna annonser saknar organisationsnummer och räknas inte här.</p>
+        )}
+      </div>
+
       <div className="mk-forklaring">
         <p><b>Platser</b> — en annons kan söka flera personer; räknas från och med nu, äldre annonser räknas som en.</p>
         <p><b>Dagar öppen</b> — mediantiden från publicering tills annonser togs ned den senaste veckan. Det närmaste
@@ -114,7 +144,12 @@ export default function Marknaden() {
         <p><b>Trend</b> — {kvarTillTrend > 0
           ? `visas när 4 veckors historik samlats, om ${kvarTillTrend} dagar.`
           : 'nya annonser de senaste 14 dagarna mot de 14 före.'}</p>
-        <p className="mk-kalla">Källa: Platsbanken via Arbetsförmedlingens JobStream. Uppdateras löpande; historiken sparas dagligen.</p>
+        <p><b>Arbetsgivartyp</b> — {data.arbetsgivartyp.fran_scb > 0
+          ? `${data.arbetsgivartyp.fran_scb} % av annonserna efter näringsgren och sektor i SCB:s företagsregister, resten gissat efter arbetsgivarens namn.`
+          : 'gissat efter arbetsgivarens namn tills SCB:s företagsregister är kopplat.'}{' '}
+          Bemanning hyr ut personal till kunder och är själva arbetsgivaren; rekrytering söker åt en kund som sedan anställer.</p>
+        <p className="mk-kalla">Källa: Platsbanken via Arbetsförmedlingens JobStream. Uppdateras löpande; historiken sparas dagligen.
+          {data.arbetsgivartyp.fran_scb > 0 && <> Arbetsgivartyp: SCB:s företagsregister, bearbetat av Jobbflo.</>}</p>
       </div>
     </div>
   );

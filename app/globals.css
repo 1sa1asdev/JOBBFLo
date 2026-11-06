@@ -3102,6 +3102,20 @@
 .mk-svar{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;}
 .mk-svar b{font-weight:600;}
 @media (min-width:641px){ .mk-svar{align-items:flex-start;} }
+/* per employer type: one card each, stacked on a phone, side by side when there is room */
+.mk-typer{list-style:none;margin:10px 0 8px;padding:0;display:grid;gap:10px;grid-template-columns:minmax(0,1fr);}
+@media (min-width:561px){ .mk-typer{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media (min-width:1101px){ .mk-typer{grid-template-columns:repeat(4,minmax(0,1fr));} }
+.mk-typ{border:1px solid var(--tag-border);background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;}
+.mk-typ-namn{font-weight:600;font-size:var(--fs-read);}
+.mk-typ-tal{font-size:var(--fs-meta);color:var(--mute);font-variant-numeric:tabular-nums;}
+.mk-typ-tal b{font-size:1.375rem;color:var(--ink);font-weight:600;margin-right:2px;}
+.mk-stapel{display:block;height:5px;background:var(--tag-border);}
+.mk-stapel span{display:block;height:100%;background:var(--ok);min-width:2px;}
+.mk-typ-rader{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:4px 0 0;font-size:var(--fs-meta);}
+.mk-typ-rader dt{color:var(--mute);}
+.mk-typ-rader dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.mk-typ-om{font-size:var(--fs-small);color:var(--mute);border-top:1px solid var(--tag-border);padding-top:6px;}
 .mk-forklaring{margin-top:18px;display:grid;gap:8px;font-size:var(--fs-small);line-height:var(--lh-body);color:var(--mute);max-width:70ch;}
 .mk-forklaring b{color:var(--ink);}
 .mk-kalla{font-family:'IBM Plex Mono',monospace;font-size:var(--fs-label);}

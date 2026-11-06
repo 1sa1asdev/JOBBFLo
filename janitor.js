@@ -3,6 +3,7 @@ import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { byggMarknad } from './src/marknad.js';
+import { klassaArbetsgivare } from './src/arbetsgivare.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
 import { version } from './src/version.js';
@@ -67,6 +68,16 @@ async function städa() {
     console.error('marknad:', err.message.slice(0, 200));
   }
   const rensade = await pruneStaleAds();
+  // Employer types for the market view: by SCB's register when
+  // SCB_API_KEY is set, by name until then. Slow on purpose (SCB allows
+  // five calls a second), which is why it lives here and not in the worker.
+  try {
+    const g = await klassaArbetsgivare();
+    await stämpla('janitor_arbetsgivare',
+      `${g.scb} från SCB, ${g.saknas} okända för SCB, ${g.namn} efter namn${g.stopp ? `, stopp: ${g.stopp}` : ''}`);
+  } catch (err) {
+    console.error('arbetsgivare:', err.message.slice(0, 200));
+  }
   const täckning = await embeddingCoverage();
   await stämpla('janitor_sweep',
     `${stängda.vektorer} vektorer, ${stängda.kandidater} kandidater, `
