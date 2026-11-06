@@ -215,7 +215,7 @@ Now port the mockup.
 
 ## The proofs
 
-Twenty-one scripts, each one a rule that protects money, reputation or the
+Twenty-four scripts, each one a rule that protects money, reputation or the
 user's own words. They run against the live database on throwaway rows
 and send nothing, so they are safe to run any time — and they exist
 because these are the failures you cannot find by looking at the UI.
@@ -242,6 +242,9 @@ node scripts/prove-deploy-verify.js      # a deploy is green only when app, work
 node scripts/prove-ad-raw.js             # ads.raw keeps every path the code reads, the description only once; a batch writes what one at a time would
 node scripts/prove-llm-val.js            # OpenRouter (the operator's models), LM Studio, Ollama — and no internal addresses
 node scripts/prove-campaign-errors.js    # a failed send is retried, paused or released by its code, never sent twice
+node scripts/prove-beacon.js             # one beacon round asks for every view on screen and answers each its own
+node scripts/prove-reply-attachments.js  # a reply carries only the user's own files, within what Gmail and one request take
+node scripts/prove-own-letter.js         # a letter the user writes is kept as written and never overwrites one
 ```
 
 `prove-owner-checks.js` needs a server with login on (`AUTH_SECRET` set)
