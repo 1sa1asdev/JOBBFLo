@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 065.
+-- Baseline covers migrations up to 043; latest migration 066.
 -- ============================================================
 
 --
@@ -508,6 +508,7 @@ CREATE TABLE public.email_messages (
     imap_uid bigint,
     sent_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    attachments jsonb,
     CONSTRAINT email_messages_direction_check CHECK ((direction = ANY (ARRAY['outbound'::text, 'inbound'::text])))
 );
 
@@ -522,6 +523,12 @@ COMMENT ON TABLE public.email_messages IS 'The thread, both directions.';
 --
 
 COMMENT ON COLUMN public.email_messages.imap_uid IS 'For catch-up since the last seen UID after a dropped IDLE connection.';
+
+--
+-- Name: COLUMN email_messages.attachments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.email_messages.attachments IS 'Files sent with this message, as [{filename, size}] — names and sizes only; the file itself is in the sender''s Gmail Sent folder. NULL when nothing was attached, and for inbound mail.';
 
 --
 -- Name: error_log; Type: TABLE; Schema: public; Owner: -

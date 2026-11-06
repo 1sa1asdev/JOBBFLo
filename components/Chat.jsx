@@ -10,7 +10,7 @@ import { APPLY_FILTERS } from '../lib/applyFilter.js';
 
 // One pane, two conversations: search criteria (per saved search,
 // persisted in search_messages) and letter revision (per draft).
-export default function Chat({ mode, search, creatingSearch, onCreateSearch, letterState, onLetterRevised, onSearchChanged }) {
+export default function Chat({ mode, search, creatingSearch, onCreateSearch, letterState, onLetterRevised, onSearchChanged, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,6 +22,13 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
   // to judge ads this answer excludes.
   const [newApplyFilter, setNewApplyFilter] = useState(null);
   const bodyRef = useRef(null);
+  // On a phone the filters (the CV among them) live in the results'
+  // filter menu, not here; a CV chosen there must reach this gate too.
+  useEffect(() => {
+    const nyttCv = (e) => setCv(e.detail);
+    window.addEventListener('jobbflo:cv', nyttCv);
+    return () => window.removeEventListener('jobbflo:cv', nyttCv);
+  }, []);
 
   const isLetter = mode === 'letter';
   // No CV means scoring and letters can't run at all, so the chat
@@ -94,6 +101,10 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
   return (
     <div className="chat">
       <div className="chat-header">
+        {/* only on a phone, where the chat is a sheet over the results */}
+        {onClose && (
+          <button type="button" className="chat-close" onClick={onClose} aria-label="Stäng chatten">✕</button>
+        )}
         <div className="idx">{isLetter ? '02 / Revidering' : '01 / Copilot'}</div>
         <h1>{isLetter ? 'Ändra brevet' : creatingSearch ? 'Ny sökning' : 'Vad letar du efter?'}</h1>
       </div>
@@ -121,7 +132,8 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
         </div>
       )}
 
-      <div className="chat-body" ref={bodyRef}>
+      {/* a log: a screen reader reads the copilot's answers as they arrive */}
+      <div className="chat-body" ref={bodyRef} role="log" aria-live="polite">
         {creatingSearch && (
           <>
             <div className="sys-note">Beskriv med egna ord vad du söker — roller, ort, undantag</div>
@@ -185,6 +197,7 @@ export default function Chat({ mode, search, creatingSearch, onCreateSearch, let
         <div className="chat-input-box">
           <textarea
             rows={creatingSearch ? 3 : 1}
+            aria-label={isLetter ? 'Ändring i brevet' : 'Meddelande till copiloten'}
             value={input}
             disabled={needsCv}
             placeholder={needsCv ? 'Ladda upp ett CV först…' : isLetter ? 'Beskriv en ändring…' : creatingSearch ? 'T.ex. junior frontend i Stockholm, gärna React…' : 'Justera kriterier…'}

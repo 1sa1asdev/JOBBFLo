@@ -74,7 +74,7 @@ export default function ProfileView({ onClose }) {
             <summary>Visa / redigera CV-texten</summary>
             <textarea
               className="txt-area"
-              style={{ minHeight: 220, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5 }}
+              style={{ minHeight: 220, fontFamily: "'IBM Plex Mono',monospace", fontSize: 'var(--fs-body)' }}
               aria-label="CV-text"
               value={profile.cv_text || ''}
               onChange={(e) => set('cv_text', e.target.value)}
@@ -111,7 +111,7 @@ export default function ProfileView({ onClose }) {
             value={profile.tone_text || ''} onChange={(e) => set('tone_text', e.target.value)} />
         </div>
 
-        {error && <div className="err-note" style={{ margin: '0 0 14px' }}>{error}</div>}
+        {error && <div className="err-note" role="alert" style={{ margin: '0 0 14px' }}>{error}</div>}
 
         <div className="save-bar">
           <button className="save" onClick={save}>Spara profil</button>

@@ -64,10 +64,11 @@ export default function CostEstimate({ provider, fast, bulk, write, onRekommende
         </label>
       </div>
 
-      {fel && <div className="err-note">{fel}</div>}
+      {fel && <div className="err-note" role="alert">{fel}</div>}
       {k && (
         <>
-          <table className="dash-table">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Kostnad per val">
+            <table className="dash-table">
             <tbody>
               {k.rader.map((r) => (
                 <tr key={r.vad}>
@@ -75,7 +76,7 @@ export default function CostEstimate({ provider, fast, bulk, write, onRekommende
                   <td className="dim">
                     {r.modell || '—'}
                     {r.modell && k.testade[r.modell] ? <span className="dash-tag">testad</span> : null}
-                    {r.not && <div style={{ fontSize: 11 }}>{r.not}</div>}
+                    {r.not && <div style={{ fontSize: 'var(--fs-meta)' }}>{r.not}</div>}
                   </td>
                   <td>{usd(r.usd)}</td>
                 </tr>
@@ -86,7 +87,8 @@ export default function CostEstimate({ provider, fast, bulk, write, onRekommende
                 <td><b>{usd(k.månad)}</b> <span className="dim">({kronor(k.månad)})</span></td>
               </tr>
             </tbody>
-          </table>
+            </table>
+          </div>
           {ärRek && <p className="hint">Det här är modellerna Jobbflo körs och mäts med.</p>}
           {k.resonerande.length > 0 && (
             <p className="hint">

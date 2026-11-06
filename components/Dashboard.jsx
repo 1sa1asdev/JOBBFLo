@@ -122,7 +122,8 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
 
       <div className="dash-block">
         <span className="auto-queue-title">Per kampanj och sökning</span>
-        <table className="dash-table">
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Per kampanj och sökning">
+          <table className="dash-table">
           <thead>
             <tr>
               <th>Källa</th><th>Skickade</th><th>Svar</th>
@@ -149,7 +150,8 @@ export default function Dashboard({ onProfil, onNySökning, onSök }) {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {data.funnel?.length > 0 && (

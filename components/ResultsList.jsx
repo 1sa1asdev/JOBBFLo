@@ -5,6 +5,8 @@ import { usePoll } from '../lib/usePoll.js';
 import { sparaScroll, läsScroll } from '../lib/useUrlState.js';
 import Dots from './Dots';
 import ApplyFilterSeg from './ApplyFilterSeg.jsx';
+import ChatTools from './ChatTools.jsx';
+import { useSmal } from '../lib/useSmal.js';
 import Checklist from './Checklist.jsx';
 
 function scoreClass(s) { return s >= 75 ? 'strong' : s < 45 ? 'flagged' : ''; }
@@ -38,6 +40,14 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
   const [counts, setCounts] = useState({ hittade: 0, favoriter: 0, bedomda: 0, iKon: 0 });
   const [home, setHome] = useState(null);
   const [maxKm, setMaxKm] = useState(null);   // null = ingen gräns
+  // On a phone the controls under Matchningar took half the screen
+  // before the first ad. There they fold into one Filter menu, with the
+  // search's own filters (places, hours, CV) that live in the chat
+  // column on a wide screen.
+  const smal = useSmal();
+  const [filterÖppen, setFilterÖppen] = useState(false);
+  // what the menu narrows by beyond the defaults ('any' is no filter)
+  const aktivaFilter = (search?.apply_filter && search.apply_filter !== 'any' ? 1 : 0) + (maxKm ? 1 : 0);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -321,7 +331,9 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
     <div className="stage-view" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <div className="list-header">
         <div>
-          <h2>Matchningar</h2>
+          {/* on a phone the count stands in for the title and the status line */}
+          <h2><span className="lh-titel">Matchningar</span>{' '}
+            <span className="lh-antal">{visible.length} av {total}</span></h2>
           <div className="sub">
             visar <b>{visible.length}</b> av <b>{total}</b>{counts.iKon > 0 && <> · <b>{counts.iKon}</b> i kö</>}
             {/* "senast hämtad för 52 min sedan" answers when, never
@@ -346,7 +358,25 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
             {freshAt && Date.now() - freshAt < 4000 && <span className="fresh-flash"> · nya resultat</span>}
           </div>
         </div>
+        <button type="button" className="filter-toggle" aria-expanded={filterÖppen}
+          aria-controls="res-filter" onClick={() => setFilterÖppen((v) => !v)}>
+          Filter
+          {aktivaFilter > 0 && <span className="badge">{aktivaFilter}</span>}
+          <span aria-hidden="true">{filterÖppen ? '▴' : '▾'}</span>
+        </button>
         <div className="header-controls">
+          {/* the menu: what narrows the list. Watching for new ads stays
+              in view below it, on a phone as on a wide screen. */}
+          <div id="res-filter" className={`res-filter${filterÖppen ? ' open' : ''}`}>
+          {smal && (
+            <section className="rf-group">
+              <h3 className="rf-head">Ort, omfattning och CV</h3>
+              <ChatTools search={search} onChanged={onSearchChanged}
+                onCvChanged={(d) => window.dispatchEvent(new CustomEvent('jobbflo:cv', { detail: d }))} />
+            </section>
+          )}
+          <section className="rf-group">
+          <h3 className="rf-head">Ansökan och avstånd</h3>
           <ApplyFilterSeg search={search} onChanged={onSearchChanged} />
           {home && (
             <div className="applyseg" title={`Fågelvägen från ${home.label}`}>
@@ -366,9 +396,13 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
               </div>
             </div>
           )}
+          </section>
+          <button type="button" className="btn rf-klar" onClick={() => setFilterÖppen(false)}>Klar</button>
+          </div>
+          <section className="rf-bevakning">
           <div className={`autoscan${search.scan_enabled ? '' : ' paused'}`}>
             <span className="dot" />
-            <label htmlFor="scanInterval">Auto-skanning</label>
+            <label htmlFor="scanInterval" className="as-text">Auto-skanning</label>
             <select
               id="scanInterval"
               aria-label="Intervall"
@@ -385,9 +419,15 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
               {search.scan_enabled ? 'På' : 'Av'}
             </button>
           </div>
-          <button className="btn" onClick={scanNow} disabled={scanning}>
-            {scanning ? <>Hämtar<Dots label="Hämtar annonser" /></> : 'Skanna nu'}
+          <button className="btn skanna" onClick={scanNow} disabled={scanning} aria-busy={scanning}
+            title="Skanna nu">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" fill="none" stroke="currentColor"
+                strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="skanna-text">{scanning ? <>Hämtar<Dots label="Hämtar annonser" /></> : 'Skanna nu'}</span>
           </button>
+          </section>
         </div>
       </div>
 
@@ -400,7 +440,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
         </div>
       )}
 
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       {/* A requirement JobSearch rejected is indistinguishable from a
           filter that does nothing — unless we say so. */}
@@ -574,7 +614,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                 <div className={`row expiry${exp != null && exp <= 3 ? ' soon' : ''}`}>
                   <span>Går ut</span><b>{exp == null ? '—' : exp <= 0 ? 'IDAG' : `${exp} DAGAR`}</b>
                 </div>
-                <div className="row"><span>Typ</span><b>{r.employer_type === 'public' ? 'OFFENTLIG' : r.employer_type === 'agency' ? 'BEMANNING' : 'PRIVAT'}</b></div>
+                <div className="row typ"><span>Typ</span><b>{r.employer_type === 'public' ? 'OFFENTLIG' : r.employer_type === 'agency' ? 'BEMANNING' : 'PRIVAT'}</b></div>
                 <div className="row"><span>Ansökan</span><b>{r.apply_email ? 'MEJL' : r.ats_vendor ? r.ats_vendor.toUpperCase() : 'LÄNK'}</b></div>
               </div>
               <div className="action-col">
@@ -666,7 +706,7 @@ export default function ResultsList({ search, creatingSearch, onOpenAd, onSearch
                       title="Öppnar annonsen. När du varit där kan du markera den som sökt."
                       onClick={(e) => { e.stopPropagation(); openApplyLink(r.ad_id); }}
                     >
-                      Öppna annons ↗
+                      Öppna<span className="smal-dold"> annons</span> ↗
                     </a>
                   );
                 })()}

@@ -122,7 +122,7 @@ export default function LeadFinder({ campaigns, onChanged }) {
         </div>
       )}
 
-      {err && <div className="err-note" style={{ margin: '0 0 12px' }}>{err}</div>}
+      {err && <div className="err-note" role="alert" style={{ margin: '0 0 12px' }}>{err}</div>}
 
       <div className="lead-list">
         {data.leads.map((l) => {
@@ -163,7 +163,7 @@ export default function LeadFinder({ campaigns, onChanged }) {
               )}
 
               {saved ? (
-                <div className="lead-saved">✓ {saved} — annonsen ingår nu i kampanjen</div>
+                <div className="lead-saved" role="status">✓ {saved} — annonsen ingår nu i kampanjen</div>
               ) : (
                 <>
                   <div className="lead-acts">

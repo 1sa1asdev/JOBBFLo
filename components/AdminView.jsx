@@ -132,7 +132,7 @@ export default function AdminView() {
       <a className="llm-link" href="/">← Till appen</a>
       <div className="idx" style={{ marginTop: 14 }}>Admin</div>
       <h2>Plattformen</h2>
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       <div className="dash-stats">
         <Stat label="Plattformsnyckel" value={ö.plattformsnyckel.satt ? 'satt' : 'saknas'} accent={!ö.plattformsnyckel.satt}

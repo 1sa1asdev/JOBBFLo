@@ -123,6 +123,7 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
                     <div className="ratio-row" key={p}>
                       <span className="ratio-name">{p}</span>
                       <input type="range" min="0" max="10" step="1" value={weights[p]}
+                        aria-label={`Andel ${p}`} aria-valuetext={`${weights[p]} av 10`}
                         onChange={(e) => setRatio({ ...weights, [p]: Number(e.target.value) })} />
                       <span className="ratio-w">{weights[p]}</span>
                     </div>
@@ -217,7 +218,7 @@ export default function CampaignWizard({ busy, error, onCreate, onCancel }) {
         </>
       )}
 
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       <div className="wiz-nav">
         <button className="btn" onClick={step === 0 ? onCancel : () => setStep(step - 1)}>

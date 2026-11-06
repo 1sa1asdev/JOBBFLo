@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, daysUntil } from '../lib/api.js';
+import { useDialog } from '../lib/useDialog.js';
 import Dots from './Dots';
 
 // Highlight verbatim quotes from matched[]/flags[] inside a paragraph.
@@ -44,6 +45,11 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
   const [adCollapsed, setAdCollapsed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [justSent, setJustSent] = useState(false);
+  const bekräftaRef = useRef(null);
+  const skickadRef = useRef(null);
+  // Escape does not cancel a send already on its way.
+  useDialog(bekräftaRef, confirming, () => { if (!busy) setConfirming(false); });
+  useDialog(skickadRef, justSent, () => setJustSent(false));
   const [attachments, setAttachments] = useState(null);
 
   const application = letterState?.application || data?.application || null;
@@ -212,13 +218,13 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
       </div>
 
       {duplicates?.length > 0 && (
-        <div className="err-note">
+        <div className="err-note" role="alert">
           ⚠ Möjlig dubblett: samma arbetsgivare/titel finns som {duplicates.length} annan annons
           {duplicates[0].status ? ` — du har redan status "${duplicates[0].status}" på en av dem` : ''}.
           Flaggas alltid, slås aldrig ihop automatiskt.
         </div>
       )}
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       <div className="split">
         <div className="split-pane letter-pane">
@@ -261,7 +267,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
           <div className="pane-scroll">
             {!application ? (
               <div className="sheet">
-                <p style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>
+                <p style={{ fontSize: 'var(--fs-read)', lineHeight: 'var(--lh-loose)', marginBottom: 16 }}>
                   Inget utkast än. Brevet genereras utifrån ditt CV, dina projekt och de citerade
                   kraven ur annonsen — och skickas aldrig utan din bekräftelse.
                 </p>
@@ -334,7 +340,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
                     ett CV mottagaren aldrig får.
                   </div>
                 )}
-                {cvErr && <div className="err-note" style={{ margin: '6px 0 0' }}>{cvErr}</div>}
+                {cvErr && <div className="err-note" role="alert" style={{ margin: '6px 0 0' }}>{cvErr}</div>}
 
                 {spans.length > 0 && (
                   <div className="evidence">
@@ -392,7 +398,7 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
               : <>Annonsen saknar ansökningsväg</>}
         </div>
         {sent ? (
-          <span className="gate-status">
+          <span className="gate-status" role="status">
             {/* Never claim the app sent something it did not send. */}
             {application.sent_by === 'external' ? '✓ Ansökt via länken ' : '✓ Skickad '}
             {application.sent_at ? new Date(application.sent_at).toLocaleString('sv-SE') : ''}
@@ -431,10 +437,11 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
 
       {confirming && application && (
         <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) setConfirming(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="bekrafta-rubrik"
+            ref={bekräftaRef} tabIndex={-1}>
             <div className="modal-head">
               <div className="idx">Sista steget</div>
-              <h3>Bekräfta utskick</h3>
+              <h3 id="bekrafta-rubrik">Bekräfta utskick</h3>
             </div>
             <div className="modal-body">
               <div className="confirm-row"><span className="k">Till</span><span className="v">{ad.apply_email}</span></div>
@@ -470,10 +477,11 @@ export default function LetterView({ adId, search, letterState, setLetterState, 
 
       {justSent && (
         <div className="overlay" onClick={() => setJustSent(false)}>
-          <div className="modal">
-            <div className="modal-head"><h3>Skickad ✓</h3></div>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="skickad-rubrik"
+            ref={skickadRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h3 id="skickad-rubrik">Skickad ✓</h3></div>
             <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <p style={{ fontSize: 'var(--fs-read)', lineHeight: 'var(--lh-loose)' }}>
                 Ansökan är skickad. Svar fångas automatiskt i Inkorgen.
               </p>
             </div>

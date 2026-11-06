@@ -51,6 +51,7 @@ export function HomePanel({ profile, onChanged }) {
       <div className="home-row">
         <input
           className="ct-input"
+          aria-label="Var du bor: postnummer eller område"
           placeholder="t.ex. 118 26 eller Södermalm"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -61,7 +62,7 @@ export function HomePanel({ profile, onChanged }) {
         </button>
       </div>
       {msg && <div className="home-msg">✓ {msg}</div>}
-      {err && <div className="err-note">{err}</div>}
+      {err && <div className="err-note" role="alert">{err}</div>}
     </section>
   );
 }
@@ -174,7 +175,7 @@ export function BudgetPanel() {
         </p>
       )}
       {busy && <div className="home-msg">sparar…</div>}
-      {err && <div className="err-note">{err}</div>}
+      {err && <div className="err-note" role="alert">{err}</div>}
     </section>
   );
 }
@@ -228,7 +229,7 @@ export default function CvProfilePanel({ profile, onChanged }) {
         </button>
       </div>
 
-      {error && <div className="err-note">{error}</div>}
+      {error && <div className="err-note" role="alert">{error}</div>}
 
       {p && (
         <>

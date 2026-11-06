@@ -66,7 +66,7 @@ export default function LoginForm() {
           </label>
         </div>
 
-        {error && <div className="err-note" style={{ margin: '0 0 14px' }}>{error}</div>}
+        {error && <div className="err-note" role="alert" style={{ margin: '0 0 14px' }}>{error}</div>}
 
         <button className="btn primary login-submit" type="submit" disabled={busy}>
           {busy ? 'Ett ögonblick…' : mode === 'login' ? 'Logga in →' : 'Skapa konto →'}

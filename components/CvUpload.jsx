@@ -138,8 +138,8 @@ export default function CvUpload({ scope = 'profile', searchId = null, current, 
         </div>
       )}
 
-      {error && <div className="err-note" style={{ margin: '8px 0 0' }}>{error}</div>}
-      {warning && <div className="cvup-warn">⚠ {warning} — kontrollera att rätt fil laddades upp.</div>}
+      {error && <div className="err-note" role="alert" style={{ margin: '8px 0 0' }}>{error}</div>}
+      {warning && <div className="cvup-warn" role="alert">⚠ {warning} — kontrollera att rätt fil laddades upp.</div>}
     </div>
   );
 }

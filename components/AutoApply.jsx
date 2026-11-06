@@ -64,6 +64,7 @@ function RatioPicker({ places, ratio, dailyLimit, onSave }) {
               <span className="ratio-name">{p}</span>
               <input
                 type="range" min="0" max="10" step="1"
+                aria-label={`Andel ${p}`} aria-valuetext={`${weights[p]} av 10`}
                 value={weights[p]}
                 onChange={(e) => onSave({ ...weights, [p]: Number(e.target.value) })}
               />
@@ -187,7 +188,7 @@ Dagab AB; rekrytering@dagab.se`}
             Adressen är det enda som måste finnas. Arbetsgivare och namn plockas
             ur raden när de går att läsa — du får rätta listan innan något sparas.
           </p>
-          {err && <div className="err-note">{err}</div>}
+          {err && <div className="err-note" role="alert">{err}</div>}
           <div className="lead-acts">
             <button className="btn primary" disabled={busy || !text.trim()} onClick={granska}>
               {busy ? <>Läser<Dots label="Läser" /></> : 'Granska listan →'}
@@ -231,7 +232,7 @@ Dagab AB; rekrytering@dagab.se`}
                     the status column, which read as the row having lost
                     its buttons. */}
                 <span className="lead-rev-person" title={r.title || ''}>{r.person || ''}</span>
-                <span className="lead-rev-status" title={r.detalj || ''}>
+                <span className="lead-rev-status" role="status" title={r.detalj || ''}>
                   {r.status === 'ok' ? (r.gissadArbetsgivare ? 'gissad' : '✓')
                     : r.status === 'ändrad' ? 'ändrad'
                     : r.status === 'redan_kontaktad' ? 'redan kontaktad'
@@ -250,7 +251,7 @@ Dagab AB; rekrytering@dagab.se`}
             Bara rader märkta ✓ läggs till. Rätta en rad och tryck <b>Kontrollera igen</b>
             {' '}— adresser du redan skrivit till hittas först då.
           </p>
-          {err && <div className="err-note">{err}</div>}
+          {err && <div className="err-note" role="alert">{err}</div>}
           <div className="lead-acts">
             <button className="btn primary" disabled={busy || !ok} onClick={spara}>
               {busy ? <>Sparar<Dots label="Sparar" /></> : `Lägg till ${ok} kontakter`}
@@ -507,7 +508,7 @@ export default function AutoApply({ onFindSimilar }) {
             </div>
           )}
 
-          {error && <div className="err-note" style={{ margin: '0 0 12px' }}>{error}</div>}
+          {error && <div className="err-note" role="alert" style={{ margin: '0 0 12px' }}>{error}</div>}
 
           <div className="auto-list">
             {/* Before, this list showed every saved search, so it was
