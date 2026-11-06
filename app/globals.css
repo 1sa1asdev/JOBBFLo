@@ -3182,3 +3182,32 @@
   text-underline-offset:3px;cursor:pointer;}
 .ag-direkt:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
 .auto-ag{margin:12px 0;}
+
+/* ================= THE INBOX LIST'S HEADER ON A PHONE =================
+   Title, search, seven filter buttons, the hit-rate chart and a campaign
+   card took over half the screen before the first letter. On a phone the
+   filters are a dropdown beside the sort, the hit-rate is one folded
+   line, and the rest is tightened — the list gets the screen. */
+.stats-strip>summary{list-style:none;}
+.stats-strip>summary::-webkit-details-marker{display:none;}
+@media (min-width:761px){ .stats-strip>summary{pointer-events:none;} }
+@media (max-width:760px){
+  .inbox-head{padding:10px 14px 8px;}
+  .inbox-head .idx{display:none;}
+  .inbox-head h2{margin-top:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
+  .inbox-head .sync-btn{min-width:36px;min-height:32px;margin-left:auto;}
+  .inbox-search{flex-wrap:wrap;margin:8px 0 0;}
+  .inbox-search>input.ct-input{flex:1 1 100%;}
+  .inbox-search .inbox-filter-val{flex:1 1 0;min-width:0;}
+  .inbox-search .inbox-sort{flex:0 0 auto;}
+  .stats-strip{padding:2px 14px;}
+  .stats-strip>summary{cursor:pointer;display:flex;align-items:center;gap:6px;min-height:30px;margin-bottom:0;}
+  .stats-strip>summary::before{content:"▸";}
+  .stats-strip[open]>summary::before{content:"▾";}
+  .stats-strip[open]>summary{margin-bottom:8px;}
+  .stats-strip>summary:focus-visible{outline:2px solid var(--flag);outline-offset:2px;}
+  .camp-head{padding:6px 14px;}
+  /* the purpose is one tap away under Ändra syfte */
+  .camp-head .camp-purpose{display:none;}
+  .camp-stats{margin-top:4px;}
+}

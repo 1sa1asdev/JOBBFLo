@@ -6,6 +6,7 @@ import LiveDot from './LiveDot';
 import { useNotify } from '../lib/useNotify.js';
 import Dots from './Dots';
 import Gem from './Gem.jsx';
+import { useSmal } from '../lib/useSmal.js';
 
 const STATUS_META = {
   sent: { cls: 'awaiting', label: 'Väntar svar' },
@@ -209,7 +210,16 @@ function groupByCampaign(threads) {
   return [...map.values()];
 }
 
+// The inbox's status filters, as buttons on a wide screen and a
+// dropdown on a phone.
+const FILTER = [['all', 'Alla'], ['owed', 'Din tur'], ['interview', 'Intervju'],
+  ['replied', 'Svar inne'], ['rejected', 'Avslag'],
+  ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']];
+
 export default function Inbox({ onFindSimilar, source = 'user' }) {
+  // On a phone the list's header is compacted — the filters a dropdown,
+  // the hit-rate folded — so the list itself gets the screen.
+  const smal = useSmal();
   const [threads, setThreads] = useState([]);
   const [stats, setStats] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -449,7 +459,7 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
                 quiet — which it has. */}
             <button className="sync-btn" onClick={syncMail} disabled={syncing}
               title="Hämta ny post från Gmail nu">
-              {syncing ? <>Hämtar<Dots label="Hämtar" /></> : '↻ Hämta post'}
+              {syncing ? <>{smal ? '' : 'Hämtar'}<Dots label="Hämtar" /></> : smal ? <span aria-label="Hämta post">↻</span> : '↻ Hämta post'}
             </button>
             {syncNote && <span className="sync-note">{syncNote}</span>}
             <button
@@ -490,23 +500,31 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
               aria-label="Sök i inkorgen"
               onChange={(e) => setQuery(e.target.value)}
             />
+            {smal && (
+              <select className="ct-input inbox-filter-val" value={filter} aria-label="Visa"
+                onChange={(e) => setFilter(e.target.value)}>
+                {FILTER.filter(([k]) => k === 'all' || antal[k] > 0 || k === filter).map(([k, label]) => (
+                  <option key={k} value={k}>{label} ({antal[k] ?? 0})</option>
+                ))}
+              </select>
+            )}
             <select className="ct-input inbox-sort" value={sort} aria-label="Sortering"
               onChange={(e) => setSort(e.target.value)}>
-              <option value="recent">Senaste först</option>
-              <option value="oldest">Längst utan svar först</option>
+              <option value="recent">{smal ? 'Senaste' : 'Senaste först'}</option>
+              <option value="oldest">{smal ? 'Längst väntat' : 'Längst utan svar först'}</option>
             </select>
           </div>
-          <div className="inbox-filters">
-            {[['all', 'Alla'], ['owed', 'Din tur'], ['interview', 'Intervju'],
-              ['replied', 'Svar inne'], ['rejected', 'Avslag'],
-              ['awaiting', 'Väntar svar'], ['ghosted', 'Ghostade']]
-              .filter(([k]) => k === 'all' || antal[k] > 0)
-              .map(([k, label]) => (
-                <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                  {label} <span className="filt-n">{antal[k]}</span>
-                </button>
-              ))}
-          </div>
+          {!smal && (
+            <div className="inbox-filters">
+              {FILTER
+                .filter(([k]) => k === 'all' || antal[k] > 0)
+                .map(([k, label]) => (
+                  <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                    {label} <span className="filt-n">{antal[k]}</span>
+                  </button>
+                ))}
+            </div>
+          )}
           {source === 'auto' && grouped.length > 1 && (
             <div className="camp-bar">
               <button aria-pressed={campaign === 'all'} onClick={() => setCampaign('all')}>
@@ -526,10 +544,10 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
           )}
         </div>
 
-        <div className="stats-strip">
+        <details className="stats-strip" open={!smal}>
           {calib?.ready ? (
             <>
-              <span className="stitle">Träffsäkerhet · {calib.total} ansökningar</span>
+              <summary className="stitle">Träffsäkerhet · {calib.total} ansökningar</summary>
               {calib.bands.map((b) => (
                 <div className="calib-row" key={b.band}>
                   <span className="band">{b.band}</span>
@@ -540,14 +558,14 @@ export default function Inbox({ onFindSimilar, source = 'user' }) {
             </>
           ) : (
             <>
-              <span className="stitle">Träffsäkerhet</span>
+              <summary className="stitle">Träffsäkerhet</summary>
               <div className="calib-note">
                 Visas efter <b>{calib?.needed ?? 20} skickade ansökningar</b>
                 {calib ? ` (${calib.total} hittills)` : ''} — procent på små tal vilseleder.
               </div>
             </>
           )}
-        </div>
+        </details>
 
         <div className="threads">
           {source === 'auto' ? visible.map((g) => {
