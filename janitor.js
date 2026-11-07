@@ -3,7 +3,7 @@ import { pool } from './src/db.js';
 import { importSnapshot } from './src/snapshot.js';
 import { retireClosedAds, pruneStaleAds, embeddingCoverage } from './src/refresh.js';
 import { byggMarknad } from './src/marknad.js';
-import { klassaArbetsgivare } from './src/arbetsgivare.js';
+import { klassaArbetsgivare, omklassaLagrade } from './src/arbetsgivare.js';
 import { hämtaYrkesbarometer } from './src/yrkesbarometer.js';
 import { fångaProcessfel } from './src/fellogg.js';
 import { väntaPåLås, enÅtGången, bevakaLås, anslutMedTålamod } from './src/ensam.js';
@@ -73,6 +73,9 @@ async function städa() {
   // SCB_API_KEY is set, by name until then. Slow on purpose (SCB allows
   // five calls a second), which is why it lives here and not in the worker.
   try {
+    // a changed rule first, from what is stored — then SCB for the rest
+    const om = await omklassaLagrade();
+    if (om.ändrade) console.log(`arbetsgivare: ${om.ändrade} omklassade efter ny regel`);
     const g = await klassaArbetsgivare();
     await stämpla('janitor_arbetsgivare',
       `${g.scb} från SCB, ${g.saknas} okända för SCB, ${g.namn} efter namn${g.stopp ? `, stopp: ${g.stopp}` : ''}`);

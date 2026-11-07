@@ -10,7 +10,7 @@
 -- does that, through the same path production uses, and also adds
 -- the reference rows the worker needs.
 --
--- Baseline covers migrations up to 043; latest migration 069.
+-- Baseline covers migrations up to 043; latest migration 070.
 -- ============================================================
 
 --
@@ -453,6 +453,7 @@ CREATE TABLE public.arbetsgivare (
     scb_status text,
     scb_forsokt timestamp with time zone,
     uppdaterad timestamp with time zone DEFAULT now() NOT NULL,
+    naringsgrenar jsonb,
     CONSTRAINT arbetsgivare_kalla CHECK ((kalla = ANY (ARRAY['scb'::text, 'namn'::text]))),
     CONSTRAINT arbetsgivare_orgnr CHECK (((orgnr ~ '^[0-9]{10}$'::text) AND (substr(orgnr, 3, 1) >= '2'::text))),
     CONSTRAINT arbetsgivare_scb_status CHECK ((scb_status = ANY (ARRAY['hittad'::text, 'saknas'::text]))),
@@ -488,6 +489,12 @@ COMMENT ON COLUMN public.arbetsgivare.sni IS 'Primary SNI code (rangordning 1), 
 --
 
 COMMENT ON COLUMN public.arbetsgivare.scb_status IS 'hittad = SCB knew the number (re-read after 180 days); saknas = SCB answered 404 (asked again after 30); NULL = not asked yet.';
+
+--
+-- Name: COLUMN arbetsgivare.naringsgrenar; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.arbetsgivare.naringsgrenar IS 'Every SNI code SCB gives the employer, by rank, with its share of the business: [{"sni":"70100","andel":62},{"sni":"78100","andel":38}]. The type is computed from these (src/arbetsgivare.js typFrånScb), so a changed rule is applied by recomputing, not by asking SCB again (omklassaLagrade). NULL for name guesses, and for rows read before migration 070.';
 
 --
 -- Name: attachments; Type: TABLE; Schema: public; Owner: -
