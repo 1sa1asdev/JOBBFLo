@@ -16,6 +16,8 @@
 //      to SCB and never stored; the table refuses it
 //   7. the market view counts per type, and says how much SCB stands behind
 //   8. no code the browser loads knows the key or SCB's address
+//  10. every industry code is stored with its share, and a changed rule
+//      is applied from those — without asking SCB again
 //   9. a search or campaign limited to some employer types finds only
 //      those (plus ads of unknown type); all types or none is no filter
 //
@@ -24,7 +26,7 @@ import 'dotenv/config';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pool } from '../src/db.js';
-import { klassaArbetsgivare, typFrånScb, typFrånNamn, glömPeForm, SCB_MELLANRUM_MS } from '../src/arbetsgivare.js';
+import { klassaArbetsgivare, typFrånScb, typFrånNamn, glömPeForm, SCB_MELLANRUM_MS, omklassaLagrade } from '../src/arbetsgivare.js';
 import { marknadsläge } from '../src/marknad.js';
 import { countLocal } from '../src/localsearch.js';
 import { rensaTyper, DIREKT } from '../lib/arbetsgivartyp.js';
@@ -41,6 +43,7 @@ const kolla = (namn, ok, info = '') => {
 // "0099…": a group digit of 0 is never a real organisation number
 const A = '0099100001', B = '0099100002', C = '0099100003', D = '0099100004', E = '0099100005';
 const ENSKILD = '0012345678';   // third digit 1: a birth date, not a company
+const GAMMAL = '0099100009';   // read under an older rule (check 10)
 const ALLA = [A, B, C, D, E, ENSKILD];
 const NAMN = { [A]: 'Bevis Ett AB', [B]: 'Bevis Två AB', [C]: 'Bevis Tre AB', [D]: 'Bevis Bemanning AB', [E]: 'Bevis Fem AB', [ENSKILD]: 'Sven Bevisson Bemanning' };
 
@@ -123,6 +126,8 @@ try {
   kolla('3. okänd för SCB (404): namnet gäller, frågas igen om en månad',
     typer[D].kalla === 'namn' && typer[D].scb_status === 'saknas' && typer[D].typ === 'bemanning');
   kolla('3. nyckeln skickas i X-API-Key', anrop.every((x) => x.nyckel === NYCKEL));
+  kolla('10. alla näringsgrenar lagras, i rangordning, med andel',
+    JSON.stringify(typer[A].naringsgrenar?.map((g) => g.sni)) === '["78200","47110"]', JSON.stringify(typer[A].naringsgrenar));
   const mellan = anrop.slice(1).map((x, i) => x.tid - anrop[i].tid);
   kolla('3. högst fyra anrop i sekunden', Math.min(...mellan) >= SCB_MELLANRUM_MS - 5, `minsta mellanrum ${Math.min(...mellan)} ms`);
   kolla('3. 429: väntar Retry-After och frågar igen', mellan.some((m) => m >= 990) && typer[B].kalla === 'scb');
@@ -158,6 +163,20 @@ try {
   kolla('7. annons utan nummer: okänd, inte gissad', m.okanda === 1);
   kolla('7. hur mycket SCB står bakom', m.fran_scb === 57, `${m.fran_scb} % (4 av 7)`);
 
+  // ---- 10 ----
+  await pool.query(
+    `INSERT INTO arbetsgivare (orgnr, typ, kalla, sni, sektor, naringsgrenar, scb_status, scb_forsokt)
+     VALUES ($1, 'foretag', 'scb', '70100', '111000', $2, 'hittad', now())`,
+    [GAMMAL, JSON.stringify([{ sni: '70100', andel: 62 }, { sni: '78100', andel: 38 }])]);
+  const anropFöre = allaAnrop.length;
+  const om = await omklassaLagrade();
+  kolla('10. en ändrad regel räknas om från lagrade koder — utan SCB',
+    (await rad(GAMMAL)).typ === 'rekrytering' && allaAnrop.length === anropFöre && om.ändrade >= 1, JSON.stringify(om));
+  const igen = await omklassaLagrade();
+  kolla('10. att räkna om igen ändrar inget', !(await pool.query(
+    `SELECT 1 FROM arbetsgivare WHERE orgnr = ANY($1) AND uppdaterad > now() - interval '1 second'`, [[GAMMAL]])).rowCount
+    || igen.ändrade === 0, JSON.stringify(igen));
+
   // ---- 9 ----
   kolla('9. alla typer eller inga är inget filter', rensaTyper([]) === null
     && rensaTyper(['foretag', 'offentlig', 'bemanning', 'rekrytering']) === null
@@ -184,7 +203,7 @@ try {
   console.error('✗ beviset kraschade:', err.stack || err.message);
 } finally {
   if (adIds.length) await pool.query(`DELETE FROM ads WHERE id = ANY($1)`, [adIds]).catch(() => {});
-  await pool.query(`DELETE FROM arbetsgivare WHERE orgnr = ANY($1)`, [ALLA]).catch(() => {});
+  await pool.query(`DELETE FROM arbetsgivare WHERE orgnr = ANY($1)`, [[...ALLA, GAMMAL]]).catch(() => {});
   if (profilId) await pool.query(`DELETE FROM profile WHERE id = $1`, [profilId]).catch(() => {});
   await pool.end();
 }

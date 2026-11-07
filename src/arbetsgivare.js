@@ -63,7 +63,12 @@ export function typFrånScb(je) {
     const bi = grenar.find((g) => mellanTyp(siffror(g)) && (g.andelProcent ?? 0) >= MELLANHAND_ANDEL);
     if (bi) typ = mellanTyp(siffror(bi));
   }
-  return { typ, sni: sni || null, jurform: jurform || null, sektor: sektor || null };
+  return {
+    typ, sni: sni || null, jurform: jurform || null, sektor: sektor || null,
+    // every code with its share, so the type can be recomputed later
+    // (omklassaLagrade) without asking SCB again
+    naringsgrenar: grenar.map((g) => ({ sni: siffror(g), andel: g.andelProcent ?? null })),
+  };
 }
 
 // ---- from the name, until SCB answers ----
@@ -191,12 +196,40 @@ export async function klassaArbetsgivare({
 
 async function spara(g) {
   await pool.query(
-    `INSERT INTO arbetsgivare (orgnr, typ, kalla, sni, jurform, sektor, scb_status, scb_forsokt, uppdaterad)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+    `INSERT INTO arbetsgivare (orgnr, typ, kalla, sni, jurform, sektor, naringsgrenar, scb_status, scb_forsokt, uppdaterad)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
      ON CONFLICT (orgnr) DO UPDATE SET typ = EXCLUDED.typ, kalla = EXCLUDED.kalla, sni = EXCLUDED.sni,
-       jurform = EXCLUDED.jurform, sektor = EXCLUDED.sektor, scb_status = EXCLUDED.scb_status,
-       scb_forsokt = now(), uppdaterad = now()`,
-    [g.orgnr, g.typ, g.kalla, g.sni ?? null, g.jurform ?? null, g.sektor ?? null, g.scb_status]);
+       jurform = EXCLUDED.jurform, sektor = EXCLUDED.sektor, naringsgrenar = EXCLUDED.naringsgrenar,
+       scb_status = EXCLUDED.scb_status, scb_forsokt = now(), uppdaterad = now()`,
+    [g.orgnr, g.typ, g.kalla, g.sni ?? null, g.jurform ?? null, g.sektor ?? null,
+      g.naringsgrenar ? JSON.stringify(g.naringsgrenar) : null, g.scb_status]);
+}
+
+// ------------------------------------------------------------
+// A changed rule, applied to what is already known: every employer SCB
+// answered is typed again from its stored codes — no call to SCB. The
+// janitor runs this before asking SCB about anything new, so a new rule
+// takes effect on the first round after it is deployed.
+// ------------------------------------------------------------
+export async function omklassaLagrade() {
+  const { rows } = await pool.query(
+    `SELECT orgnr, typ, sektor, jurform, naringsgrenar FROM arbetsgivare
+     WHERE kalla = 'scb' AND naringsgrenar IS NOT NULL`);
+  const ändrade = [];
+  for (const r of rows) {
+    const { typ } = typFrånScb({
+      sektor: r.sektor, jurform: r.jurform,
+      naringsgrenar: r.naringsgrenar.map((g, i) => ({ rangordning: i + 1, naringsgren: g.sni, andelProcent: g.andel })),
+    });
+    if (typ !== r.typ) ändrade.push({ orgnr: r.orgnr, typ });
+  }
+  if (ändrade.length) {
+    await pool.query(
+      `UPDATE arbetsgivare g SET typ = n.typ, uppdaterad = now()
+       FROM unnest($1::text[], $2::text[]) AS n(orgnr, typ) WHERE g.orgnr = n.orgnr`,
+      [ändrade.map((x) => x.orgnr), ändrade.map((x) => x.typ)]);
+  }
+  return { lästa: rows.length, ändrade: ändrade.length };
 }
 
 // ------------------------------------------------------------
